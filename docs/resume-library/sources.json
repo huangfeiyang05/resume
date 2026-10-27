@@ -1,0 +1,952 @@
+{
+  "schemaVersion": 1,
+  "collectedOn": "2026-10-15",
+  "scope": "公开教学样例、空白模板、指南与1个有许可证的布局代码参考；不采集私人简历库。",
+  "sources": [
+    {
+      "id": "hznu-life-environment-resume-template-2025",
+      "title": "杭州师范大学生命与环境科学学院：2025年简历设计大赛参考模板2",
+      "publisher": "杭州师范大学生命与环境科学学院",
+      "landingUrl": "https://cls.hznu.edu.cn/c/2025-04-17/3074578.shtml",
+      "assetUrl": "https://cls.hznu.edu.cn/upload/resources/file/2025/04/17/KE2KK2PDKZWKMPNUEQ5XUR33K64XE.docx",
+      "format": "docx",
+      "kind": "template",
+      "language": "zh-CN",
+      "disciplines": [
+        "materials-environment"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开2025-04-17院系通知，正文提供3份参考模板并要求内容真实可靠。模板2通过HTTP 200实际取得，识别为有效DOCX并在内存解析正文，包含教育背景、自我评价、课程、荣誉及占位内容；未在项目中保存原件。",
+      "takeaways": [
+        "教育、课程与荣誉可作为应届生信息组织的起点。",
+        "占位字段需要逐项替换为本人真实信息，不能作为已存在的经历。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "高校院系公开提供参考附件，未核实可用于商业产品再分发、模型训练或RAG全文入库的明确授权；当前仅保存来源链接与原创摘要。",
+      "qualityCaveat": "属于院系发布的通用占位模板，未见材料、化工或环境专业的完整工程项目样例；专业标签仅依据发布院系作参考入口归类，不能视为专业写作标准。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "cls.hznu.edu.cn"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "publisher_context_only_not_content_validation"
+    },
+    {
+      "id": "mit-capd-computer-science-masters-sample",
+      "title": "MIT CAPD：计算机科学工程硕士简历样例",
+      "publisher": "Massachusetts Institute of Technology, Career Advising & Professional Development",
+      "landingUrl": "https://capd.mit.edu/resources/sample-resumes/",
+      "assetUrl": "https://cdn.uconnectlabs.com/wp-content/uploads/sites/123/2025/05/MITCAPD-MastersII.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "cs-software"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "官方样例目录HTML已实际读取并找到该附件。PDF已完整打开，共2页，第1页为样例标签，第2页为计算机科学硕士示例，包含教育、研究、软件实习、教学及技能板块；日期与部分联系字段为占位形式。",
+      "takeaways": [
+        "将研究任务、系统开发和教学经历分项组织，展示不同场景中的个人贡献。",
+        "课程、论文方向与技术技能可以共同解释目标岗位相关性。",
+        "技术项目说明应交代使用场景、产出和本人承担的工作。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "附件由MIT官方目录链接到职业服务平台CDN；未核实商业复制、全文索引或训练授权。只作为写作结构参考，保留官方出处。",
+      "qualityCaveat": "面向美国计算机硕士及研究背景，示例技能栈与年代不代表2026年中国校招要求；示例公司、项目、数字、技能不得写入用户简历，未验证录用或ATS效果。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "capd.mit.edu",
+        "cdn.uconnectlabs.com"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "mit-capd-mechanical-first-year-sample",
+      "title": "MIT CAPD：机械工程低年级本科简历样例",
+      "publisher": "Massachusetts Institute of Technology, Career Advising & Professional Development",
+      "landingUrl": "https://capd.mit.edu/resources/sample-resumes/",
+      "assetUrl": "https://cdn.uconnectlabs.com/wp-content/uploads/sites/123/2025/05/FirstYearResume_MechEng-1.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "mechanical-electrical"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已从MIT官方目录核对附件链接并打开完整1页PDF；使用姓名占位，包含机械工程学习、工程实习、零件及工程变更任务、社团火箭活动、技能与领导经历。",
+      "takeaways": [
+        "工程经历较少时，可以梳理真实课程、社团制作和实习中的具体任务。",
+        "说明设计工具、交付文件或制作测试过程，比只列软件名更有信息。",
+        "技术活动与团队职责可以分开陈述，避免混淆个人和团队贡献。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "高校职业中心公开示例，未核实商业再分发、全文入库或训练许可；只保留链接、核验信息与原创总结。",
+      "qualityCaveat": "为美国低年级学生示例，包含高中和体育经历；国内应届毕业生应依据真实积累调整，不宜照搬高中篇幅、地址格式或技能熟练度。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "capd.mit.edu",
+        "cdn.uconnectlabs.com"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "mit-capd-environmental-masters-sample",
+      "title": "MIT CAPD：环境工程硕士简历样例",
+      "publisher": "Massachusetts Institute of Technology, Career Advising & Professional Development",
+      "landingUrl": "https://capd.mit.edu/resources/sample-resumes/",
+      "assetUrl": "https://cdn.uconnectlabs.com/wp-content/uploads/sites/123/2025/05/MITCAPD-MastersI.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "materials-environment",
+        "civil-architecture"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已从官方目录核对附件并完整打开2页PDF，第2页为环境工程硕士示例；按项目拆分环境咨询经历，涉及公用设施、污水处理、节水规划、工程报告、CAD及建模技能，姓名和日期采用占位形式。",
+      "takeaways": [
+        "同一段工程经历可按真实项目拆分，分别说明方案、报告、建模或沟通交付。",
+        "将技术评估、成本分析和跨专业协作写清楚，有助于展示工程工作的完整过程。",
+        "资格证书和建模工具应与实际掌握程度及适用项目对应。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "公开官方示例不等于开放商业使用；未核实全文复制、检索入库或训练授权。当前只保存来源和原创摘要。",
+      "qualityCaveat": "示例已有较多工程工作经历，且美国执业资格及项目环境不适用于全部国内岗位；不能据此为应届用户补造项目、预算、证书或设计成果。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "capd.mit.edu",
+        "cdn.uconnectlabs.com"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "mit-capd-materials-chemical-phd-sample",
+      "title": "MIT CAPD：材料科学与化工背景博士转咨询简历样例",
+      "publisher": "Massachusetts Institute of Technology, Career Advising & Professional Development",
+      "landingUrl": "https://capd.mit.edu/resources/sample-resumes/",
+      "assetUrl": "https://cdn.uconnectlabs.com/wp-content/uploads/sites/123/2025/05/MITCAPD-PhDIII.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "materials-environment"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已从官方目录找到附件并完整打开2页PDF，第2页为面向咨询的材料博士示例，教育中有材料模拟及化工背景，正文按行业实习、领导、获奖和活动组织，日期与部分联系字段为占位形式。",
+      "takeaways": [
+        "科研经历可解释所用方法、解决的问题和可证实的实际用途。",
+        "转向咨询等岗位时，可以选择与分析、沟通和团队协作有关的真实证据。",
+        "论文、奖励与工业项目可以按岗位相关程度安排篇幅。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "MIT职业中心公开教育示例，尚未确认商用复制、全文RAG入库或训练许可；不收录示例人物信息或原文。",
+      "qualityCaveat": "偏博士转咨询，不能当作本科材料、化工研发岗的统一模板；示例含大额经济效益和性能指标，所有数字均不能迁移为用户事实，未验证招聘效果。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "capd.mit.edu",
+        "cdn.uconnectlabs.com"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "ucdavis-engineering-physical-sciences-sample-collection",
+      "title": "UC Davis Career Center：跨专业简历与CV样例集（工程及理学部分）",
+      "publisher": "University of California, Davis Career Center",
+      "landingUrl": "https://careercenter.ucdavis.edu/resumes-and-materials/resumes/resume-cv-samples",
+      "assetUrl": "https://careercenter.ucdavis.edu/sites/g/files/dgvnsk15461/files/media/documents/ALL-resume-cv-samples.pdf",
+      "format": "pdf",
+      "kind": "sample_collection",
+      "language": "en",
+      "disciplines": [
+        "cs-software",
+        "mechanical-electrical",
+        "civil-architecture",
+        "materials-environment"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "官方落地页已打开，提供跨专业样例及工程写作说明；直接PDF已打开，共43页。PDF物理第15页为航空/机械，第16页为计算机，第17页为化学，第18页为土木；另有生态环境样例。上述页码按PDF从1开始计数，土木页含明显虚构角色与项目设定。",
+      "takeaways": [
+        "工程样例可比较课程、工具、实习、课程设计和社团项目的组织方式。",
+        "软件项目需要写清技术实现与个人工作，化学研究需要说明方法和实验任务。",
+        "土木项目可以按设计、建模、制作、分析和展示梳理过程，但只保留本人真实环节。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "大学职业中心公开整理，官方网页标注版权；未取得商业全文转载、训练或RAG入库授权。只登记来源和原创摘要，不保存示例人物资料。",
+      "qualityCaveat": "全册混有不同学历、专业与求职情境，不能整本当作统一规范；土木示例使用虚构故事，数字与工程情节仅用于结构演示，不应作为真实技术能力或业绩依据。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "careercenter.ucdavis.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "ohio-state-data-analytics-resume-sample",
+      "title": "Ohio State Career Success：数据分析简历指南与样例",
+      "publisher": "The Ohio State University, College of Arts and Sciences Career Success",
+      "landingUrl": "https://data-analytics.osu.edu/sites/default/files/2021-11/data_analytics_resume_sample.pdf",
+      "assetUrl": "https://data-analytics.osu.edu/sites/default/files/2021-11/data_analytics_resume_sample.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "data-statistics",
+        "cs-software"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "大学数据分析专业域名PDF已完整打开，共3页。前2页说明真实技能、相关课程、岗位关联及项目证据，第3页为占位候选人的数据分析本科示例，包含分析实习、指标、测试及领导经历。",
+      "takeaways": [
+        "把编程、分析方法和课程与实际使用场景对应，只列能够解释和演示的能力。",
+        "数据分析经历应交代数据问题、分析任务以及支持的决策或产出。",
+        "相关研究、课程项目和实习可以提供能力证据，非技术兼职宜保持适当篇幅。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "高校官方域名公开教学资料，未核实可商用再分发、全文检索入库或训练授权；只记录来源和原创摘要。",
+      "qualityCaveat": "示例日期较旧且偏商业分析；原指南对ATS的一般描述未在本项目验证，不能宣传ATS通过率、保证可见性或照搬示例业务指标。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "data-analytics.osu.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "ucsd-career-center-resume-guide-template",
+      "title": "UC San Diego Career Center：简历结构模板与写作指南",
+      "publisher": "University of California San Diego Career Center",
+      "landingUrl": "https://gradcareers.ucsd.edu/resources/guides/resume.html",
+      "assetUrl": "https://gradcareers.ucsd.edu/_files/career-guides/cc-resume-guide.pdf",
+      "format": "pdf",
+      "kind": "template",
+      "language": "en",
+      "disciplines": [
+        "cs-software",
+        "data-statistics",
+        "mechanical-electrical",
+        "civil-architecture",
+        "materials-environment"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开官方HTML全文，并点击页面当前下载链接实际打开2页PDF：第1页为带说明的教育、技能、经历、相关项目和领导模板，第2页说明一致性、具体性与岗位相关性。旧career.ucsd.edu下载路径返回404，已改用落地页现行链接。",
+      "takeaways": [
+        "可将单条经历拆为行动、具体任务以及目的或结果，减少空泛职责。",
+        "项目描述应说明目标、方法与本人贡献，团队结果不能自动算作个人成果。",
+        "版式一致与信息相关性适合作为跨专业检查项，事实内容仍需用户核实。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "网页标注加州大学版权；未核实商业全文复制、模板再分发、训练或RAG入库许可。当前仅保留可追溯链接与原创中文摘要。",
+      "qualityCaveat": "属于通用结构模板，专业标签表示可参考的写作框架，并非分别为这些专业提供完整样例；美国格式和ATS建议不等于中国校招规范或本项目已验证效果。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "gradcareers.ucsd.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "nju-law-resume-templates-2026",
+      "title": "简历维新 职启新程：政务、律所与企业法务简历模板合集",
+      "publisher": "南京大学法学院",
+      "landingUrl": "https://law.nju.edu.cn/info/1072/25871.htm",
+      "assetUrl": null,
+      "blockedAssetUrl": "https://box.nju.edu.cn/d/45d0988e4c5f4707b58c/",
+      "format": "html",
+      "kind": "sample_collection",
+      "language": "zh-CN",
+      "disciplines": [
+        "law-public-policy"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已完整打开官方页面，发布日期为2026-01-06；正文包含政务、律所、企业三个类别、六份模板预览和对应说明。校内网盘入口本次工具不可达，未读取下载文件，blockedAssetUrl不是已采集附件。",
+      "takeaways": [
+        "不同求职方向应调整教育、实习、学生工作与专业技能的顺序和篇幅。",
+        "律所及企业法务经历可突出检索、研究、文书和案件参与中的具体行动，成果只使用本人可证实的信息。",
+        "模板框架可用于提示补充事实，不能把示例证书、课程或案例写成用户已有经历。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "仅收录官方链接和原创结构总结；页面标注设计仅供参考，未核实商业复用、批量转载或AI训练许可。",
+      "qualityCaveat": "国内法律求职语境。原文部分年龄、政治面貌、邮箱品牌及空档建议有场景限制，不应做成所有岗位的强制规则；不能为填补空档而补造经历。下载文件未验证。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "law.nju.edu.cn"
+      ],
+      "curationTier": "preview_only",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "qut-business-resume-template-collection",
+      "title": "毕业生就业简历模板（三份DOCX入口）",
+      "publisher": "青岛理工大学商学院",
+      "landingUrl": "https://sxy.qut.edu.cn/info/1198/1419.htm",
+      "assetUrl": null,
+      "blockedAssetUrl": "https://sxy.qut.edu.cn/system/_content/download.jsp?urltype=news.DownloadAttachUrl&owner=1877557391&wbfileid=5162040",
+      "format": "html",
+      "kind": "sample_collection",
+      "language": "zh-CN",
+      "disciplines": [
+        "business-finance",
+        "marketing-communication"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "官方落地页通过普通HTTP请求返回200，页面标题匹配，并实际提取到商学院毕业生求职简历模板1、2、3的DOCX下载入口；尝试其中一个下载入口返回验证码HTML，不是DOCX，未取得模板正文。blockedAssetUrl不是采集对象。",
+      "takeaways": [
+        "这是商学院发布的中文就业模板线索，适合进入人工核验清单。",
+        "三份附件可作为后续布局对照候选，具体栏目与写法需在合法完成下载后另行检查。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "仅记录公开落地页、附件线索与访问结果；未核实商业复用、批量转载或AI训练许可。未绕过验证码。",
+      "qualityCaveat": "仅验证资料入口及附件列表，没有读取模板正文或检查排版；不计入已获取的实际附件，不据此评价样例内容质量。学科标签依据发布院系，非附件全文分类。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "sxy.qut.edu.cn"
+      ],
+      "curationTier": "discovery_only_content_unread",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "publisher_context_only_not_content_validation"
+    },
+    {
+      "id": "imnu-journalism-internship-resume-template",
+      "title": "新闻传播学院实习生简历模板",
+      "publisher": "内蒙古师范大学新闻传播学院",
+      "landingUrl": "https://xwcb.imnu.edu.cn/info/1009/2173.htm",
+      "assetUrl": "https://xwcb.imnu.edu.cn/__local/E/27/65/EC3549F1BBF2A49253FE2CD038F_02CAE1E7_3B5D.docx?e=.docx",
+      "format": "docx",
+      "kind": "template",
+      "language": "zh-CN",
+      "disciplines": [
+        "marketing-communication"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "官方页面可读，标注2019-03-20；附件普通HTTP读取返回200，15197字节，为有效DOCX ZIP。已在内存解析word/document.xml，确认教育、实习、技能等模板字段存在，未保存或复制个人资料。",
+      "takeaways": [
+        "以教育、实习和技能等字段引导新闻传播学生先梳理求职信息。",
+        "这类空白框架适合做填表起点，经历写作仍需用户补充真实作品、职责和结果。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "仅保存源链接及原创总结，未复制模板正文；未核实商业复用、再分发或AI训练许可。",
+      "qualityCaveat": "2019年的基础空白模板，结构参考价值高于经历写作指导；不代表当前所有媒体、市场或运营岗位要求。已验证文件结构和字段，尚未做Word视觉渲染。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "xwcb.imnu.edu.cn"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "unlv-accounting-resume-sample",
+      "title": "Accounting Sample Resume",
+      "publisher": "University of Nevada, Las Vegas",
+      "landingUrl": "https://www.unlv.edu/sites/default/files/media/document/2022-02/Business-AccountingResume.pdf",
+      "assetUrl": "https://www.unlv.edu/sites/default/files/media/document/2022-02/Business-AccountingResume.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "business-finance"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已完整打开官方域名1页PDF，标题为Accounting Example；内容具有教育、相关经历、其他经历、活动、技能等栏目，包含税务和审计实习示范。",
+      "takeaways": [
+        "将税务、审计等相关经历放在一般兼职之前，便于识别会计岗位证据。",
+        "描述可连接所用工具、处理对象和交付物，而非只列岗位名称。",
+        "专业考试资格、语言和软件能力需要真实且按所在地区解释。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "官方公开阅读不等于商业复用或AI训练许可；仅收录链接和原创结构总结，不复制示例姓名、联系方式或经历全文。",
+      "qualityCaveat": "美国本科会计求职样例，CPA资格和本地税务软件有地域性；示例中的单位与数量不可移植到用户简历。未将版式可读等同于真实招聘效果。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.unlv.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "villanova-marketing-resume-template",
+      "title": "Marketing Sample Resume",
+      "publisher": "Villanova University Career Connections",
+      "landingUrl": "https://connections.villanova.edu/resources/marketing-sample-resume/",
+      "assetUrl": "https://cdn-connections.villanova.edu/wp-content/uploads/sites/162/2024/08/Marketing-Resume-Template1.docx",
+      "format": "docx",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "marketing-communication"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "官方落地页可读并链接View Resource；附件普通HTTP返回200，165350字节，为有效DOCX。已解析文档正文，确认教育、项目、领导经历与技能板块，以及市场研究、营销活动和分析工具相关内容。",
+      "takeaways": [
+        "市场岗位可用课程项目、营销实践和组织经历共同展示能力证据。",
+        "项目条目可说明研究方法、所用工具及沟通交付物，并与技能栏相互印证。",
+        "保留真正做过的渠道、分析或展示任务，工具名不等于熟练程度。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "页面允许学生参照并按个人经历调整；未核实商业模板分发、批量转载或AI训练许可，仅保留源链接及原创总结。",
+      "qualityCaveat": "美国本科市场方向样例，不能直接当作中国互联网产品运营或增长岗位通用模板；已读取文档正文，尚未做Word视觉渲染。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "cdn-connections.villanova.edu",
+        "connections.villanova.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "gwu-international-affairs-sample-resumes",
+      "title": "Sample Resumes: Less Experienced and More Experienced",
+      "publisher": "George Washington University Elliott School of International Affairs",
+      "landingUrl": "https://elliott.gwu.edu/sites/g/files/zaxdzs4886/files/downloads/GSS_Sample_Resumes.pdf",
+      "assetUrl": "https://elliott.gwu.edu/sites/g/files/zaxdzs4886/files/downloads/GSS_Sample_Resumes.pdf",
+      "format": "pdf",
+      "kind": "sample_collection",
+      "language": "en",
+      "disciplines": [
+        "languages-international",
+        "law-public-policy",
+        "business-finance"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已完整打开官方2页PDF并调用两页截图核查；分别为较少经验和较多经验的国际事务求职样例，包含国际研究、政府支持、咨询、跨语言交流和业务发展内容。",
+      "takeaways": [
+        "应届与有经验者可根据证据强弱调整教育和工作经历的位置。",
+        "国际业务经历可交代研究区域、服务对象、分析议题和书面交付物。",
+        "语言能力最好与实际工作或项目使用场景对应，避免只列等级词。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "仅收录官方来源及原创方法总结，未复制样例个人资料；公开PDF的商用、再分发及AI训练权限尚未核实。",
+      "qualityCaveat": "国际事务与公共部门语境，不是翻译岗位或外贸销售专用模板；资历较高样例中的业绩和安全许可仅属于示例，不得借用。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "elliott.gwu.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "penn-consulting-undergraduate-resume-sample",
+      "title": "Undergraduate Consulting Resume Sample",
+      "publisher": "University of Pennsylvania Career Services",
+      "landingUrl": "https://careerservices.upenn.edu/preparing-effective-resumes/undergraduates-student-resume-samples/",
+      "assetUrl": "https://cdn.uconnectlabs.com/wp-content/uploads/sites/74/2021/09/SampleConsultingResume.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "business-finance",
+        "marketing-communication"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "落地页普通HTTP返回200，已从官方页面提取该PDF链接；PDF通过浏览工具完整打开，为1页，具有教育、职业经历、领导经历、荣誉及技能等板块，并展示咨询和市场分析项目。",
+      "takeaways": [
+        "咨询经历可连接业务问题、分析范围、采用方法和交付成果。",
+        "领导活动可补充协作与组织证据，但应与相关项目控制篇幅。",
+        "量化信息用于提供范围与上下文，不能把估算上限写成已经实现的收入。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "仅记录官方入口、其明确链接的文件和原创总结；CDN托管不代表开放许可，商用、转载及AI训练权限未核实。",
+      "qualityCaveat": "美国本科咨询与商科样例，含高中及标准化考试信息；不宜照搬为中国应届生的默认字段。官网浏览工具一度429，但普通HTTP及PDF正文已实际可读。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "careerservices.upenn.edu",
+        "cdn.uconnectlabs.com"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "berkeley-law-legal-resume-guide",
+      "title": "Legal Resumes",
+      "publisher": "University of California, Berkeley School of Law",
+      "landingUrl": "https://www.law.berkeley.edu/careers/resources/legal-resumes/",
+      "assetUrl": null,
+      "format": "html",
+      "kind": "guide",
+      "language": "en",
+      "disciplines": [
+        "law-public-policy",
+        "languages-international"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已完整打开官方HTML指南，正文覆盖法律简历的目标、教育、法律及非法律经历、公共服务、语言和排版；页面列有学生样例和模板入口，本记录不声称已读取那些外部附件。",
+      "takeaways": [
+        "法律简历本身应展示清晰写作与准确表达，非法律经历也可提供研究、协作等可迁移能力。",
+        "公益法律方向可通过法律诊所、志愿服务和相关活动展示持续投入。",
+        "语言能力应如实区分程度，简历内容需经得起面试追问。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "仅保存链接和原创概括，不复制指南长段正文；未核实商业使用、批量转载或AI训练许可。",
+      "qualityCaveat": "本条是指南而非已取得的样例文件；美国法学院成绩制度和法律职业语境有校别及地区限制，不能当作中国律所统一规则。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.law.berkeley.edu"
+      ],
+      "curationTier": "writing_guide",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "sfa-teacher-resume-sample",
+      "title": "Teacher Sample Resume",
+      "publisher": "Stephen F. Austin State University — Center for Career and Professional Development",
+      "landingUrl": "https://www.sfasu.edu/docs/ccpd/sample-resume-bsis.pdf",
+      "assetUrl": "https://www.sfasu.edu/docs/ccpd/sample-resume-bsis.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "education"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开高校官方域名上的单页 PDF，正文明确标为教师简历示例；含教育与教师证书、临床教学实践、两阶段入校实践、其他经历和组织活动。已下载至系统临时目录并渲染查看整页；日期使用占位年份。",
+      "takeaways": [
+        "师范生可按实际实习阶段组织教学经历，让课堂责任的递进过程清楚可见。",
+        "教学描述应交代学段、教学活动、差异化支持和评估方法；学习成果数据必须有真实记录。",
+        "教师资格与教育背景可放在前部，营地或辅导经历用于补充课堂管理证据。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "高校官方发布的教学用途示例；本次未核实商业再发布、模板改售、内容入库或 AI 训练许可。记录仅存来源及原创摘要，不复制示例身份信息或经历原文；实际复用须另查权利与授权。",
+      "qualityCaveat": "美国德州教师培养与资格背景，不能直接作为中国教师资格要求；仅参考结构和表达方式。示例中的教学成果、人数和证书不得自动填入用户简历。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.sfasu.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "ucr-teacher-resume-sample-2025-26",
+      "title": "25-26 SOE Teacher Resume Sample",
+      "publisher": "University of California, Riverside — Career Center",
+      "landingUrl": "https://careers.ucr.edu/document/25-26-soe-teacher-resume-samplepdf",
+      "assetUrl": "https://careers.ucr.edu/media/3431/download?attachment=",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "education"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开官方职业中心说明页并沿下载链接打开单页 PDF；含教师资格、相关课程、学生教师与助教经历、辅导经历、教学工具、认证和志愿经历。已在系统临时目录渲染查看整页；联系方式与学校名称含明显示例占位。",
+      "takeaways": [
+        "把课堂实习放在教学相关经历中，把辅导与志愿活动放在补充经历中，可突出教师岗位主线。",
+        "教学技能可通过课程设计、个别支持、家校沟通和工具使用分别举证。",
+        "资格、课程和经历应共同说明岗位准备程度，不能只堆砌教学软件名称。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "官方公开示例供写作参考；未见经本次核实的开放复用或 AI 训练许可。仅记录链接和原创观察，不转载简历文本、姓名或联系方式；商业化使用前需确认相关权利。",
+      "qualityCaveat": "加州教师资格与考试仅适用于原场景；下载资源的元数据标题带 docx，但实际返回并成功解析为 PDF。少数字符在文本提取时出现替换，整页视觉核验可读。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "careers.ucr.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "towson-biology-resume-sample",
+      "title": "Biology Resume Sample",
+      "publisher": "Towson University — Career Center",
+      "landingUrl": "https://www.towson.edu/careercenter/internships-jobs/resumes/samples.html",
+      "assetUrl": "https://www.towson.edu/careercenter/documents/sample_resume_biology.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "life-sciences-research"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开官方按专业分类的样例页，并点击生物专业 PDF；单页包含教育、实验与计算机技术、暑期本科研究、其他工作、领导经历和学术活动。PDF 使用姓名与年份占位；已下载至系统临时目录并渲染查看整页。",
+      "takeaways": [
+        "生命科学简历可把实验方法列为独立技能区，再用科研经历说明在哪里实际使用。",
+        "本科研究经历可呈现实验记录规范、协作分析和研究汇报，而不必虚构论文或重大成果。",
+        "非科研工作可以保留少量能证明培训、协作与沟通能力的内容。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "官方样例页明确要求不要逐字复制样例。未核实商业再发布、批量内容使用或 AI 训练许可；这里只保存链接、核验证据和原创要点，不存示例个人字段或完整正文。",
+      "qualityCaveat": "面向美国本科求职，科研部分篇幅较短，不能代表研究生学术 CV、论文清单或国内科研岗位全部要求；实验技能和研究经历必须由用户提供事实依据。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.towson.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "towson-nursing-resume-sample",
+      "title": "Nursing Resume Sample 1",
+      "publisher": "Towson University — Career Center",
+      "landingUrl": "https://www.towson.edu/careercenter/internships-jobs/resumes/samples.html",
+      "assetUrl": "https://www.towson.edu/careercenter/media/documents/resumes_cvs/resumes_by_major/sample_resume_nursing.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "nursing-public-health"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已从官方样例集点击护理示例 1，打开单页 PDF；含护理学历、执照与认证、医学研究实习、创伤护理和急救相关临床经历。使用占位姓名、号码及年份；已在系统临时目录渲染并查看整页。",
+      "takeaways": [
+        "护理简历应把执照和认证单列，资格信息与教育、临床经验各自可核对。",
+        "科研实习与临床经验可分开呈现，分别说明数据处理和医疗团队中的实际职责。",
+        "护理管理、培训或质量改进属于特定经历证据，不能当作所有应届生的默认能力。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "样例集明确提醒不要逐字复制。官方可访问不等于允许商用、再分发或 AI 训练；未核实这些许可，当前只记录来源与原创总结，不转载身份字段或原文。",
+      "qualityCaveat": "示例拥有多项美国护理及急救认证，并含团队排班和培训职责，更接近有临床经验的申请者；不宜作为中国护理应届生的完整事实模板，资格名称与执业范围须按目标地区核验。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.towson.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "umass-public-health-resume-samples",
+      "title": "Public Health Resume Samples — by year",
+      "publisher": "University of Massachusetts Amherst — School of Public Health & Health Sciences",
+      "landingUrl": "https://www.umass.edu/public-health-sciences/documents/public-health-resume-samples",
+      "assetUrl": "https://www.umass.edu/public-health-sciences/media/3486/download?inline=",
+      "format": "pdf",
+      "kind": "sample_collection",
+      "language": "en",
+      "disciplines": [
+        "nursing-public-health"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开官方院系资源页及其四页 PDF；页面标注 2023-08-22 更新，PDF 分别提供大学一年级至四年级示例，身份按年级命名且联系方式明显为示例。已在系统临时目录渲染并查看全部四页；内容从社区服务逐步延伸到公卫实习、健康教育和毕业研究项目。",
+      "takeaways": [
+        "公卫简历可随经验阶段调整：低年级强调真实服务经历，高年级逐步突出领域实习与研究项目。",
+        "社区传播、健康教育、数据整理和调查工作可分别形成证据，不必把所有公卫经历写成临床护理。",
+        "课程研究可以交代问题、方法和个人贡献；不能把示例中的研究结论或服务规模移植给用户。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "院系公开的教学示例集合；未核实商业转载、内容再分发、建立全文语料库或 AI 训练许可。记录只保存链接与原创概括，不保留样例姓名、联系方式或逐条经历。",
+      "qualityCaveat": "文件为 2023 年示例，所列日期、证书和工具不等于当前有效要求；美国本科年级和公卫实践环境需要本地化。个别文本提取有连字与空格缺失，视觉核验可读。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.umass.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "towson-psychology-resume-sample",
+      "title": "Psychology Resume Sample 1",
+      "publisher": "Towson University — Career Center",
+      "landingUrl": "https://www.towson.edu/careercenter/internships-jobs/resumes/samples.html",
+      "assetUrl": "https://www.towson.edu/careercenter/documents/sample_resume_psychology.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "psychology-social-work"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已从官方按专业分类的示例页打开心理学示例 1；单页包括心理学教育、研究设计与统计课程项目、同伴教育、机构实习及技能认证。姓名、号码与年份使用占位形式；已下载至系统临时目录并渲染查看整页。",
+      "takeaways": [
+        "心理学课程可通过研究设计、数据分析和汇报产出说明能力，而不仅列课程名。",
+        "同伴教育、活动组织和机构实习可分开描述，让研究能力与服务经验都有对应证据。",
+        "涉及接访或团体活动时，应准确写明学生或实习身份、参与范围与督导关系。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "官方页面明确提醒不要逐字复制样例。未核实商用、全文再分发或 AI 训练许可；本记录不复制原简历身份信息和经历原文，仅供结构参考。",
+      "qualityCaveat": "这是本科样例，不构成心理咨询或临床执业能力证明；部分实习描述未展开督导边界，不应直接套用。认证和职责是否适用国内岗位需另行核验。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.towson.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "nazareth-social-work-undergraduate-sample",
+      "title": "Sample Resume — Social Work Major",
+      "publisher": "Nazareth University — Career Design Office（文件沿用 Nazareth College 名称）",
+      "landingUrl": "https://www2.naz.edu/career-design-office/services/resumes-cover-letters/sample-resumes",
+      "assetUrl": "https://www2.naz.edu/files/7814/1080/4946/resumesample_socialwork_UG.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "psychology-social-work"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已打开高校官方简历资源页与仍可访问的历史单页 PDF；PDF 明确自称社会工作专业简历示例，使用姓名与邮箱占位，含本科教育、社工实习、机构服务、相关照护经历、继续教育与社区服务。已在系统临时目录渲染并查看整页；当前资源页已转向 Google 文档链接，未声称该历史 PDF 仍是最新版。",
+      "takeaways": [
+        "社工简历可把专业实习单列，说明服务对象、实习时长、评估记录与跨专业协作。",
+        "家访、资源转介、个案记录等过程可以成为具体经历证据，描述时应保护服务对象隐私。",
+        "照护或志愿经历可补充服务能力，但学生实习职责不能表述为独立执业资质。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "官方历史示例 PDF 可公开阅读，但本次未核实商用、再分发或 AI 训练许可。仅保存来源和原创结构观察，不转载示例身份字段或完整经历；使用前需确认权利。",
+      "qualityCaveat": "示例履历截至 2013 年，属于旧版参考；不用于推断当前社工资格、医疗福利规则或最佳版式。现行官方集合已有新文档，生产资源应优先补核最新版本。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www2.naz.edu"
+      ],
+      "curationTier": "historical_secondary_reference",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "id": "towson-art-graphic-design-resume-sample",
+      "title": "Art and Graphic Design Resume Sample",
+      "publisher": "Towson University — Career Center",
+      "landingUrl": "https://www.towson.edu/careercenter/internships-jobs/resumes/samples.html",
+      "assetUrl": "https://www.towson.edu/careercenter/documents/sample_resume_art_graphic_design.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "language": "en",
+      "disciplines": [
+        "design-arts"
+      ],
+      "verifiedDate": "2026-10-15",
+      "verification": "已在官方样例页定位艺术与平面设计分类，并点击打开单页 PDF；含艺术设计教育、排版等相关课程、设计工具、设计中心实习与相关工作。使用姓名、号码和年份占位；已在系统临时目录渲染并查看整页，属于文字清晰的单栏样式。",
+      "takeaways": [
+        "设计经历可围绕实际交付物、媒介、协作对象与项目约束展开，不应只列软件。",
+        "实习中的设计任务与客户沟通可共同体现专业能力；行政或市场经历只保留有关的证据。",
+        "单栏简历可作为清楚呈现经历的参考，作品集与个人项目仍需用用户自己的材料补足。"
+      ],
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "官方样例页要求不要逐字复制。未核实商用、模板再售、作品复用或 AI 训练许可；这里只保留来源和原创摘要，不复制示例身份字段及完整正文。",
+      "qualityCaveat": "偏传统平面与印刷设计，示例带有较早年份痕迹；没有充分展示现代数字产品设计流程、作品集项目或视觉作品，不能替代 UX、交互或纯艺术各分支的专门样例。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.towson.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "verifiedDate": "2026-10-15",
+      "language": "en",
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "公开教学资料；本次未核实产品再分发、商业改编、模型输入或训练授权。仅保留本地研究原件与来源，不把公开可访问等同于可复用。",
+      "id": "udel-agriculture-food-environment-samples",
+      "title": "Agriculture, Natural Resources, Earth & Environment Resume Samples",
+      "publisher": "University of Delaware Career Center",
+      "landingUrl": "https://www.udel.edu/content/dam/udelImages/student-life/career-center/docs-and-files/agriculture-natural-resources-resume-samples.pdf",
+      "assetUrl": "https://www.udel.edu/content/dam/udelImages/student-life/career-center/docs-and-files/agriculture-natural-resources-resume-samples.pdf",
+      "format": "pdf",
+      "kind": "sample_collection",
+      "disciplines": [
+        "agriculture-food",
+        "materials-environment"
+      ],
+      "verification": "已完整打开官方4页PDF，分别为园艺/土壤、食品科学、环境与生态保护方向，使用姓名与日期占位；部分联系字段仍可能对应现实信息，不复用。",
+      "takeaways": [
+        "区分田间、实验与课程证据，说明真实操作范围。",
+        "食品方向可把测试记录和研发交付分开描述。",
+        "技能只列实际用过且能说明场景的工具。"
+      ],
+      "qualityCaveat": "美国本科教学示例；工具、课程和执业环境须本地化，示例数字和经历不能套到用户身上。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.udel.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "verifiedDate": "2026-10-15",
+      "language": "en",
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "公开教学资料；本次未核实产品再分发、商业改编、模型输入或训练授权。仅保留本地研究原件与来源，不把公开可访问等同于可复用。",
+      "id": "calpoly-food-science-career-sample",
+      "title": "Food Science Career Resume Sample",
+      "publisher": "California Polytechnic State University, San Luis Obispo Career Services",
+      "landingUrl": "https://careerservices.calpoly.edu/explore-services/resource-toolkit/resumes-letters/agriculture-food-environmental-science-resume-samples",
+      "assetUrl": "https://content-calpoly-edu.s3.amazonaws.com/careerservices/1/documents/SampleResumes/CAFES_FSC_career.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "disciplines": [
+        "agriculture-food"
+      ],
+      "verification": "从官方按农食专业分类页面点击食品科学附件并打开单页PDF；包含实验、食品质量、研究及相关经验栏目。",
+      "takeaways": [
+        "把食品实验和质量工作拆成可说明的任务。",
+        "围绕实际试验与交付组织内容，避免泛列技能。"
+      ],
+      "qualityCaveat": "美国食品科学历史示例，仅参考专业经历组织；不据此推断当前国内食品检测资格、标准或岗位要求。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "careerservices.calpoly.edu",
+        "content-calpoly-edu.s3.amazonaws.com"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "verifiedDate": "2026-10-15",
+      "language": "en",
+      "rightsStatus": "reference_only_unverified_license",
+      "rightsNote": "公开教学资料；本次未核实产品再分发、商业改编、模型输入或训练授权。仅保留本地研究原件与来源，不把公开可访问等同于可复用。",
+      "id": "towson-supply-chain-resume-sample",
+      "title": "Supply Chain Management Resume Sample",
+      "publisher": "Towson University Career Center",
+      "landingUrl": "https://www.towson.edu/careercenter/internships-jobs/resumes/samples.html",
+      "assetUrl": "https://www.towson.edu/careercenter/documents/sample_resume_supply_chain.pdf",
+      "format": "pdf",
+      "kind": "sample",
+      "disciplines": [
+        "supply-chain-logistics"
+      ],
+      "verification": "从官方当前目录进入并完整打开单页PDF；旧resumes_by_major地址404，已采用现行documents地址。正文包含供应链毕业项目、报价、库存/订单处理、领导经历与认证。",
+      "takeaways": [
+        "结合具体业务环节说明报价、计划或订单任务。",
+        "课程毕业项目应与企业实习经历分开。",
+        "指标必须保留真实口径和个人分工依据。"
+      ],
+      "qualityCaveat": "官方目录明确要求不要逐字照抄；示例认证和工具并非所有供应链岗位要求，数量与成果不可移植。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": false,
+      "allowedHosts": [
+        "www.towson.edu"
+      ],
+      "curationTier": "institutional_material_read",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    },
+    {
+      "verifiedDate": "2026-10-15",
+      "language": "en",
+      "rightsStatus": "licensed_code_only",
+      "rightsNote": "已读取MIT许可证；复用模板代码须保留版权与许可声明。许可不证明示例人物经历可当用户事实，不据此授权采集作者个人资料或模型训练。",
+      "id": "jake-mit-layout-code",
+      "title": "Jake's Resume：LaTeX布局代码参考",
+      "publisher": "Jake Gutierrez / jakegut",
+      "landingUrl": "https://github.com/jakegut/resume",
+      "assetUrl": "https://raw.githubusercontent.com/jakegut/resume/master/resume.tex",
+      "format": "tex",
+      "kind": "layout_code",
+      "disciplines": [
+        "cs-software"
+      ],
+      "licenseUrl": "https://raw.githubusercontent.com/jakegut/resume/master/LICENSE",
+      "verification": "已打开上游仓库与原始MIT LICENSE，确认版权声明和保留许可条件；代码仅用于布局参考，不执行、不编译、不复制人物内容到项目模板。",
+      "takeaways": [
+        "可参考单栏布局、层级和栏目一致性。",
+        "将布局规则与个人内容分开管理。"
+      ],
+      "qualityCaveat": "上游同时是作者个人简历模板，个人经历不纳入公共提示材料；MIT代码许可不代表ATS或招聘效果。",
+      "aiPromptIngestionAllowed": false,
+      "productRedistributionAllowed": false,
+      "personalContentReuseAllowed": false,
+      "codeReuseAllowed": true,
+      "allowedHosts": [
+        "github.com",
+        "raw.githubusercontent.com"
+      ],
+      "curationTier": "licensed_layout_reference",
+      "qualityBasis": "来源、正文/文件可读性及结构参考价值；不是已验证的录用、ATS或优化效果。",
+      "disciplineMapping": "content_or_official_category"
+    }
+  ]
+}

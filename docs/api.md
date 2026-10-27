@@ -1,0 +1,159 @@
+# 项目 API 契约
+
+开发服务默认监听 `http://127.0.0.1:3001`，H5 通过 Vite `/api` 代理访问；服务器由 Nginx 提供同源 HTTPS 反向代理。所有成功响应为 `{ "data": ... }`，错误为 `{ "error": { "code": "...", "message": "..." } }`。共享类型见 `shared/types.ts` 与 `shared/auth.ts`。当前实现邮箱账号、服务端会话和业务资源用户归属检查，仍使用单进程 JSON 存储，尚未迁移 MySQL、接入支付或完成生产能力验收。
+
+## 认证与会话
+
+| 方法 | 路径（前缀 `/api/v1`） | 请求 / 返回 |
+| --- | --- | --- |
+| GET | `/auth/providers` | `{emailPassword:true,wechat:false,phone:false,emailVerification,passwordReset}`，邮件能力字段由服务端配置确定 |
+| POST | `/auth/register` | `{email,password,challengeId?,code?}` → 201 + 会话；邮件启用时必须通过注册验证码，成功后自动登录 |
+| POST | `/auth/login` | `{email,password}` → 200 + 会话 |
+| GET | `/auth/me` | 返回当前会话的 `{user,expiresAt}`；无有效会话时 401 |
+| POST | `/auth/logout` | 撤销当前会话并清除 Cookie，返回 `{signedOut:true}` |
+| POST | `/auth/email/code` | `{email,purpose}`，用途为 `register / reset-password / verify-email` → 202 + `{challengeId,expiresAt,resendAfterSeconds,message}`；验证本人邮箱需当前会话 |
+| POST | `/auth/email/verify` | `{challengeId,code}`，要求有效会话，验证成功返回更新后的 `AuthUser` |
+| POST | `/auth/password/reset` | `{email,password,challengeId,code}` → `{passwordReset:true}`；仅支持已验证邮箱账号，不自动登录，并撤销全部旧会话 |
+| POST | `/auth/wechat` | 预留微信免登适配位置，当前返回 501 `WECHAT_LOGIN_NOT_CONFIGURED` |
+| POST | `/auth/phone` | 预留手机号验证登录适配位置，当前返回 501 `PHONE_LOGIN_NOT_CONFIGURED` |
+
+`user` 只包含公开账号字段 `{id,email,emailVerified,createdAt}`，不包含密码哈希或会话哈希。邮箱会去除两端空白并转小写，最多 254 字符；新密码为 6–16 位，只能使用字母、数字和符号，不能包含空格、中文或控制字符。登录仍接受 6–128 位不含控制字符的旧密码，密码不自动去除空白。请求须经过服务端字段白名单、类型及长度校验，不能仅凭客户端类型信任输入；注册与登录有频率和密码计算并发限制。
+
+H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环境启用 Secure；H5 注册和登录响应不返回原始令牌。小程序在注册或登录请求中声明 `X-Auth-Client: mp-weixin`，服务端才在会话响应中附加 `token`；后续发送 `Authorization: Bearer <token>`。此请求头只选择会话传输方式，不授予微信身份、会员或额外权限。会话绝对有效期为 7 天，退出后撤销，重启服务后仍以持久化会话状态验证。服务端只保存随机令牌的 SHA-256 哈希。
+
+`/health`、`/plans` 与认证入口允许未登录访问；`/membership`、账单预览以及所有简历、报告、诊断任务和建议应用接口要求有效会话。所有资源查询与修改均从可信会话确定用户，不能通过客户端提交 `userId` 越权；请求其他用户资源按不存在返回 404。不同用户的草稿与工作空间缓存也分别保存。
+
+H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 `AUTH_TRUSTED_ORIGINS` 配置精确来源列表，不把客户端传入的 Host 或转发头视为授权；小程序 Bearer 通道不依赖浏览器 Cookie。`AUTH_SECURE_COOKIES` 控制 Cookie 的 Secure 属性，默认随 `NODE_ENV=production` 启用，公网 HTTPS 不应关闭。
+
+`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信 code 交换、微信授权手机号和短信服务仍未接入，预留接口不返回假登录成功。
+
+## 邮箱验证码与密码找回
+
+验证码为 6 位随机数字，有效期 10 分钟，重发间隔 60 秒，最多允许 5 次错误。挑战绑定邮箱、用途与随机 `challengeId`；注册、重置密码和已有账号验证不能相互使用。服务端仅保存 HMAC 哈希，密钥来自独立的 `MAIL_CODE_SECRET`；明文验证码只传给发信器，不能出现在 API 响应或日志中。
+
+发码先持久化 `pending` 预占记录，SMTP 接受后才可标记为可用；发送失败保留失败状态并返回明确错误，不能拿未成功发送的挑战注册或重置密码。新的同用途验证码成功发送后，旧的未消费验证码失效；新邮件发送失败不将旧的有效验证码误消耗。冷却、邮箱与客户端发送频率限制受服务端控制，不依赖前端倒计时，客户端来源只保存不可逆标签。
+
+`reset-password` 发码对所有合法邮箱采用一致的请求和响应流程，不在发码时暴露是否已注册或已验证。最终密码重置必须校验有效、未消费的重置挑战及账号已验证状态；密码哈希更新、全部旧会话撤销及关联挑战失效在同一次持久化修改中完成。未知或未验证账号在确认阶段统一返回 `CODE_INVALID_OR_EXPIRED`，不修改密码、验证状态或会话，也不能得到虚假的重置成功。验证码错误次数会持久化，不能因事务报错回滚而无限尝试；并发消费仅允许一个请求成功。
+
+生产服务要求注册验证码，邮件关闭、缺少配置或发送失败时不降级为免验证码注册。本机未启用邮件的开发演示模式可保留邮箱密码注册，但不会标记邮箱已验证。SMTP 接受表示邮件已提交到发信服务，不保证已经投递到收件箱。
+
+## 接口
+
+| 方法 | 路径（前缀 `/api/v1`） | 请求 / 返回 |
+| --- | --- | --- |
+| GET | `/health` | 返回 `status: ok`、`analysisEngine: rules / bailian`、`aiConfigured`（本地配置是否启用，非可用性检测）、可选 `model`、`persistence: local-json` |
+| GET | `/membership` | 返回本地权益预览状态，`mode: preview`、`currentPlanId: free`、`currentPlanName: 免费体验`、`paymentAvailable: false`、`limitsEnforced: false`，以及结构化会员周期与升级规则 `policy` |
+| GET | `/plans` | 返回 `free / basic / premium` 三档规划权益；免费价格为 `0`，两档付费价格为 `null`（待定价），类型由 `shared/types.ts` 导出 |
+| POST | `/billing/checkout` | `{planId}`，有效付费方案明确返回 503 `PAYMENT_NOT_CONFIGURED`；不创建订单、不扣费、不发放权益 |
+| GET | `/resumes` | 返回本人简历数组，按更新时间倒序 |
+| POST | `/resumes` | `{title, targetRole?, text}` → 201 + 归属当前会话用户的简历 |
+| GET | `/resumes/:id` | 返回本人简历 |
+| PUT / PATCH | `/resumes/:id` | `{title?, targetRole?, text?, revision}` → 修改后简历；必须提供当前修订号，PUT 为兼容小程序，和 PATCH 使用相同的部分更新语义 |
+| DELETE | `/resumes/:id` | 删除简历、全部历史版本、恢复幂等记录及关联诊断和投递计划，返回 `{deleted:true,id}` |
+| GET | `/resumes/:id/versions` | 返回本人该简历的 `ResumeVersionSummary[]`，按修订号倒序；摘要不含历史正文 |
+| GET | `/resumes/:id/versions/:revision` | 返回完整 `ResumeVersion`，包括当时保存的 `snapshot`、来源、内容 hash 和时间 |
+| POST | `/resumes/:id/versions/:revision/restore` | `{revision,confirmed,idempotencyKey}` → `{resume,restoredFromRevision,alreadyRestored,noChange}`；路径为历史修订号，请求体为当前修订号 |
+| POST | `/resumes/:id/export` | `{revision, format: "docx" \| "pdf", template: "minimal" \| "modern" \| "business"}` → 200 + `ResumeExportFile`：`{revision, format, template, resumeId, fileName, mimeType, contentBase64}`；正文由服务端读取，文件上限 8 MB |
+| POST | `/analyses` | 规则模式同步诊断；启用百炼时返回 `USE_ANALYSIS_JOB` |
+| POST | `/analysis-jobs` | `{resumeId, jobDescription?, targetRole?, aiConsent?}` → 202 + 任务；百炼模式必须 `aiConsent: true` |
+| GET | `/analysis-jobs/:id` | `queued / running / completed / failed / cancelled`；成功后含 `analysisId`，失败含安全错误 |
+| DELETE | `/analysis-jobs/:id` | 请求取消，运行中由执行路径确认；已经提交持久化的任务可能返回 completed |
+| GET | `/analyses/:id` | 返回本人诊断报告 |
+| GET | `/resumes/:id/analyses` | 返回本人该简历的诊断历史 |
+| POST | `/analyses/:id/suggestions/:suggestionId/apply` | `{confirmed?, replacement?, revision}` → `{resume,analysis,alreadyApplied}` |
+
+`revision` 从 1 开始。正文、名称或目标岗位实际改变时递增；完全相同的更新不递增。编辑和采用建议必须携带读取时的 `revision`，缺失返回 400，版本不匹配返回 409，避免覆盖新内容。已经采用的同一建议可携带原修订号重试，仍返回 `alreadyApplied: true`，不会重复修改。报告中的 `resumeRevision` 表示诊断所依据的版本，`inputSnapshot` 固定当时的正文、目标岗位和 JD，`inputHash` 为此快照的 SHA-256；采用建议会更新简历，报告分数仍属于原版本，需重新诊断获取新分数。
+
+## 简历版本与恢复
+
+创建、实际编辑、采用建议和恢复历史内容时，在同一次单进程原子持久化中保存不可变的简历快照；来源分别为 `created / edited / suggestion / restored`。快照固定简历名称、目标岗位、正文、原修订号及时间；`contentHash` 是名称、岗位和正文的 SHA-256，不把单独的正文 hash 误当作全部内容的身份。列表只返回摘要，点击记录后再读取该条正文。所有读取、恢复和删除都从可信会话核对本人归属。
+
+旧 JSON 不含版本记录时，只把当前已知正文及原修订号保留为 `baseline`（历史记录起点），不会推造更早的版本。仍使用版本 3 JSON，新增 `resumeVersions / resumeRestores` 字段，未迁移至 MySQL。更新前保留受限备份；旧程序不能保证继续记录后续修改的历史，回退前应检查兼容性。
+
+恢复前应展示当前与历史的名称、目标岗位和完整正文，用户核对真实内容后明确提交 `confirmed: true`。请求体 `revision` 必须等于当前保存版本，`idempotencyKey` 为 8–100 位字母、数字、下划线或短横线。名称、岗位或正文有差异时，恢复产生当前修订号加一的新快照并记录 `restoredFromRevision`，保留所有历史记录；内容全部相同时返回 `noChange: true`，不新增修订。存在待补事实占位符的历史正文不能直接恢复，须在编辑器中补充真实内容再保存。恢复后的旧分析不能覆盖新版本，需重新诊断。
+
+同一用户、简历和幂等键的重复请求返回原恢复结果并标记 `alreadyRestored: true`；即使此后又有修改，也不会再次覆盖当前内容。同一键搭配不同历史修订号或当前修订号返回 409 `IDEMPOTENCY_CONFLICT`，持久化记录包含确认时间、来源版本、提交时版本及恢复结果。网络结果不明确时客户端保留原键重试；重新选择、重新读取和版本冲突后要求再次审核。当前设备草稿按账号保留，历史恢复不删除或重写未保存草稿，随后保存旧草稿仍受修订号检查。退出或切换账号销毁历史阅读状态，不缓存其他账号正文。
+
+规则模式使用正文、岗位及当前词库，`engine` 返回 `rules`。核心模块、成果证据、职责表达、岗位关键词均从提交文本计算。分数只用于相同规则下比较改动，不是招聘评分或录用概率。填写 JD 时以 JD 中识别到的能力为匹配依据；没有匹配词时使用中性维度分，不伪造匹配结论。
+
+## 导出文件
+
+`POST /resumes/:id/export` 使用已保存的简历正文和选定版式生成 Word（`.docx`）或 PDF 文件，正文由服务端读取，客户端不能另外提交正文。`revision` 必须等于当前保存版本，否则返回 409 `REVISION_CONFLICT`；生成前后各校验一次，避免导出过期内容。服务端同一时间只处理一个导出，已有任务时返回 429 `EXPORT_BUSY`；单次导出超过 20 秒返回 504 `EXPORT_TIMEOUT`，客户端断开或请求取消返回 409 `EXPORT_CANCELLED`，生成文件超过 8 MB 返回 413 `EXPORT_TOO_LARGE`，渲染失败返回 502 `EXPORT_RENDER_FAILED`。成功返回 JSON 中的 `contentBase64`，不是二进制响应；H5 将 base64 转成 Blob 触发浏览器下载，微信小程序写入本地文件后调用 `openDocument` 打开，两端业务内容一致。导出不修改简历正文或修订号。
+
+## 采用建议
+
+涉及经历补充的建议带有 `needsConfirmation: true`。客户端应展示 `original / replacement / reason`，要求用户填写 `[请填写真实…]`，点击“确认并采纳”时提交 `confirmed: true` 与核实后的 `replacement`。未确认或未填完占位符返回 400。系统不会自行生成业绩数字。
+
+服务在一次原子持久化中修改正文和建议状态。相同建议重复提交返回 `alreadyApplied: true`，不重复写入；重复请求携带另一段替换内容返回 409。建议原文不在正文、重复出现或诊断后有其他编辑，均返回 409。允许同一报告中的不同建议依次采用。编辑后应重新诊断。
+
+## 限制与错误
+
+请求体上限 256 KB；简历正文 50,000 字符；JD 15,000 字符；简历名称及目标岗位各 120 字符；单条修改文本 20,000 字符。字符串统一换行并移除首尾空白，不接受空正文、空名称、未知字段及错误类型。写入使用 `application/json`；文件解析由前端完成，API 不接收文件二进制。导出接口只接收版本、格式和版式，正文由服务端从已保存简历读取，文件以 JSON 中的 `contentBase64` 返回。
+
+| HTTP | 常见 code | 含义 |
+| --- | --- | --- |
+| 400 | `VALIDATION_ERROR` / `INVALID_JSON` | 字段或 JSON 无效 |
+| 400 | `CONFIRMATION_REQUIRED` / `PLACEHOLDERS_UNRESOLVED` | 建议尚未核实或占位未填 |
+| 401 | `AUTH_REQUIRED` / `INVALID_CREDENTIALS` | 会话缺失或过期、邮箱密码不匹配 |
+| 403 | `ORIGIN_NOT_ALLOWED` | Cookie 写请求来源未获授权 |
+| 404 | `NOT_FOUND` | 接口、简历、报告或建议不存在，或不属于当前用户 |
+| 405 | `METHOD_NOT_ALLOWED` | 请求方法不支持 |
+| 409 | `EMAIL_ALREADY_REGISTERED` | 邮箱已注册 |
+| 409 | `REVISION_CONFLICT` / `SOURCE_CONFLICT` | 版本已变化 |
+| 409 | `SOURCE_MISMATCH` / `AMBIGUOUS_SOURCE` / `ALREADY_APPLIED` | 原文冲突或重复请求不一致 |
+| 409 | `IDEMPOTENCY_CONFLICT` | 同一历史恢复请求标识携带了不同版本 |
+| 409 | `EXPORT_CANCELLED` | 导出请求被取消（客户端断开或服务停止） |
+| 413 | `PAYLOAD_TOO_LARGE` | 请求过大 |
+| 413 | `EXPORT_TOO_LARGE` | 生成文件超过 8 MB |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | 不是 JSON 请求 |
+| 429 | `AUTH_RATE_LIMITED` / `AUTH_BUSY` | 认证请求过频或密码计算并发已满 |
+| 429 | `EXPORT_BUSY` | 已有导出任务正在生成 |
+| 500 | `INTERNAL_ERROR` | 本地存储或内部服务失败，详细信息仅服务日志可见 |
+| 501 | `WECHAT_LOGIN_NOT_CONFIGURED` / `PHONE_LOGIN_NOT_CONFIGURED` | 登录适配器尚未接入 |
+| 502 | `EXPORT_RENDER_FAILED` | 文件渲染失败或生成结果无效 |
+| 503 | `MAIL_NOT_CONFIGURED` / `MAIL_DELIVERY_FAILED` | 邮件服务未配置或发送未成功，不能视为验证码已发送 |
+| 504 | `EXPORT_TIMEOUT` | 导出超过 20 秒未完成 |
+
+账号、会话、简历、报告和邮件挑战落盘到 `.data/resumes.json` 的版本 3 格式，采用临时文件 + rename 原子提交，写入权限为当前用户可读写；密码使用 scrypt 哈希，不保存明文密码。兼容迁移保留版本 1 的旧无主简历与报告隔离，不自动分配给第一位注册账号；版本 2 的账号、会话及业务归属继续保留，旧邮箱验证状态不会被擅自提升。此存储仅支持单进程，不是生产数据库；文件解析文本和账号邮箱可能包含个人信息，请按真实业务需要配置保留与删除策略，备份不得提交 Git。
+
+## 权益与充值预览
+
+权益页使用 `free / basic / premium` 三档：免费体验包含模板简历；初级会员规划提供简历优化；高级会员包含初级权益，以及按专业分类的公司和岗位信息、复习资料、精选投递（智能投递）。工作台提供岗位目录筛选、个人岗位添加、收藏、复习正文阅读和投递计划/手动进度记录；默认包含覆盖现有 16 个专业的应届生准备材料和官方招聘入口；入口不等同在招岗位，当前没有自动执行投递。会员权益、价格和周期由服务端返回，客户端不能自行授予身份。已确定金额使用整数分；付费 `priceCents: null` 表示待定价，不能按零元商品处理。使用次数尚未确定，不沿用原方案配额，也不承诺无限模型调用。
+
+`membership.policy` 描述一个自然月、手动续费、上海时区及初级升高级的补差价和周期重置规则。有效初级升级时应补高级月价减初级月价；服务端确认支付成功后立即生效，从升级时刻重新计算一个自然月，原到期日和剩余天数不叠加。月末无对应日期时取次月月底同一时刻；已过期按高级新购。同档有效会员续费从原到期时刻延长一个自然月，过期后从确认付款时刻起算。详见 [会员机制](membership.md)。这些是本项目产品规则，不是对其他平台退款、抵扣政策的承诺。
+
+充值接口只接受 `{planId}`。旧 `single / weekly / monthly` 档位、无效方案及免费方案返回 400，也拒绝客户端提交价格、会员等级、有效期或支付结果等字段。合法 `basic / premium` 方案返回 `{error:{code:'PAYMENT_NOT_CONFIGURED',message:'会员价格待定，支付暂未开放，本次未扣费。'}}`（503）。当前 `membership` 仍只提供预览状态，不伪造已用或剩余额度、不执行套餐扣次和简历数量限制；没有会员持久化、支付 SDK、支付回调、订单库、发放或额度账本。规则日期计算不改变账号权益，查看方案不会写入虚假订单；页面不提供可点击的开通操作。
+
+## 百炼诊断
+
+`engine: bailian` 表示真实模型建议通过结构及来源校验；`modelRun` 固定模型名、提示词版本、工作流版本、温度、输出上限、脱敏输入 hash、告知版本与确认记录，`knowledgeScope: none` 明确尚未检索知识库。参考分、维度和关键词仍来自规则基线，前端分别标注，不将文本覆盖包装为实际能力。
+
+任务受限为本机单并发，保留最近 50 条任务元数据（新任务时清理超过一小时的记录），不是持久队列。输入绑定提交时简历修订号，生成期间或保存前发生修改会拒绝；取消在持久化提交检查前生效。失败不写报告，不修改简历，不发放或扣除业务权益；百炼供应商可能仍计入已处理请求的费用。服务端总调用超时 45 秒、自动重试次数 0、输出最多 4,000 tokens、响应最多 96 KB、脱敏输入 JSON 最多 20,000 字符。客户端轮询不超过约一分钟并提供取消；重启后任务 ID 不保留。
+
+字段白名单、长度、枚举、原文唯一定位、建议原文不重叠及待补问题中的数字风险均由服务端校验。服务端保留原句，使用模型的 `missingInformation` 问题生成 `[请填写真实…]`，不把模型改写直接当作经历。所有 AI 建议设置 `needsConfirmation: true`，必须经过用户审核，结构合法不保证事实语义正确。原报告与规则报告使用相同版本冲突、占位校验和重复应用语义。API 不返回模型密钥、AccessKey 或上游原始报错。
+
+常见模型错误：400 `AI_CONSENT_REQUIRED / MODEL_INPUT_TOO_LONG / USE_ANALYSIS_JOB`，429 `MODEL_BUSY / MODEL_RATE_LIMITED`，502 `MODEL_INVALID_OUTPUT / MODEL_AUTH_FAILED / MODEL_UNAVAILABLE / MODEL_NETWORK_ERROR`，504 `MODEL_TIMEOUT`；取消为 `ANALYSIS_CANCELLED`。无自动降级冒充成功。
+
+## 求职工作台
+
+所有 `/career` 接口要求有效会话，个人数据从会话确定归属。当前为高级会员功能预览，不授予付费身份，不接支付或外部代投。契约从 `shared/types.ts` 导出，详细范围见 [求职工作台](career-workspace.md)。
+
+| 方法 | 路径（前缀 `/api/v1`） | 输入 / 返回 |
+| --- | --- | --- |
+| GET | `/career` | `CareerWorkspace`：目录状态、岗位、纯文本资料、官方招聘入口 `portals`、本人收藏与投递记录 |
+| POST | `/career/jobs` | `CareerJobInput` → 本人添加的 `CareerJob` |
+| DELETE | `/career/jobs/:id` | 删除本人添加且无绑定投递记录的岗位；共享目录不可删 |
+| PUT | `/career/favorites/:jobId` | `{favorite:boolean}` → `{jobId,favorite}`，重复设置一致 |
+| POST | `/career/applications` | `{jobId,resumeId,resumeRevision,idempotencyKey}` → `CareerApplication`；快照和哈希由服务端固定 |
+| PUT / PATCH | `/career/applications/:id` | `{revision,status?,note?,resumeId?,resumeRevision?,confirmedManualSubmission?}` → 修改后的 `CareerApplication`；客户端统一使用微信支持的 PUT |
+| DELETE | `/career/applications/:id` | `{revision}` → `{deleted:true,id}` |
+
+创建投递计划核对岗位开放状态与截止日期、简历归属和修订号；幂等键相同但输入不同返回冲突。状态允许 `planned → applied / withdrawn`，`applied → interview / offer / rejected / withdrawn`，`interview → offer / rejected / withdrawn`，`offer → withdrawn`；拒绝和撤回为终态。记录 `applied` 必须 `confirmedManualSubmission:true`，且计划快照仍对应当前已保存简历，不含待补事实占位内容。更换绑定仅限计划状态，须先保存与审核，再另行确认已投递。所有状态事件标记 `source:user`、`submissionMode:manual`，不能视为企业反馈或系统发件成功。
+
+旧快照、旧修订号、非法状态转换、无归属资源、关闭/过期岗位等分别返回明确错误。删除原简历级联清理投递快照。个人岗位、收藏、应用及幂等记录为版本 3 单进程 JSON 的新增字段，旧版本迁移补空；没有 MySQL、生产级并发或管理上传接口。
+
+### 公开资料与招聘入口
+
+默认 `.data/career-catalog.json` 不存在时，服务端读取打包的原创公开资料；自定义目录存在时完整替换，损坏时返回 `catalogState: unavailable` 而非静默回退。显式 `careerCatalogPath` 的缺失文件保持空目录。旧目录 `version:1` 继续支持，服务端统一返回 `portals:[]`；`version:2` 必须提供 `jobs`、`materials`、`portals` 数组。
+
+`CareerRecruitmentPortal` 包含 `id`、`organization`、`majors:string[]`、`audience`、`description`、HTTPS `sourceUrl` 和 `checkedAt`。此记录只表示官方入口及本项目核查日期，不能用于创建投递计划，不能自报开放状态；用户核对具体公告并录入个人岗位后再建立计划。资料正文按纯文本阅读，`updatedAt` 为本项目整理/更新时间。`career:build` 与 `career:check` 复用服务端运行时校验，公开资料不包括私有原件或用户履历。详见 [求职资料库](career-library/README.md)。

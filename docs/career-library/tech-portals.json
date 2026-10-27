@@ -1,0 +1,38 @@
+[
+  {
+    "id": "portal-basf-graduates",
+    "organization": "巴斯夫中国",
+    "majors": ["材料、化工、能源与环境", "机械、电气与自动化", "计算机与软件"],
+    "audience": "应届毕业生与初入职场人群，具体以项目要求为准",
+    "description": "官方毕业生项目介绍与申请入口，可继续查阅化学化工、工程及相关方向的项目要求。本项目仅收录入口，不保证当前存在符合你条件的空缺；专业、毕业时间和申请安排须在官方最新页面核对。",
+    "sourceUrl": "https://www.basf.com/cn/zh/careers/graduates/grow-program",
+    "checkedAt": "2026-10-27T10:00:00+08:00"
+  },
+  {
+    "id": "portal-siemens-campus",
+    "organization": "西门子中国",
+    "majors": ["机械、电气与自动化", "计算机与软件", "材料、化工、能源与环境"],
+    "audience": "校园招聘，部分项目面向初入职场人群",
+    "description": "西门子官方校园招聘页面，包含项目说明、常见问题及官方职位申请入口。专业分类用于帮助查找，不能代替具体岗位要求；本项目不转录招聘排期，不保证当前空缺或申请资格。",
+    "sourceUrl": "https://www.siemens.com/zh-cn/company/jobs/campus-recruiting/",
+    "checkedAt": "2026-10-27T10:00:00+08:00"
+  },
+  {
+    "id": "portal-caas-recruitment",
+    "organization": "中国农业科学院",
+    "majors": ["农学、食品与自然资源", "生命科学与科研", "材料、化工、能源与环境", "数学、统计与数据分析"],
+    "audience": "含应届毕业生的公开招聘，资格以各公告为准",
+    "description": "中国农业科学院主办的人才招聘公告目录，并提供官方招聘系统入口。目录包含不同学历、研究方向与人才层次的公告，需逐项核对是否面向应届生及申请条件；目录中历史公告不表示仍在接收申请。",
+    "sourceUrl": "https://caas.cn/tzgg/rczp/index.htm",
+    "checkedAt": "2026-10-27T10:00:00+08:00"
+  },
+  {
+    "id": "portal-siemens-healthineers-careers",
+    "organization": "西门子医疗中国",
+    "majors": ["计算机与软件", "机械、电气与自动化", "生命科学与科研", "护理、公共卫生与健康"],
+    "audience": "校园与社会招聘，先核对具体职位资格",
+    "description": "官方职业页面提供校园招聘、研发、软件、工程及临床与医学等方向入口。属于医疗科技企业招聘，并非医院护理招聘；专业标签仅作探索方向。部分校园介绍夹有历史年份，实际批次、排期与资格应以职位页和官方新公告为准。",
+    "sourceUrl": "https://www.siemens-healthineers.cn/careers",
+    "checkedAt": "2026-10-27T10:00:00+08:00"
+  }
+]

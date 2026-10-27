@@ -1,0 +1,4 @@
+{
+  "pages": [{ "path": "pages/index/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "简历有方", "enablePullDownRefresh": false } }],
+  "globalStyle": { "backgroundColor": "#f5f5f7", "navigationBarTextStyle": "black" }
+}

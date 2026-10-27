@@ -1,0 +1,38 @@
+[
+  {
+    "id": "portal-ey-cn-students",
+    "organization": "安永中国",
+    "majors": ["经管、财会与金融", "语言、翻译与国际业务", "法学、公共管理与政策"],
+    "audience": "中国大陆校园招聘与实习",
+    "description": "官方学生项目介绍及申请入口，包含毕业生与实习项目说明。专业分类仅帮助发现入口，实际专业、毕业时间、岗位和截止日期须查看官方公告；不表示当前存在适合你的空缺。",
+    "sourceUrl": "https://www.ey.com/zh_cn/careers/student-programs-in-chinese-mainland",
+    "checkedAt": "2026-10-27T14:29:19+08:00"
+  },
+  {
+    "id": "portal-loreal-students",
+    "organization": "欧莱雅集团",
+    "majors": ["市场、新闻传播与产品运营", "设计、艺术与创意", "经管、财会与金融", "供应链、物流与工业工程"],
+    "audience": "学生实习与毕业生项目（全球入口）",
+    "description": "官方职业网站设有学生与毕业生、实习和管理培训项目入口，并可按地区查找。专业分类是本项目整理的检索线索，不是录用条件；中国岗位、语言和申请资格须以具体公告为准。",
+    "sourceUrl": "https://careers.loreal.com/en",
+    "checkedAt": "2026-10-27T14:29:19+08:00"
+  },
+  {
+    "id": "portal-dhl-students",
+    "organization": "DHL 集团",
+    "majors": ["供应链、物流与工业工程", "经管、财会与金融", "语言、翻译与国际业务"],
+    "audience": "学生实习与毕业生项目（全球入口）",
+    "description": "官方学生与毕业生页面介绍实习、培训及初入职场路径。各项目地区、学历、工作许可和申请时间不同，需要在官方入口重新筛选；本目录不承诺中国地区当期开放岗位。",
+    "sourceUrl": "https://careers.dhl.com/global/en/students-graduates",
+    "checkedAt": "2026-10-27T14:29:19+08:00"
+  },
+  {
+    "id": "portal-unesco-internships",
+    "organization": "联合国教科文组织（UNESCO）",
+    "majors": ["教育、师范与教学", "语言、翻译与国际业务", "法学、公共管理与政策", "心理学、社会学与社会工作"],
+    "audience": "在校生与近期毕业生实习项目",
+    "description": "官方实习项目说明页，提供申请条件、语言、费用安排和人才库流程。专业分类是相关领域的检索提示；人才库申请不等于具体实习录用，资格与具体任务须由本人核对官方要求。",
+    "sourceUrl": "https://careers.unesco.org/content/Internship-Programme/",
+    "checkedAt": "2026-10-27T14:29:19+08:00"
+  }
+]

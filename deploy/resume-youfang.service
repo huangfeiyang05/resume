@@ -1,0 +1,35 @@
+[Unit]
+Description=Youfang Resume account API
+After=network.target
+
+[Service]
+Type=simple
+User=resume-youfang
+Group=resume-youfang
+StateDirectory=resume-youfang
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/resume-youfang
+Environment=NODE_ENV=production
+Environment=API_PORT=3001
+Environment=BAILIAN_ENABLED=false
+Environment=AUTH_SECURE_COOKIES=true
+Environment=AUTH_TRUSTED_ORIGINS=https://www.youfangcv.site,https://youfangcv.site
+EnvironmentFile=-/etc/resume-youfang/runtime.env
+ExecStart=/opt/nodejs/bin/node /opt/resume-youfang/current/api/server/index.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=512M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

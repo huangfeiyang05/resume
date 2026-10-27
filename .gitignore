@@ -1,0 +1,25 @@
+node_modules/
+dist/
+# Local resumes, career catalogues, application snapshots and downloaded reference originals/text/previews.
+.data/
+# Editable and exported resume artifacts may contain personal information.
+outputs/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+.idea/
+.vscode/
+coverage/
+config/application-local.yaml
+# Deployment credentials, private SSH keys and local deployment notes.
+.deployment/
+*.pem
+*.key
+*.p12
+*.pfx
+# Original office documents may contain embedded identities or private metadata.
+/*.pages
+# The runtime brand asset is kept under src/static/brand/.
+/简历有方.png

@@ -1,0 +1,706 @@
+{
+  "schemaVersion": 1,
+  "version": "2026-10-15.v1",
+  "authorship": "project_original",
+  "status": "offline_draft_not_model_evaluated",
+  "scope": "首批16个专业大类/求职方向，不是全部教育专业目录，也不是已获录用简历集合。",
+  "factsPolicy": "栏目、问题和句式为原创写作辅助；工具、资质、日期、经历和成果只能由用户真实资料提供。",
+  "tracks": [
+    {
+      "id": "cs-software",
+      "name": "计算机与软件",
+      "majors": [
+        "计算机科学与技术",
+        "软件工程",
+        "网络工程"
+      ],
+      "roles": [
+        "开发",
+        "测试",
+        "运维"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "技术技能",
+        "项目经历",
+        "实习经历",
+        "公开成果"
+      ],
+      "focusQuestions": [
+        "你独立负责哪个模块，哪些由团队完成？",
+        "实际使用了哪些工具，为什么这样选？",
+        "交付了什么，可用什么材料验证？"
+      ],
+      "evidenceFields": [
+        "本人模块",
+        "实际技术与场景",
+        "实现或测试记录",
+        "真实交付物"
+      ],
+      "redFlags": [
+        "自动补流行技术栈",
+        "没有测试依据的性能提升",
+        "把课程作业写成商业上线"
+      ],
+      "bulletSkeleton": "围绕[真实功能或问题]，本人负责[具体模块]，使用[实际方法/工具]完成[真实交付物]；[已确认结果及验证方式，缺失则先追问]。",
+      "sourceIds": [
+        "mit-capd-computer-science-masters-sample",
+        "ucdavis-engineering-physical-sciences-sample-collection",
+        "ohio-state-data-analytics-resume-sample",
+        "ucsd-career-center-resume-guide-template",
+        "jake-mit-layout-code"
+      ]
+    },
+    {
+      "id": "data-statistics",
+      "name": "数学、统计与数据分析",
+      "majors": [
+        "数学",
+        "统计学",
+        "数据科学"
+      ],
+      "roles": [
+        "数据分析",
+        "算法研究",
+        "商业分析"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "分析技能",
+        "分析项目",
+        "实习经历",
+        "公开成果"
+      ],
+      "focusQuestions": [
+        "数据来自哪里，是否有使用授权？",
+        "你做了哪些清洗、分析或验证？",
+        "结论如何被使用，能否区分相关与因果？"
+      ],
+      "evidenceFields": [
+        "数据来源与范围",
+        "本人分析方法",
+        "验证或评估口径",
+        "报告及使用反馈"
+      ],
+      "redFlags": [
+        "编造样本量/准确率",
+        "将相关性写为因果改善",
+        "自动添加算法工具"
+      ],
+      "bulletSkeleton": "针对[真实问题]，基于[可说明来源的数据]完成[本人分析步骤]，形成[真实报告/模型/看板]；[已确认验证结果或使用反馈]。",
+      "sourceIds": [
+        "ohio-state-data-analytics-resume-sample",
+        "ucsd-career-center-resume-guide-template"
+      ]
+    },
+    {
+      "id": "mechanical-electrical",
+      "name": "机械、电气与自动化",
+      "majors": [
+        "机械工程",
+        "电气工程",
+        "自动化",
+        "电子信息"
+      ],
+      "roles": [
+        "研发",
+        "测试验证",
+        "工艺与设备"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "工程技能",
+        "工程项目",
+        "实习经历",
+        "资质与竞赛"
+      ],
+      "focusQuestions": [
+        "负责设计、制造、调试还是验证中的哪一段？",
+        "使用了哪些真实设备/软件，是否在指导下操作？",
+        "设计约束和验收材料是什么？"
+      ],
+      "evidenceFields": [
+        "个人职责",
+        "图纸/程序/测试记录",
+        "真实约束条件",
+        "验收或试验结果"
+      ],
+      "redFlags": [
+        "把仿真结果当实测",
+        "虚构设备操作权限",
+        "无依据的良率/成本改善"
+      ],
+      "bulletSkeleton": "在[真实项目及约束]下，承担[本人职责]，通过[实际设计/调试/验证方法]完成[图纸/程序/测试交付]；[可核对结果与测试条件]。",
+      "sourceIds": [
+        "mit-capd-mechanical-first-year-sample",
+        "ucdavis-engineering-physical-sciences-sample-collection",
+        "ucsd-career-center-resume-guide-template"
+      ]
+    },
+    {
+      "id": "civil-architecture",
+      "name": "土木、建筑与城市规划",
+      "majors": [
+        "土木工程",
+        "建筑学",
+        "城乡规划",
+        "工程管理"
+      ],
+      "roles": [
+        "设计",
+        "施工管理",
+        "规划研究"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "工程技能",
+        "工程或设计项目",
+        "实习经历",
+        "作品与资质"
+      ],
+      "focusQuestions": [
+        "项目是课程、竞赛还是实际工程？",
+        "参与了哪个阶段，具体负责什么图纸/记录？",
+        "作品能否公开，资质是否已取得？"
+      ],
+      "evidenceFields": [
+        "项目性质",
+        "个人负责阶段",
+        "图纸/模型/现场记录",
+        "可公开作品"
+      ],
+      "redFlags": [
+        "课程方案冒充落地工程",
+        "未经核验的注册资格",
+        "披露未授权工程资料"
+      ],
+      "bulletSkeleton": "在[真实项目类型与阶段]中，负责[本人任务]，使用[实际方法/工具]形成[图纸/模型/记录]，并根据[真实约束或反馈]完成[可验证改进]。",
+      "sourceIds": [
+        "mit-capd-environmental-masters-sample",
+        "ucdavis-engineering-physical-sciences-sample-collection",
+        "ucsd-career-center-resume-guide-template"
+      ]
+    },
+    {
+      "id": "materials-environment",
+      "name": "材料、化工、能源与环境",
+      "majors": [
+        "材料科学",
+        "化学工程",
+        "能源动力",
+        "环境工程"
+      ],
+      "roles": [
+        "实验研发",
+        "工艺",
+        "检测与环境分析"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "实验与工程技能",
+        "研究或工程项目",
+        "实习经历",
+        "公开成果"
+      ],
+      "focusQuestions": [
+        "研究对象、实验条件与本人步骤是什么？",
+        "仪器是否实际操作，谁负责监督？",
+        "结果是实测、仿真还是文献结论？"
+      ],
+      "evidenceFields": [
+        "实际实验步骤",
+        "仪器与操作边界",
+        "记录及结果口径",
+        "安全与保密约束"
+      ],
+      "redFlags": [
+        "编造材料性能与检测值",
+        "将协助写成独立主持",
+        "把文献结果写为本人实验成果"
+      ],
+      "bulletSkeleton": "围绕[真实材料/工艺/环境问题]，在[真实监督和条件]下完成[本人实验/分析步骤]，整理[实际记录或报告]；[已确认结果，说明实测或仿真]。",
+      "sourceIds": [
+        "hznu-life-environment-resume-template-2025",
+        "mit-capd-environmental-masters-sample",
+        "mit-capd-materials-chemical-phd-sample",
+        "ucdavis-engineering-physical-sciences-sample-collection",
+        "ucsd-career-center-resume-guide-template",
+        "udel-agriculture-food-environment-samples"
+      ]
+    },
+    {
+      "id": "business-finance",
+      "name": "经管、财会与金融",
+      "majors": [
+        "经济学",
+        "会计学",
+        "金融学",
+        "工商管理"
+      ],
+      "roles": [
+        "财务",
+        "审计",
+        "研究分析",
+        "咨询"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "相关实习",
+        "分析或课程项目",
+        "技能与资质",
+        "校园经历"
+      ],
+      "focusQuestions": [
+        "负责哪些分析或底稿，采用什么数据来源？",
+        "产出如何被复核和使用？",
+        "证书是通过、在考还是计划报考？"
+      ],
+      "evidenceFields": [
+        "分析范围",
+        "本人工作底稿",
+        "复核与交付",
+        "证书真实状态"
+      ],
+      "redFlags": [
+        "未经确认的收益/节约金额",
+        "实习生角色夸大为决策人",
+        "披露客户及交易资料"
+      ],
+      "bulletSkeleton": "针对[真实业务问题]，在[真实职责范围]内整理[实际数据/材料]并完成[本人分析或核对]，形成[可披露交付物]，供[实际使用场景]参考。",
+      "sourceIds": [
+        "unlv-accounting-resume-sample",
+        "gwu-international-affairs-sample-resumes",
+        "penn-consulting-undergraduate-resume-sample"
+      ]
+    },
+    {
+      "id": "marketing-communication",
+      "name": "市场、新闻传播与产品运营",
+      "majors": [
+        "市场营销",
+        "新闻传播",
+        "广告学",
+        "数字媒体"
+      ],
+      "roles": [
+        "内容运营",
+        "市场",
+        "产品助理",
+        "公关"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "相关实习",
+        "项目与作品",
+        "分析及内容技能",
+        "校园经历"
+      ],
+      "focusQuestions": [
+        "目标用户、渠道与本人负责环节是什么？",
+        "实际产出了哪些内容/活动/需求文档？",
+        "指标的时间段、统计口径及个人归因是否清楚？"
+      ],
+      "evidenceFields": [
+        "目标与用户",
+        "本人负责环节",
+        "内容/需求交付",
+        "真实反馈及指标口径"
+      ],
+      "redFlags": [
+        "编造增长与转化",
+        "把团队流量全部归于个人",
+        "只有形容词没有作品证据"
+      ],
+      "bulletSkeleton": "面向[真实用户或受众]，负责[本人内容/活动/产品环节]，通过[实际行动]交付[真实作品/文档]；依据[已确认数据或反馈]完成[真实调整]。",
+      "sourceIds": [
+        "imnu-journalism-internship-resume-template",
+        "villanova-marketing-resume-template",
+        "penn-consulting-undergraduate-resume-sample"
+      ]
+    },
+    {
+      "id": "law-public-policy",
+      "name": "法学、公共管理与政策",
+      "majors": [
+        "法学",
+        "公共管理",
+        "政治学"
+      ],
+      "roles": [
+        "法务助理",
+        "政策研究",
+        "公共事务"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "实习与实践",
+        "研究或案例项目",
+        "技能与资质",
+        "公益与校园经历"
+      ],
+      "focusQuestions": [
+        "是否仅做检索/整理，谁审核最终意见？",
+        "引用资料与检索范围是什么？",
+        "案件/客户能否披露，资格是否已取得？"
+      ],
+      "evidenceFields": [
+        "监督与分工",
+        "资料及检索方法",
+        "实际备忘录/研究成果",
+        "保密与资格状态"
+      ],
+      "redFlags": [
+        "冒称执业律师",
+        "虚构案件胜诉或政策采纳",
+        "输出当事人身份信息"
+      ],
+      "bulletSkeleton": "在[真实指导与职责边界]内，围绕[可披露议题]完成[本人检索/分析/整理]，形成[实际备忘录/报告]并交由[真实审核环节]复核。",
+      "sourceIds": [
+        "nju-law-resume-templates-2026",
+        "gwu-international-affairs-sample-resumes",
+        "berkeley-law-legal-resume-guide"
+      ]
+    },
+    {
+      "id": "languages-international",
+      "name": "语言、翻译与国际业务",
+      "majors": [
+        "外国语言文学",
+        "翻译",
+        "国际关系",
+        "国际经济与贸易"
+      ],
+      "roles": [
+        "翻译",
+        "国际项目助理",
+        "外贸支持"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "语言能力",
+        "实习与实践",
+        "翻译或跨文化项目",
+        "作品与资质"
+      ],
+      "focusQuestions": [
+        "使用哪种语言、服务什么实际场景？",
+        "语言水平由考试还是实践证明？",
+        "交付物是否经过校对，哪些内容可公开？"
+      ],
+      "evidenceFields": [
+        "语言与真实使用场景",
+        "证书及日期",
+        "个人交付物",
+        "校对与使用反馈"
+      ],
+      "redFlags": [
+        "自动写母语/精通",
+        "虚构翻译字数和客户",
+        "把旁听写成独立同传"
+      ],
+      "bulletSkeleton": "在[真实语言及业务场景]中承担[本人任务]，完成[实际译稿/沟通材料/项目支持]，通过[真实校对或反馈流程]支持[可说明的交付目标]。",
+      "sourceIds": [
+        "gwu-international-affairs-sample-resumes",
+        "berkeley-law-legal-resume-guide"
+      ]
+    },
+    {
+      "id": "education",
+      "name": "教育、师范与教学",
+      "majors": [
+        "教育学",
+        "学科教学",
+        "学前教育",
+        "师范类专业"
+      ],
+      "roles": [
+        "教师",
+        "教研助理",
+        "教育项目支持"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "教学与实习",
+        "课程或教研项目",
+        "技能与资质",
+        "校园与志愿经历"
+      ],
+      "focusQuestions": [
+        "教学对象、学科及本人负责环节是什么？",
+        "是观课、助教还是独立授课？",
+        "有什么教案、评价反馈，教师资格处于什么状态？"
+      ],
+      "evidenceFields": [
+        "真实教学角色",
+        "教学对象与方法",
+        "教案及反馈",
+        "资格真实状态"
+      ],
+      "redFlags": [
+        "凭空提高学生成绩",
+        "把助教写成主讲",
+        "泄露学生姓名与成绩"
+      ],
+      "bulletSkeleton": "针对[真实教学对象与目标]，在[真实指导关系]下承担[本人教学环节]，设计或实施[实际教案/活动]，根据[去身份化的真实反馈]完成[真实调整]。",
+      "sourceIds": [
+        "sfa-teacher-resume-sample",
+        "ucr-teacher-resume-sample-2025-26"
+      ]
+    },
+    {
+      "id": "life-sciences-research",
+      "name": "生命科学与科研",
+      "majors": [
+        "生物学",
+        "生物技术",
+        "生物信息",
+        "基础医学"
+      ],
+      "roles": [
+        "科研助理",
+        "实验技术",
+        "生物数据分析"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "研究经历",
+        "实验与分析技能",
+        "论文及公开成果",
+        "相关实习"
+      ],
+      "focusQuestions": [
+        "科学问题、本人分工与实际方法是什么？",
+        "实验是否有审批/监督，能披露什么？",
+        "论文为发表、录用、预印本还是投稿中？"
+      ],
+      "evidenceFields": [
+        "个人实验或分析步骤",
+        "记录与可复核结果",
+        "监督及保密边界",
+        "论文真实状态与署名"
+      ],
+      "redFlags": [
+        "虚构论文和作者排序",
+        "把团队发现写为个人发现",
+        "披露样本与受试者身份"
+      ],
+      "bulletSkeleton": "围绕[真实研究问题]，在[真实监督与授权范围]内完成[本人实验/分析]，形成[真实记录或成果]；[公开状态及本人贡献，未知则追问]。",
+      "sourceIds": [
+        "towson-biology-resume-sample"
+      ]
+    },
+    {
+      "id": "nursing-public-health",
+      "name": "护理、公共卫生与健康",
+      "majors": [
+        "护理学",
+        "预防医学",
+        "公共卫生",
+        "健康管理"
+      ],
+      "roles": [
+        "护理",
+        "公共卫生项目",
+        "健康研究助理"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "资质与培训",
+        "临床或公卫实践",
+        "研究与健康项目",
+        "相关技能"
+      ],
+      "focusQuestions": [
+        "处于何种实习/监督关系，实际做了什么？",
+        "证照与培训是否真实有效？",
+        "交付和反馈能否去身份化说明？"
+      ],
+      "evidenceFields": [
+        "实际实践范围",
+        "监督关系",
+        "证照与培训状态",
+        "去身份化交付/反馈"
+      ],
+      "redFlags": [
+        "冒称独立诊疗或执业",
+        "虚构治疗/干预效果",
+        "暴露患者资料"
+      ],
+      "bulletSkeleton": "在[真实机构与监督关系]下，参与[本人实际护理/公卫任务]，按照[确实遵循的流程]完成[可披露记录/教育材料/项目支持]，保留[真实反馈]。",
+      "sourceIds": [
+        "towson-nursing-resume-sample",
+        "umass-public-health-resume-samples"
+      ]
+    },
+    {
+      "id": "psychology-social-work",
+      "name": "心理学、社会学与社会工作",
+      "majors": [
+        "心理学",
+        "社会学",
+        "社会工作"
+      ],
+      "roles": [
+        "研究助理",
+        "社会工作支持",
+        "社区项目"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "实习与服务经历",
+        "研究或社区项目",
+        "技能与资质",
+        "志愿经历"
+      ],
+      "focusQuestions": [
+        "服务/研究对象与本人职责是什么？",
+        "是否在督导下工作，使用什么真实方法？",
+        "怎样在保密条件下说明过程与反馈？"
+      ],
+      "evidenceFields": [
+        "真实职责与督导",
+        "调研/服务方法",
+        "匿名化交付",
+        "证书真实状态"
+      ],
+      "redFlags": [
+        "冒称心理治疗能力",
+        "虚构干预有效率",
+        "泄露个案或研究参与者身份"
+      ],
+      "bulletSkeleton": "在[真实督导与项目范围]内，面向[去身份化对象]完成[本人调研/服务步骤]，形成[实际报告或服务材料]，并依据[真实反馈]调整[本人工作]。",
+      "sourceIds": [
+        "towson-psychology-resume-sample",
+        "nazareth-social-work-undergraduate-sample"
+      ]
+    },
+    {
+      "id": "design-arts",
+      "name": "设计、艺术与创意",
+      "majors": [
+        "视觉传达",
+        "工业设计",
+        "数字媒体艺术",
+        "美术"
+      ],
+      "roles": [
+        "视觉设计",
+        "交互设计",
+        "创意制作"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "作品与设计项目",
+        "相关实习",
+        "设计技能",
+        "展览与公开成果"
+      ],
+      "focusQuestions": [
+        "作品解决什么问题，你负责哪部分？",
+        "真实经过哪些调研、迭代或评审？",
+        "作品是否获准公开，链接能否正常访问？"
+      ],
+      "evidenceFields": [
+        "设计问题",
+        "个人分工",
+        "过程与迭代材料",
+        "获准公开的作品"
+      ],
+      "redFlags": [
+        "搬用他人作品",
+        "把练习包装成品牌委托",
+        "只追求复杂排版影响可读性"
+      ],
+      "bulletSkeleton": "针对[真实设计问题与受众]，负责[本人设计环节]，通过[实际调研/制作/迭代]形成[真实作品]，根据[真实评审或反馈]完成[有记录的调整]。",
+      "sourceIds": [
+        "towson-art-graphic-design-resume-sample"
+      ]
+    },
+    {
+      "id": "agriculture-food",
+      "name": "农学、食品与自然资源",
+      "majors": [
+        "农学",
+        "园艺",
+        "动物科学",
+        "食品科学",
+        "林学"
+      ],
+      "roles": [
+        "田间/实验研发",
+        "食品检测",
+        "质量与生产支持"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "专业技能",
+        "田间或实验项目",
+        "实习经历",
+        "公开成果与资质"
+      ],
+      "focusQuestions": [
+        "实际参与哪个田间、生产或食品实验环节？",
+        "使用哪些真实检测/记录方法？",
+        "结果属于观察、检测还是经过验证的改善？"
+      ],
+      "evidenceFields": [
+        "真实对象与作业条件",
+        "本人操作",
+        "检测与记录",
+        "安全及授权范围"
+      ],
+      "redFlags": [
+        "虚构产量/检出率改善",
+        "自动补检验证书",
+        "把观摩写成独立操作"
+      ],
+      "bulletSkeleton": "围绕[真实作物/食品/自然资源问题]，在[实际作业与监督条件]下完成[本人操作或分析]，形成[真实记录/检测材料]，说明[已核实结果及其局限]。",
+      "sourceIds": [
+        "udel-agriculture-food-environment-samples",
+        "calpoly-food-science-career-sample"
+      ]
+    },
+    {
+      "id": "supply-chain-logistics",
+      "name": "供应链、物流与工业工程",
+      "majors": [
+        "物流管理",
+        "供应链管理",
+        "工业工程",
+        "交通运输"
+      ],
+      "roles": [
+        "计划与采购支持",
+        "物流运营",
+        "流程分析"
+      ],
+      "sectionOrder": [
+        "教育经历",
+        "相关实习",
+        "运营与分析项目",
+        "工具与资质",
+        "校园经历"
+      ],
+      "focusQuestions": [
+        "参与采购、计划、仓储或运输的哪个环节？",
+        "实际处理哪些单据/数据，使用何种工具？",
+        "成本/交期指标是否有基线与个人贡献依据？"
+      ],
+      "evidenceFields": [
+        "实际业务环节",
+        "个人任务及交付",
+        "数据口径",
+        "可核对流程反馈"
+      ],
+      "redFlags": [
+        "虚构节约金额与交期提升",
+        "把课程分析当真实企业改造",
+        "披露供应商或客户敏感资料"
+      ],
+      "bulletSkeleton": "针对[真实运营问题]，承担[本人计划/单据/数据任务]，使用[实际工具和方法]完成[真实分析或操作交付]，依据[有来源的反馈/指标]说明[真实贡献]。",
+      "sourceIds": [
+        "towson-supply-chain-resume-sample"
+      ]
+    }
+  ]
+}

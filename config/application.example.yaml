@@ -1,0 +1,14 @@
+# Copy to application-local.yaml; never commit the local copy.
+bailian:
+  enabled: false
+  region: "cn-beijing"
+  workspace-id: "YOUR_WORKSPACE_ID"
+  api-host: "YOUR_WORKSPACE_ID.cn-beijing.maas.aliyuncs.com"
+  base-url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  api-key: ""
+  model: "qwen-plus-2025-12-01"
+aliyun:
+  enabled: false
+  region-id: "cn-beijing"
+  access-key-id: ""
+  access-key-secret: ""
