@@ -12,6 +12,7 @@ export class AnalysisJobs {
     const input = validateAnalysisInput(body);
     if (service.provider.name === 'bailian' && input.aiConsent !== true) throw new HttpError(400, 'AI_CONSENT_REQUIRED', '请先确认百炼个人信息处理告知。');
     const snapshot = await service.getResume(input.resumeId);
+    if (input.resumeRevision !== undefined && input.resumeRevision !== snapshot.revision) throw new HttpError(409, 'REVISION_CONFLICT', '简历版本已变化，请重新核对后再诊断。');
     if ([...this.entries.values()].some(({ job }) => job.status === 'running' || job.status === 'queued')) throw new HttpError(429, 'MODEL_BUSY', '已有诊断进行中，请完成或取消后再试。');
     // Old job metadata expires; completed reports remain in the local store.
     for (const [id, { job }] of this.entries) if (Date.now() - Date.parse(job.updatedAt) > 3_600_000) this.entries.delete(id);

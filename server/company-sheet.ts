@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { companyUrlContainsPrivateData } from './company-privacy.js';
 
 const sourceHeaders = ['更新/开启时间', '企业/招聘单位名称', '企业/单位性质', '行业分类', '招聘类型/批次', '招聘对象', '招聘岗位', '工作地点', '网申截止时间', '投递方式', '官方招聘推文', '备注'];
 const outputHeaders = ['企业名称', '企业性质', '行业', '招聘类型', '招聘对象', '招聘方向', '工作地点', '学历', '企业简介', '招聘链接'];
@@ -56,6 +57,7 @@ const clean = (value: unknown) => String(value ?? '').replace(/[\u200b-\u200d\uf
 const labels = (value: string) => [...new Set(value.split(/[\n、,，;；/|]+/).map(clean).filter(value => value && value.length <= 100))];
 function locationLabels(value: string): string[] {
   return [...new Set(labels(value).map(item => {
+    if (/不含|不包括|以外|除外|除.*外/.test(item)) return item;
     const candidate = item.replace(provinces, '');
     const city = cityNames.find(city => candidate === city || candidate.startsWith(`${city}市`) || candidate.startsWith(`${city}（`) || candidate.startsWith(`${city}(`));
     return city ?? item;
@@ -67,7 +69,7 @@ function safeUrl(value: unknown): string | undefined {
   try {
     const url = new URL(value.trim());
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || /[\s\\]/.test(value.trim())) return;
-    if ([...url.searchParams].some(([key, value]) => /^(?:password|secret|access_token|authorization|phone|mobile|email|openid)$/i.test(key) || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value))) return;
+    if (companyUrlContainsPrivateData(url.href)) return;
     return url.href;
   } catch { return; }
 }
@@ -110,7 +112,7 @@ export function prepareCompanySheet(value: unknown, linksValue: unknown) {
     const deliveryUrls = [...new Set([...(links.get(`${row}:10`) ?? []), ...((cells[9].match(/https?:\/\/[^\s<>"']+/g) ?? []).map(safeUrl).filter((value): value is string => !!value))])];
     const announcementUrls = links.get(`${row}:11`) ?? [];
     const primary = deliveryUrls[0] ?? announcementUrls[0] ?? safeUrl(cells[10]);
-    const deliveryHasContact = contact.test(cells[9]);
+    const deliveryHasContact = contact.test(cells[9]) || (cells[9].match(/https?:\/\/[^\s<>"']+/g) ?? []).some(companyUrlContainsPrivateData);
     if (deliveryHasContact) contactDeliveryRows++;
     if (cells[11]) excludedRemarkRows++;
     const additional = [...new Set([...deliveryUrls, ...announcementUrls])].filter(value => value !== primary);

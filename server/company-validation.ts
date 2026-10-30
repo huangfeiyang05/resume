@@ -1,5 +1,6 @@
 import { companyFilterKeys, type CompanyCatalogFile, type CompanyRecord, type CompanySearchInput, type CompanySource, type CompanySort } from '../shared/company.js';
 import { invalid } from './errors.js';
+import { companyUrlContainsPrivateData } from './company-privacy.js';
 
 export const companyCatalogLimits = { bytes: 20 * 1024 * 1024, records: 25_000 } as const;
 
@@ -34,6 +35,7 @@ function url(value: unknown, label: string): string {
   let parsed: URL;
   try { parsed = new URL(result); } catch { invalid(`${label}必须为有效网址。`); }
   if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) invalid(`${label}必须为无账号密码的 HTTP 或 HTTPS 地址。`);
+  if (companyUrlContainsPrivateData(parsed.href)) invalid(`${label}不能包含联系参数或私密凭据。`);
   return parsed.href;
 }
 export function validateCompanyId(value: unknown): string {

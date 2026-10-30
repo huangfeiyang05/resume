@@ -1,4 +1,5 @@
 export type IssueSeverity = 'high' | 'medium' | 'low';
+export type { CareerAssistantInput, CareerAssistantResult } from './career-assistant.js';
 export type { CompanySource, CompanyRecord, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
 export type { ResumeExportTemplate } from './resume-layout.js';
 export type ResumeExportFormat = 'docx' | 'pdf';
@@ -105,6 +106,8 @@ export interface Analysis {
 
 export interface AnalysisInput {
   resumeId: string;
+  /** Optional guard for the saved revision reviewed before starting diagnosis. */
+  resumeRevision?: number;
   jobDescription?: string;
   targetRole?: string;
   /** Required for each real-model request; never grants access to other users. */

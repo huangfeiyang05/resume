@@ -25,12 +25,12 @@ test('sheet preparation keeps the application deadline in shared prose and repor
 });
 test('sheet preparation excludes private contact channels and unsafe links without deleting the company facts', () => {
   const row = source().rows[0]; row[9] = '请联系：synthetic@example.test';
-  const { table, report } = prepareCompanySheet(source(row), [{ row: 8, column: 10, hrefs: ['mailto:synthetic@example.test', 'javascript:alert(1)', 'https://example.test/apply?email=synthetic@example.test'] }]);
+  const { table, report } = prepareCompanySheet(source(row), [{ row: 8, column: 10, hrefs: ['mailto:synthetic@example.test', 'javascript:alert(1)', 'https://example.test/apply?email=synthetic@example.test', 'https://example.test/form#email=synthetic.person%40example.test'] }]);
   assert.equal(table.rows[0][0], '合成测试企业');
   assert.equal(table.rows[0][9], '');
   assert.equal(JSON.stringify(table).includes('synthetic@example.test'), false);
   assert.equal(report.contactDeliveryRows, 1);
-  assert.equal(report.discardedLinks, 3);
+  assert.equal(report.discardedLinks, 4);
 });
 
 test('contact-only delivery instructions cannot become shared prose or invalidate an otherwise usable company row', () => {
@@ -39,6 +39,11 @@ test('contact-only delivery instructions cannot become shared prose or invalidat
   assert.equal(prepared.report.contactDeliveryRows, 1);
   assert.equal(prepared.table.rows[0][8].includes('联系方式'), false);
   assert.equal(prepared.table.rows[0][0], '合成测试企业');
+  row[9] = 'https://example.test/application#mail?email=synthetic.person%40example.test';
+  const encoded = prepareCompanySheet(source(row), []);
+  assert.equal(encoded.report.contactDeliveryRows, 1);
+  assert.equal(encoded.table.rows[0][8].includes('synthetic.person'), false);
+  assert.equal(encoded.table.rows[0][9], '');
 });
 test('sheet preparation keeps missing fields empty and never fills a missing company name from another row', () => {
   const row = source().rows[0]; row[1] = ''; row[2] = ''; row[6] = '资料未列出';
@@ -56,4 +61,6 @@ test('classification groups source industry words and city spelling variants wit
   assert.match(prepared.table.rows[0][8], /行业原文：建筑\/施工/);
   row[1] = '合成互联网企业名称'; row[3] = '';
   assert.equal(prepareCompanySheet(source(row), []).table.rows[0][2], '');
+  row[7] = '北京市以外/上海市（除外）';
+  assert.equal(prepareCompanySheet(source(row), []).table.rows[0][6], '北京市以外\n上海市（除外）');
 });

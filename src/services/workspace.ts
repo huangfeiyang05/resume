@@ -4,7 +4,7 @@ import { api, ApiError } from './api';
 import { blankResumeText, exampleResume } from '../utils/example';
 import { inputLimits } from '../../shared/limits';
 
-export type Page = 'overview' | 'discover' | 'benefits' | 'resumes' | 'diagnosis' | 'match' | 'templates' | 'career';
+export type Page = 'overview' | 'benefits' | 'resumes' | 'diagnosis' | 'match' | 'templates' | 'career';
 export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = {}) {
   // Existing anonymous development drafts are never imported into a registered account.
   const draftKey = (id: string) => options.userId ? `resume-user-${options.userId}-draft-${id || 'new'}` : `resume-draft-${id || 'new'}`;
@@ -42,6 +42,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   let listRevision = 0;
   let editorSession = 0;
   let restorationRequest = 0;
+  let assistantRequest = 0;
   function toast(message: string) { notice.value = message; clearTimeout(noticeTimeout); noticeTimeout = setTimeout(() => notice.value = '', 5000); }
   function fail(error: unknown) { toast(error instanceof Error ? error.message : '操作失败，请重试。'); }
   async function refresh() {
@@ -192,29 +193,57 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
       await select(resume.id); busy.value = ''; await diagnoseResume(false, stayOnPage);
     } catch (error) { fail(error); } finally { busy.value = ''; }
   }
-  async function diagnoseResume(withJob = false, stayOnPage = false): Promise<Analysis | undefined> {
-    if (busy.value) return;
+  async function diagnoseResume(withJob = false, stayOnPage = false, resumeRevision?: number, isActive = () => true): Promise<Analysis | undefined> {
+    if (busy.value || !isActive()) return;
     if (!selected.value) { openEditor(); return; }
     if (withJob && jobDescription.value.trim().length < 20) { toast('请粘贴至少 20 字的职位描述，包含职责和任职要求。'); return; }
     const id = selected.value.id;
     const requestId = selectionRequest;
     const reportId = ++reportRequest;
-    const input = { resumeId: id, targetRole: targetRole.value.trim(), ...(withJob ? { jobDescription: jobDescription.value.trim() } : {}) };
+    const input = { resumeId: id, targetRole: targetRole.value.trim(), ...(resumeRevision !== undefined ? { resumeRevision } : {}), ...(withJob ? { jobDescription: jobDescription.value.trim() } : {}) };
     if (!health.value) await loadHealth();
-    if (busy.value || requestId !== selectionRequest || reportId !== reportRequest || selectedId.value !== id) return;
+    if (busy.value || !isActive() || requestId !== selectionRequest || reportId !== reportRequest || selectedId.value !== id) return;
     if (!health.value) { toast('无法确认诊断服务状态，请重试连接。'); return; }
     if (health.value.aiConfigured && !await confirmModelProcessing()) return;
-    if (disposed || busy.value || requestId !== selectionRequest || reportId !== reportRequest || selectedId.value !== id) return;
+    if (disposed || busy.value || !isActive() || requestId !== selectionRequest || reportId !== reportRequest || selectedId.value !== id) return;
     busy.value = withJob ? '正在对照岗位要求' : '正在梳理简历中的关键问题';
     analysisRunning.value = !!health.value?.aiConfigured;
     try {
       const result = health.value?.aiConfigured ? await modelAnalysis(input) : await api.analyze(input);
-      if (selectedId.value === id && requestId === selectionRequest && reportId === reportRequest) {
+      if (!disposed && isActive() && selectedId.value === id && requestId === selectionRequest && reportId === reportRequest) {
         analysis.value = result; history.value = [result, ...history.value.filter(item => item.id !== result.id)];
         if (!stayOnPage) page.value = 'diagnosis';
         return result;
       }
     } catch (error) { if (!disposed) fail(error); } finally { busy.value = ''; analysisRunning.value = false; }
+  }
+  async function selectAssistantResume(action: { resumeId: string; revision: number }, stillActive = () => true): Promise<Resume | undefined> {
+    if (busy.value || !stillActive()) return;
+    if (!resumes.value.some(item => item.id === action.resumeId)) { toast('这份简历已不在当前列表中，请重新选择。'); return; }
+    const requestId = ++assistantRequest, selection = selectionRequest;
+    busy.value = '正在核对所选简历版本';
+    try {
+      const current = await api.resume(action.resumeId);
+      if (disposed || requestId !== assistantRequest || selection !== selectionRequest || !stillActive()) return;
+      const listed = resumes.value.find(item => item.id === action.resumeId);
+      if (!listed || current.id !== action.resumeId) return;
+      if (current.revision >= listed.revision) upsert(current);
+      if (current.revision !== action.revision || listed.revision > action.revision) {
+        toast('简历已更新，请回工作台重新选择最新版本后再诊断。'); return;
+      }
+      const selecting = select(current.id), expectedSelection = selectionRequest;
+      await selecting;
+      if (disposed || requestId !== assistantRequest || expectedSelection !== selectionRequest || !stillActive()) return;
+      return current;
+    } catch (error) { if (!disposed && requestId === assistantRequest) fail(error); }
+    finally { if (requestId === assistantRequest && busy.value === '正在核对所选简历版本') busy.value = ''; }
+  }
+  async function analyzeFromAssistant(action: { resumeId: string; revision: number; targetRole: string }, stillActive = () => true): Promise<Analysis | undefined> {
+    if (!await selectAssistantResume(action, stillActive) || !stillActive()) return;
+    targetRole.value = action.targetRole.trim();
+    // Free-form job preferences and historical company text are not a verified JD.
+    jobDescription.value = '';
+    return diagnoseResume(false, true, action.revision, stillActive);
   }
   async function applySuggestion(replacement: string, confirmed: boolean) {
     if (!analysis.value || !activeSuggestion.value || busy.value || !selected.value) return;
@@ -281,7 +310,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   }
   if (options.autoLoad !== false) {
     onMounted(refresh);
-    onUnmounted(() => { disposed = true; void cancelAnalysis(); clearTimeout(noticeTimeout); ++selectionRequest; ++reportRequest; ++refreshRequest; ++editorSession; ++restorationRequest; });
+    onUnmounted(() => { disposed = true; void cancelAnalysis(); clearTimeout(noticeTimeout); ++selectionRequest; ++reportRequest; ++refreshRequest; ++editorSession; ++restorationRequest; ++assistantRequest; });
   }
-  return { health, aiConsent, analysisRunning, cancelAnalysis, loadHealth, page, resumes, selectedId, selected, analysis, history, busy, loading, loadError, notice, editorOpen, editorId, editorTitle, editorRole, editorText, editorBaseRevision, jobDescription, targetRole, activeSuggestion, refresh, select, openEditor, saveDraft, reloadEditor, saveEditor, useExample, diagnoseResume, applySuggestion, acceptRestoredResume, remove, toast, fail };
+  return { health, aiConsent, analysisRunning, cancelAnalysis, loadHealth, page, resumes, selectedId, selected, analysis, history, busy, loading, loadError, notice, editorOpen, editorId, editorTitle, editorRole, editorText, editorBaseRevision, jobDescription, targetRole, activeSuggestion, refresh, select, openEditor, saveDraft, reloadEditor, saveEditor, useExample, diagnoseResume, selectAssistantResume, analyzeFromAssistant, applySuggestion, acceptRestoredResume, remove, toast, fail };
 }

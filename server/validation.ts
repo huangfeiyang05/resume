@@ -46,10 +46,11 @@ export function validateResumeUpdate(value: unknown): ResumeUpdateInput {
 }
 
 export function validateAnalysisInput(value: unknown): AnalysisInput {
-  const input = object(value, ['resumeId', 'jobDescription', 'targetRole', 'aiConsent']);
+  const input = object(value, ['resumeId', 'resumeRevision', 'jobDescription', 'targetRole', 'aiConsent']);
   if (Object.hasOwn(input, 'aiConsent') && typeof input.aiConsent !== 'boolean') invalid('aiConsent 必须是布尔值。');
   return {
     resumeId: string(input.resumeId, '简历 ID', 80),
+    ...(Object.hasOwn(input, 'resumeRevision') ? { resumeRevision: revision(input.resumeRevision) } : {}),
     ...(Object.hasOwn(input, 'aiConsent') ? { aiConsent: input.aiConsent as boolean } : {}),
     ...(Object.hasOwn(input, 'jobDescription') ? { jobDescription: string(input.jobDescription, '岗位描述', limits.jobDescription, true) } : {}),
     ...(Object.hasOwn(input, 'targetRole') ? { targetRole: string(input.targetRole, '目标岗位', limits.targetRole, true) } : {}),

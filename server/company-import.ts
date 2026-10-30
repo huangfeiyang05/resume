@@ -4,6 +4,7 @@ import { copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } f
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import type { CompanyCatalogFile, CompanyRecord } from '../shared/company.js';
 import { validateCompanyCatalog, validateCompanyRecord } from './company-validation.js';
+import { companyUrlContainsPrivateData } from './company-privacy.js';
 
 const maxBytes = 20 * 1024 * 1024;
 const maxRows = 25_000;
@@ -34,15 +35,7 @@ const contactHeader = /联系人|联系方式|联系电话|手机|电话|邮箱|
 const contactContent = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d(?:[\t -]?\d){8}(?!\d)|(?<!\d)0\d{2,3}[-\s]?\d{7,8}(?!\d)|(?:联系电话|联系方式|联系人|微信号|微信群|群号|QQ号)\s*[:：]?\s*\S+/i;
 
 function urlHasContact(value: string): boolean {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    if (url.username || url.password) return true;
-    let path = url.pathname;
-    try { path = decodeURIComponent(path); } catch { /* Query checks still apply to a malformed path escape. */ }
-    if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(path)) return true;
-    return [...url.searchParams].some(([key, item]) => /^(?:e-?mail|phone|mobile|tel|contact|wechat|weixin|qq)$/i.test(key) && !!item || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(item));
-  } catch { return false; } // The record validator separately rejects invalid links.
+  return companyUrlContainsPrivateData(value);
 }
 
 function textHasContact(value: string): boolean {

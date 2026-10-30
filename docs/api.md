@@ -1,5 +1,11 @@
 # 项目 API 契约
 
+## 工作台求职助手
+
+`POST /api/v1/career/assistant` 要求有效会话，请求为 `{resumeId?,resumeRevision?,requirements,message,history?}`。选择简历时必须同时提供 ID 和修订号；服务端从本人资料读取正文，检查版本并返回输入 hash 与有限的文本依据，不能由客户端传入另一人的正文或会员身份。对话历史仅用于本次请求，不写入简历或账号数据库。
+
+响应 `engine: local-rules`，包含文字回答、识别的查询条件、未能核验的要求、最多 5 条企业历史资料及最多 5 条本人目标岗位。多轮对话可调整地区等已支持条件；薪资、当前在招等没有数据支撑的要求明确保留为待核对，不给招聘匹配率。空库、损坏目录、过期简历和无匹配分别处理，不静默放宽条件制造结果。修改请求只返回版本绑定的 `analyze-resume` 操作，用户点击后调用原诊断流程，再逐条审核与确认应用；助手接口本身不修改任何简历，不调用真实模型。
+
 ## 企业资料查询
 
 `GET /api/v1/career/companies` 与 `GET /api/v1/career/companies/:id` 均要求服务端有效会话。当前返回 `access: authenticated-test`，按用户要求在测试阶段共享企业参考资料；后续会员等级由服务端权益接入，客户端不能自报身份、数据文件路径或会员等级。没有普通用户可调用的企业目录写入接口。
@@ -64,13 +70,15 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/resumes/:id/versions/:revision` | 返回完整 `ResumeVersion`，包括当时保存的 `snapshot`、来源、内容 hash 和时间 |
 | POST | `/resumes/:id/versions/:revision/restore` | `{revision,confirmed,idempotencyKey}` → `{resume,restoredFromRevision,alreadyRestored,noChange}`；路径为历史修订号，请求体为当前修订号 |
 | POST | `/resumes/:id/export` | `{revision, format: "docx" \| "pdf", template: "minimal" \| "modern" \| "business"}` → 200 + `ResumeExportFile`：`{revision, format, template, resumeId, fileName, mimeType, contentBase64}`；正文由服务端读取，文件上限 8 MB |
-| POST | `/analyses` | 规则模式同步诊断；启用百炼时返回 `USE_ANALYSIS_JOB` |
-| POST | `/analysis-jobs` | `{resumeId, jobDescription?, targetRole?, aiConsent?}` → 202 + 任务；百炼模式必须 `aiConsent: true` |
+| POST | `/analyses` | 接收同下方任务的输入，规则模式同步诊断；启用百炼时返回 `USE_ANALYSIS_JOB` |
+| POST | `/analysis-jobs` | `{resumeId, resumeRevision?, jobDescription?, targetRole?, aiConsent?}` → 202 + 任务；百炼模式必须 `aiConsent: true` |
 | GET | `/analysis-jobs/:id` | `queued / running / completed / failed / cancelled`；成功后含 `analysisId`，失败含安全错误 |
 | DELETE | `/analysis-jobs/:id` | 请求取消，运行中由执行路径确认；已经提交持久化的任务可能返回 completed |
 | GET | `/analyses/:id` | 返回本人诊断报告 |
 | GET | `/resumes/:id/analyses` | 返回本人该简历的诊断历史 |
 | POST | `/analyses/:id/suggestions/:suggestionId/apply` | `{confirmed?, replacement?, revision}` → `{resume,analysis,alreadyApplied}` |
+
+诊断输入可选的 `resumeRevision` 是本次预期的已保存版本，提供时须为正整数；同步诊断、任务入队及执行前均检查，过期返回 `REVISION_CONFLICT`，不会调用 provider 或写入报告。旧客户端未传时继续分析当前保存版本。
 
 `revision` 从 1 开始。正文、名称或目标岗位实际改变时递增；完全相同的更新不递增。编辑和采用建议必须携带读取时的 `revision`，缺失返回 400，版本不匹配返回 409，避免覆盖新内容。已经采用的同一建议可携带原修订号重试，仍返回 `alreadyApplied: true`，不会重复修改。报告中的 `resumeRevision` 表示诊断所依据的版本，`inputSnapshot` 固定当时的正文、目标岗位和 JD，`inputHash` 为此快照的 SHA-256；采用建议会更新简历，报告分数仍属于原版本，需重新诊断获取新分数。
 

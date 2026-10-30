@@ -30,6 +30,7 @@ try {
     return result.headers.get('set-cookie').split(';')[0];
   }
   for (const path of ['/resumes', '/career', '/career/companies']) assert.equal((await request(path)).status, 401);
+  assert.equal((await request('/career/assistant', 'POST', { requirements: '', message: '查找企业' })).status, 401);
   checks.push('private-routes-require-session');
   const owner = await account(), other = await account();
   const companies = await request('/career/companies', 'GET', undefined, owner);
@@ -56,8 +57,21 @@ try {
   }, owner);
   assert.equal(created.status, 201);
   const original = created.body.data, path = `/resumes/${original.id}`;
+  const assistantInput = { resumeId: original.id, resumeRevision: 1, requirements: '杭州', message: '优化简历' };
+  const assistant = await request('/career/assistant', 'POST', assistantInput, owner);
+  assert.equal(assistant.status, 200);
+  assert.equal(assistant.body.data.engine, 'local-rules');
+  assert.equal(assistant.body.data.resume.revision, 1);
+  assert.equal(assistant.body.data.action.type, 'analyze-resume');
+  assert.equal(assistant.body.data.catalogState, 'empty');
+  assert.deepEqual(assistant.body.data.companies, []);
+  assert.deepEqual((await request(path, 'GET', undefined, owner)).body.data, original);
+  assert.equal((await request('/career/assistant', 'POST', assistantInput, other)).status, 404);
   assert.equal((await request(path, 'PUT', { title: '缺少版本' }, owner)).status, 400);
   assert.equal((await request(path, 'PUT', { title: '合成编辑版本', revision: 1 }, owner)).status, 200);
+  assert.equal((await request('/career/assistant', 'POST', assistantInput, owner)).status, 409);
+  assert.equal((await request('/analyses', 'POST', { resumeId: original.id, resumeRevision: 1 }, owner)).status, 409);
+  checks.push('local-assistant-owned-resume-no-mutation-and-revision-guard');
   assert.equal((await request(path, 'PUT', { title: '过期请求', revision: 1 }, owner)).status, 409);
   assert.equal((await request(`${path}/versions`, 'GET', undefined, other)).status, 404);
   const restore = { revision: 2, confirmed: true, idempotencyKey: `deploy-${randomUUID()}` };

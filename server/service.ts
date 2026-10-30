@@ -110,6 +110,7 @@ export class ResumeService {
     const input = validateAnalysisInput(body);
     if (this.provider.name === 'bailian' && input.aiConsent !== true) throw new HttpError(400, 'AI_CONSENT_REQUIRED', '请先确认将脱敏后的简历及岗位要求发送至阿里云百炼进行分析。');
     const currentResume = await this.getResume(input.resumeId);
+    if (input.resumeRevision !== undefined && input.resumeRevision !== currentResume.revision) throw new HttpError(409, 'REVISION_CONFLICT', '简历版本已变化，请重新核对后再诊断。');
     const resume = snapshot ?? currentResume;
     if (resume.id !== input.resumeId || currentResume.revision !== resume.revision) throw new HttpError(409, 'REVISION_CONFLICT', '任务提交后简历已变化，请重新诊断。');
     const analysis = await this.provider.analyze({ resume, jobDescription: input.jobDescription, targetRole: input.targetRole ?? resume.targetRole, signal });

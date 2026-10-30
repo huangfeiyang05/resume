@@ -413,3 +413,85 @@ test('the compact AI notice can be declined and an accepted page session does no
   assert.equal(calls, 2);
   assert.equal(notices, 2, 'one declined notice and one accepted notice; subsequent request reuses this page-session consent');
 });
+
+test('assistant diagnosis binds the selected saved revision and preserves unsaved edits for review', async t => {
+  const { w, storage } = fixture(t);
+  await w.refresh();
+  w.openEditor(w.selected.value);
+  w.editorText.value = '用户还未保存的真实项目贡献，不应被助手或诊断覆盖。';
+  w.saveDraft();
+  const draft = structuredClone(storage.get('resume-draft-A'));
+  api.resume = async id => resume(id);
+  let submitted: AnalysisInput | undefined;
+  api.analyze = async input => { submitted = input; return report(resume('B'), 'assistant-report'); };
+  w.jobDescription.value = '上一岗位的职位要求，不能被当作本次助手诊断的JD。';
+  const result = await w.analyzeFromAssistant({ resumeId: 'B', revision: 1, targetRole: '后端工程师' });
+  assert.deepEqual(submitted, { resumeId: 'B', resumeRevision: 1, targetRole: '后端工程师' });
+  assert.equal(result?.id, 'assistant-report');
+  assert.equal(w.selectedId.value, 'B');
+  assert.equal(w.jobDescription.value, '');
+  assert.equal(w.editorOpen.value, true);
+  assert.deepEqual(storage.get('resume-draft-A'), draft);
+  assert.match(w.editorText.value, /还未保存/);
+  assert.equal(w.selected.value?.revision, 1, 'diagnosis must not apply a change');
+});
+
+test('assistant diagnosis rejects a stale action before starting analysis and refreshes the listed revision', async t => {
+  const { w } = fixture(t);
+  await w.refresh();
+  api.resume = async id => resume(id, 2);
+  let calls = 0;
+  api.analyze = async () => { calls++; return report(resume('A')); };
+  assert.equal(await w.analyzeFromAssistant({ resumeId: 'A', revision: 1, targetRole: '后端工程师' }), undefined);
+  assert.equal(calls, 0);
+  assert.equal(w.selected.value?.revision, 2);
+  assert.match(w.notice.value, /简历已更新/);
+  assert.equal(w.busy.value, '');
+});
+
+test('leaving the assistant or changing resume while its version check is pending cannot start a diagnosis', async t => {
+  const { w } = fixture(t);
+  await w.refresh();
+  const pending = deferred<Resume>();
+  api.resume = () => pending.promise;
+  let calls = 0;
+  api.analyze = async () => { calls++; return report(resume('A')); };
+  let active = true;
+  const starting = w.analyzeFromAssistant({ resumeId: 'A', revision: 1, targetRole: '后端工程师' }, () => active);
+  active = false;
+  pending.resolve(resume('A'));
+  assert.equal(await starting, undefined);
+  const next = deferred<Resume>();
+  api.resume = () => next.promise;
+  const changing = w.analyzeFromAssistant({ resumeId: 'A', revision: 1, targetRole: '后端工程师' });
+  await w.select('B');
+  next.resolve(resume('A'));
+  assert.equal(await changing, undefined);
+  assert.equal(w.selectedId.value, 'B');
+  assert.equal(calls, 0);
+  assert.equal(w.busy.value, '');
+});
+
+test('leaving the assistant while health or model consent is pending cannot submit a later diagnosis', async t => {
+  const { w } = fixture(t);
+  await w.refresh();
+  api.resume = async id => resume(id);
+  let active = true, submissions = 0;
+  const pendingHealth = deferred<NonNullable<typeof w.health.value>>(), healthStarted = deferred<void>();
+  w.health.value = undefined;
+  api.health = () => { healthStarted.resolve(); return pendingHealth.promise; };
+  api.analyze = async () => { submissions++; return report(resume('A')); };
+  api.startAnalysis = async () => { submissions++; throw new Error('No model job should be started after leaving.'); };
+  const starting = w.analyzeFromAssistant({ resumeId: 'A', revision: 1, targetRole: '后端' }, () => active);
+  await healthStarted.promise; active = false;
+  pendingHealth.resolve({ status: 'ok', analysisEngine: 'rules', aiConfigured: false, persistence: 'local-json' });
+  assert.equal(await starting, undefined); assert.equal(submissions, 0);
+  active = true;
+  w.health.value = { status: 'ok', analysisEngine: 'bailian', aiConfigured: true, persistence: 'local-json' };
+  const consent = deferred<void>();
+  let confirm!: () => void;
+  (globalThis as any).uni.showModal = (options: any) => { confirm = () => options.success({ confirm: true }); consent.resolve(); };
+  const consenting = w.analyzeFromAssistant({ resumeId: 'A', revision: 1, targetRole: '后端' }, () => active);
+  await consent.promise; active = false; confirm();
+  assert.equal(await consenting, undefined); assert.equal(submissions, 0);
+});

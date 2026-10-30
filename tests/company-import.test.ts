@@ -112,7 +112,7 @@ test('large supplied location lists and vacancy IDs in reference URLs remain rea
   assert.equal(result.report.reviewRows.length, 0);
   assert.equal(result.catalog.records[0].locations.length, 107);
   assert.match(result.catalog.records[0].summary, /13800138000/);
-  for (const link of ['https://jobs.example.test/apply?email=private.person@example.test', 'https://user:secret@jobs.example.test/apply']) {
+  for (const link of ['https://jobs.example.test/apply?email=private.person@example.test', 'https://user:secret@jobs.example.test/apply', 'https://example.test/form#email=synthetic.person%40example.test', 'https://example.test/form#phone=13800138000']) {
     const rejected = prepare([{ 公司名称: '合成联系参数行', 企业简介: `详情 ${link}` }]);
     assert.equal(rejected.catalog.records.length, 0);
     assert.equal(rejected.report.reviewRows[0].code, 'CONTACT_CONTENT');
