@@ -4,11 +4,11 @@
 
 `GET /api/v1/career/companies` 与 `GET /api/v1/career/companies/:id` 均要求服务端有效会话。当前返回 `access: authenticated-test`，按用户要求在测试阶段共享企业参考资料；后续会员等级由服务端权益接入，客户端不能自报身份、数据文件路径或会员等级。没有普通用户可调用的企业目录写入接口。
 
-列表参数：`q`（最多 200 字、20 个空格分隔关键词）、`page`（默认 1）、`pageSize`（默认 20，上限 50）、`sort`（`relevance / name / updated`）。多选筛选使用重复参数：`industries`、`natures`、`locations`、`directions`、`educationLevels`、`recruitmentTypes`、`cohorts`，每维最多 30 项。关键词之间 AND，同维度 OR，不同维度 AND；企业全称/来源别名优先，企业性质关键词的同义词扩展仅作用于来源性质，不按名称猜测。未知参数、重复标量、非法分页或外部身份声明返回 400。
+列表参数：`q`（最多 200 字、20 个空格分隔关键词）、`page`（默认 1）、`pageSize`（默认 20，上限 50）、`sort`（`relevance / name / updated`）。多选筛选使用重复参数：`industries`、`natures`、`locations`、`directions`、`educationLevels`、`recruitmentTypes`、`cohorts`，每维最多 30 项。关键词之间 AND，同维度 OR，不同维度 AND；企业全称/别名优先，企业性质关键词的同义词扩展仅作用于企业性质原文，不按名称猜测。未知参数、重复标量、非法分页或外部身份声明返回 400。
 
-返回 `CompanySearchResult` 包含目录状态/版本、分页/总数、`items` 及 `facets`；每个命中项保留来源信息并给出 `matchedFields`。统计单位是资料记录，不是工商主体数。某一维度的 facet 数量计算时忽略该维度自身选择，保留关键词和其他维度，以支持继续多选；其数量可能大于当前总数。`updated` 指本项目整理时间，不是招聘发布时间。详情返回 `CompanyRecord`，不包含原始文件路径、私人联系人、账号信息或导入审核原件。
+返回 `CompanySearchResult` 包含目录状态/版本、分页/总数、`items` 及 `facets`；每个命中项返回经整理的企业资料字段与 `matchedFields`。统计单位是资料记录，不是工商主体数。某一维度的 facet 数量计算时忽略该维度自身选择，保留关键词和其他维度，以支持继续多选；其数量可能大于当前总数。`updated` 指本项目整理时间，不是招聘发布时间。详情返回 `CompanyRecord`，不包含原始文件路径、私人联系人、账号信息或导入审核原件；来源平台名称与链接不进入响应。
 
-缺失文件返回 `catalogState: empty`，损坏文件返回 `unavailable`，不伪装成正常无结果；详情在损坏时为 503 `COMPANY_CATALOG_UNAVAILABLE`，不存在为 404。正常目录无匹配结果仍为 `ready` 且 `total: 0`。目录每次替换后按可信路径与文件签名刷新缓存，所有读取均经过运行时校验。来源资料与实际岗位分开，不能从企业记录直接建立投递计划。字段、数据位置及历史来源说明见 [企业资料库](company-library.md)。
+缺失文件返回 `catalogState: empty`，损坏文件返回 `unavailable`，不伪装成正常无结果；详情在损坏时为 503 `COMPANY_CATALOG_UNAVAILABLE`，不存在为 404。正常目录无匹配结果仍为 `ready` 且 `total: 0`。目录每次替换后按可信路径与文件签名刷新缓存，所有读取均经过运行时校验。企业资料与实际岗位分开，不能从企业记录直接建立投递计划。字段、数据位置及整理边界见 [企业资料库](company-library.md)。
 
 开发服务默认监听 `http://127.0.0.1:3001`，H5 通过 Vite `/api` 代理访问；服务器由 Nginx 提供同源 HTTPS 反向代理。所有成功响应为 `{ "data": ... }`，错误为 `{ "error": { "code": "...", "message": "..." } }`。共享类型见 `shared/types.ts` 与 `shared/auth.ts`。当前实现邮箱账号、服务端会话和业务资源用户归属检查，仍使用单进程 JSON 存储，尚未迁移 MySQL、接入支付或完成生产能力验收。
 

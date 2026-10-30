@@ -234,7 +234,8 @@ export function prepareCompanyImport(input: PrepareCompanyImportInput): { catalo
     const identity = hash(canonicalContent(content));
     let record: CompanyRecord;
     try {
-      record = validateCompanyRecord({ ...content, id: `company-${identity.slice(0, 24)}`, updatedAt: importedAt, sources: [{ title, ...(sourceUrl ? { url: sourceUrl } : {}), sheet, rows: [row.row], snapshotHash, importedAt }] });
+      // The shared catalog keeps a neutral source label for auditing; platform names and links stay in the restricted report only.
+      record = validateCompanyRecord({ ...content, id: `company-${identity.slice(0, 24)}`, updatedAt: importedAt, sources: [{ title, sheet, rows: [row.row], snapshotHash, importedAt }] });
     } catch { report.reviewRows.push({ row: row.row, code: 'INVALID_RECORD', fields: [...indexes.keys()] }); continue; }
     report.acceptedRows++;
     const previous = records.get(identity);

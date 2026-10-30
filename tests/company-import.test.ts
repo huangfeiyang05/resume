@@ -42,6 +42,8 @@ test('company CSV import keeps logical sheet row locations, quoted text, supplie
   assert.deepEqual(record.recruitmentTypes, ['秋招']);
   assert.deepEqual(record.cohorts, ['2026届']);
   assert.equal(record.verification, 'source-provided');
+  assert.equal('url' in record.sources[0], false, 'shared catalog does not expose source links');
+  assert.equal(result.report.sourceUrl, source.sourceUrl, 'restricted report keeps the source link for audit');
   assert.equal('availability' in record, false, 'old dates do not turn into a current hiring claim');
   assert.deepEqual(result.report.unmappedColumns, ['截止日期']);
   assert.deepEqual(result.report.excludedContactColumns, ['联系人']);

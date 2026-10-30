@@ -12,7 +12,7 @@ const { query, sort, filters, result, loading, error, notice, pages, filterCount
 defineExpose({ reload: c.reload });
 const showFilters = ref(false), expanded = ref<CompanyFilterKey[]>([]);
 const labels: Record<CompanyFilterKey, string> = { industries: '行业', natures: '企业性质', locations: '地区', directions: '岗位方向', educationLevels: '学历', recruitmentTypes: '招聘批次', cohorts: '招聘对象' };
-const matchLabels: Record<CompanyMatchField, string> = { name: '企业名称', aliases: '来源别名', industries: '行业', nature: '企业性质', locations: '地区', directions: '岗位方向', educationLevels: '学历', recruitmentTypes: '招聘批次', cohorts: '招聘对象', summary: '来源说明' };
+const matchLabels: Record<CompanyMatchField, string> = { name: '企业名称', aliases: '别名', industries: '行业', nature: '企业性质', locations: '地区', directions: '岗位方向', educationLevels: '学历', recruitmentTypes: '招聘批次', cohorts: '招聘对象', summary: '资料说明' };
 const sorts: Array<{ value: CompanySort; label: string }> = [{ value: 'relevance', label: '文本相关' }, { value: 'name', label: '企业名称' }, { value: 'updated', label: '资料整理时间' }];
 const sortIndex = computed(() => Math.max(0, sorts.findIndex(item => item.value === sort.value)));
 const activeFilters = computed(() => companyFilterKeys.flatMap(key => filters.value[key].map(value => ({ key, value }))));
@@ -27,14 +27,14 @@ function toggleExpanded(key: CompanyFilterKey) { expanded.value = expanded.value
 function pickSort(event: { detail: { value: string | number } }) { void c.setSort(sorts[Number(event.detail.value)]?.value ?? 'relevance'); }
 function date(value: string) { return new Date(Date.parse(value) + 8 * 3600_000).toISOString().slice(0, 10); }
 function copy(value: string) {
-  uni.setClipboardData({ data: value, success: () => { notice.value = '链接已复制，请自行核对来源与当前招聘安排。'; }, fail: () => { notice.value = '复制失败，可手动复制详情中的网址。'; } });
+  uni.setClipboardData({ data: value, success: () => { notice.value = '链接已复制，请自行核对链接内容与当前招聘安排。'; }, fail: () => { notice.value = '复制失败，可手动复制详情中的网址。'; } });
 }
 function addJob() { if (selected.value) { emit('addJob', selected.value); c.closeDetail(); } }
 </script>
 
 <template>
   <view class="company-library">
-    <view class="company-caption">测试阶段向登录用户开放。资料按来源整理，招聘对象、批次和日期需以企业最新公告核对。</view>
+    <view class="company-caption">测试阶段向登录用户开放。资料据历史招聘信息整理，招聘对象、批次和日期需以企业最新公告核对。</view>
     <view class="glass-panel company-search">
       <view class="company-search-input"><AppIcon name="search" :size="18" /><input v-model="query" :maxlength="200" placeholder="企业名，或多个关键词，如 北京 国企 软件" aria-label="企业查询关键词" confirm-type="search" @confirm="c.search" /></view>
       <button class="button primary" :disabled="loading" @click="c.search" role="button" tabindex="0">查询</button>
@@ -45,7 +45,7 @@ function addJob() { if (selected.value) { emit('addJob', selected.value); c.clos
       <button class="text-button" :disabled="loading" @click="c.clear" role="button" tabindex="0">清除条件</button>
     </view>
     <view v-if="showFilters" class="glass-panel company-filters">
-      <text class="company-filter-help">同一分类可多选，不同分类共同筛选；关键词需全部命中。没有来源信息的分类保留为空。</text>
+      <text class="company-filter-help">同一分类可多选，不同分类共同筛选；关键词需全部命中。没有明确分类信息的保留为空。</text>
       <view v-for="key in companyFilterKeys" :key="key" class="company-filter-row"><text class="company-filter-label">{{ labels[key] }}</text><view class="company-filter-options">
         <button v-for="item in options(key)" :key="item.value" class="company-chip" :class="{ active: filters[key].includes(item.value) }" :aria-pressed="filters[key].includes(item.value)" :disabled="loading" @click="c.toggleFilter(key, item.value)" role="button" tabindex="0">{{ item.value }} <text>{{ item.count }}</text></button>
         <text v-if="!options(key).length" class="company-muted">暂无分类信息</text>
@@ -62,19 +62,18 @@ function addJob() { if (selected.value) { emit('addJob', selected.value); c.clos
       <view v-else-if="!result.items.length" class="glass-panel company-empty"><text>没有符合条件的企业资料</text><text class="company-caption">可减少关键词，或取消部分分类条件。</text><button class="button secondary" @click="c.clear" role="button" tabindex="0">清除筛选</button></view>
       <template v-else>
         <text class="company-count">共 {{ result.total }} 条企业招聘资料 · 第 {{ result.page }} / {{ pages }} 页</text>
-        <view class="company-grid"><button v-for="item in result.items" :key="item.id" class="glass-panel company-card" @click="c.openCompany(item.id)" role="button" tabindex="0"><view class="company-card-heading"><text>{{ item.name }}</text><AppIcon name="chevron" :size="14" /></view><view class="company-tags"><text v-if="item.nature">{{ item.nature }}</text><text v-for="industry in item.industries.slice(0, 2)" :key="industry">{{ industry }}</text><text v-for="location in item.locations.slice(0, 3)" :key="location">{{ location }}</text></view><text v-if="item.directions.length" class="company-body">{{ item.directions.slice(0, 8).join('、') }}</text><text v-if="item.summary" class="company-excerpt">{{ item.summary }}</text><text v-if="item.matchedFields.length" class="company-match">关键词命中：{{ item.matchedFields.map(field => matchLabels[field]).join('、') }}</text><text class="company-source">{{ item.sources[0].title }} · 整理 {{ date(item.updatedAt) }}</text></button></view>
+        <view class="company-grid"><button v-for="item in result.items" :key="item.id" class="glass-panel company-card" @click="c.openCompany(item.id)" role="button" tabindex="0"><view class="company-card-heading"><text>{{ item.name }}</text><AppIcon name="chevron" :size="14" /></view><view class="company-tags"><text v-if="item.nature">{{ item.nature }}</text><text v-for="industry in item.industries.slice(0, 2)" :key="industry">{{ industry }}</text><text v-for="location in item.locations.slice(0, 3)" :key="location">{{ location }}</text></view><text v-if="item.directions.length" class="company-body">{{ item.directions.slice(0, 8).join('、') }}</text><text v-if="item.summary" class="company-excerpt">{{ item.summary }}</text><text v-if="item.matchedFields.length" class="company-match">关键词命中：{{ item.matchedFields.map(field => matchLabels[field]).join('、') }}</text><text class="company-source">资料整理于 {{ date(item.updatedAt) }}</text></button></view>
         <view class="company-pagination"><button class="button secondary" :disabled="result.page <= 1" @click="c.goToPage(result.page - 1)" role="button" tabindex="0">上一页</button><text>{{ result.page }} / {{ pages }}</text><button class="button secondary" :disabled="result.page >= pages" @click="c.goToPage(result.page + 1)" role="button" tabindex="0">下一页</button></view>
       </template>
     </template>
-    <AppModal v-if="selectedId" :title="selected?.name || '企业资料'" subtitle="来源资料供查询参考，实际招聘条件与日期需重新核对。" wide @close="c.closeDetail">
-      <view v-if="detailLoading" class="company-empty" role="status"><text>正在读取来源详情…</text></view>
+    <AppModal v-if="selectedId" :title="selected?.name || '企业资料'" subtitle="历史招聘资料供查询参考，实际招聘条件与日期需重新核对。" wide @close="c.closeDetail">
+      <view v-if="detailLoading" class="company-empty" role="status"><text>正在读取企业详情…</text></view>
       <view v-else-if="detailError" class="company-empty" role="alert"><text>{{ detailError }}</text><button class="button secondary" @click="c.openCompany(selectedId)" role="button" tabindex="0">重试</button></view>
       <template v-else-if="selected">
-        <view class="company-detail-fields"><view v-for="key in companyFilterKeys" :key="key"><text>{{ labels[key] }}</text><text>{{ key === 'natures' ? selected.nature || '来源未提供' : selected[key].join('、') || '来源未提供' }}</text></view></view>
-        <text v-if="selected.aliases.length" class="company-body">来源别名：{{ selected.aliases.join('、') }}</text>
+        <view class="company-detail-fields"><view v-for="key in companyFilterKeys" :key="key"><text>{{ labels[key] }}</text><text>{{ key === 'natures' ? selected.nature || '未提供' : selected[key].join('、') || '未提供' }}</text></view></view>
+        <text v-if="selected.aliases.length" class="company-body">别名：{{ selected.aliases.join('、') }}</text>
         <text v-if="selected.summary" class="company-prose">{{ selected.summary }}</text>
         <view v-if="selected.recruitmentUrl" class="company-detail-source"><text>招聘资料链接</text><text class="company-url" selectable>{{ selected.recruitmentUrl }}</text><button class="text-button" @click="copy(selected.recruitmentUrl)" role="button" tabindex="0">复制招聘链接<AppIcon name="copy" :size="14" /></button></view>
-        <view v-for="(source, index) in selected.sources" :key="`${source.snapshotHash}:${index}`" class="company-detail-source"><text>{{ source.title }}</text><text>{{ source.sheet || '原始表格' }} · 行 {{ source.rows.join('、') }} · 整理 {{ date(source.importedAt) }}</text><text v-if="source.url" class="company-url" selectable>{{ source.url }}</text><button v-if="source.url" class="text-button" @click="copy(source.url)" role="button" tabindex="0">复制来源链接<AppIcon name="copy" :size="14" /></button></view>
         <view class="company-detail-footer"><text>找到具体岗位后，核对职位要求，再选简历进行分析与投递计划。</text><button class="button primary" @click="addJob" role="button" tabindex="0">录入已找到的岗位<AppIcon name="plus" :size="14" /></button></view>
       </template>
     </AppModal>
