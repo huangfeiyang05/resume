@@ -6,11 +6,14 @@ const headers = ['更新/开启时间', '企业/招聘单位名称', '企业/单
 function source(row: unknown[] = ['2026-03-01', '合成测试企业', '国企', '软件/信息服务', '春招', '2026届\n本科及以上', '后端软件开发工程师', '北京/上海', '招满即止', '点击申请', '查看推文', '合成推广备注']) {
   return { headers, rows: [row], rowNumbers: [8], source: { stoppedUpdatingNotices: ['本表即日起不再更新'] } };
 }
-test('sheet preparation retains actual row and date facts while separating archive status from current recruitment', () => {
+test('sheet preparation keeps the application deadline in shared prose and reports the archived source separately', () => {
   const { table, report } = prepareCompanySheet(source(), [{ row: 8, column: 10, hrefs: ['https://example.test/jobs'] }, { row: 8, column: 11, hrefs: ['https://example.test/news'] }]);
   assert.deepEqual(table.rowNumbers, [8]);
-  assert.match(table.rows[0][8], /已停止更新/);
-  assert.match(table.rows[0][8], /2026-03-01/);
+  assert.match(table.rows[0][8], /网申截止时间：招满即止/);
+  assert.equal(table.rows[0][8].includes('2026-03-01'), false);
+  assert.equal(table.rows[0][8].includes('来源状态'), false);
+  assert.equal(table.rows[0][8].includes('来源开启'), false);
+  assert.equal(table.rows[0][8].includes('来源截止说明'), false);
   assert.match(table.rows[0][8], /后端软件开发工程师/);
   assert.match(table.rows[0][8], /https:\/\/example.test\/news/);
   assert.equal(table.rows[0][9], 'https://example.test/jobs');

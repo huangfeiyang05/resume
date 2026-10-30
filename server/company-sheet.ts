@@ -114,10 +114,9 @@ export function prepareCompanySheet(value: unknown, linksValue: unknown) {
     if (deliveryHasContact) contactDeliveryRows++;
     if (cells[11]) excludedRemarkRows++;
     const additional = [...new Set([...deliveryUrls, ...announcementUrls])].filter(value => value !== primary);
+    // Shared prose keeps the application deadline only; archive status and source update dates stay in the restricted report.
     const description = [
-      archived ? '来源状态：本表已停止更新，以下为历史招聘资料，不能据此判断当前在招。' : '来源状态：按来源记录整理，当前招聘安排需要重新核对。',
-      `来源开启/更新日期：${cells[0] || '未提供'}`,
-      `来源截止说明：${cells[8] || '未提供'}（仅保留原表信息，不代表当前仍可投递）`,
+      `网申截止时间：${cells[8] || '未提供'}`,
       `招聘对象原文：${audience || '未提供'}`,
       `招聘岗位原文：${positions || '未提供'}`,
       `行业原文：${cells[3] || '未提供'}`,
