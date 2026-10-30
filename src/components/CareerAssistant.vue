@@ -142,7 +142,7 @@ function tailor(job: CareerJob) {
 <template>
   <view class="glass-panel career-assistant">
     <view class="assistant-head">
-      <view class="assistant-avatar assistant-avatar-head"><AppIcon name="sparkles" :size="25" /></view>
+      <view class="assistant-avatar assistant-avatar-head"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /></view>
       <view class="assistant-head-main">
         <view class="assistant-title-row"><text class="assistant-title">求职助手</text><text class="assistant-mode">本地规则 · 对话模式</text></view>
         <text class="assistant-caption">读取你选择的简历文本，按明确条件检索企业资料、给出准备方向；未确认的条件会单独列出。</text>
@@ -207,14 +207,14 @@ function tailor(job: CareerJob) {
       <scroll-view class="assistant-stream" scroll-y :scroll-into-view="scrollAnchor" :scroll-with-animation="true">
         <view class="assistant-stream-inner">
         <view v-if="!messages.length && !pendingMessage" id="msg-welcome" class="assistant-welcome">
-          <view class="assistant-welcome-avatar"><AppIcon name="sparkles" :size="30" /></view>
+          <view class="assistant-welcome-avatar"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /></view>
           <text class="assistant-welcome-title">你好，我是求职助手</text>
           <text class="assistant-welcome-text">告诉我你想找什么方向的工作。我会对照所选简历文本和你填写的要求，检索企业历史资料并给出准备建议。可以先用下面的问题开始，也可以直接输入。</text>
           <view class="assistant-prompts"><button v-for="prompt in quickPrompts" :key="prompt" :disabled="loading || !!updatedResume" @click="quickAsk(prompt)" role="button" tabindex="0"><AppIcon name="sparkles" :size="13" /><text>{{ prompt }}</text><AppIcon name="arrow" :size="12" /></button></view>
         </view>
 
         <view v-for="item in messages" :id="`msg-${item.id}`" :key="item.id" class="assistant-turn" :class="item.role">
-          <view class="assistant-avatar" :class="item.role"><AppIcon :name="item.role === 'user' ? 'user' : 'sparkles'" :size="17" /></view>
+          <view class="assistant-avatar" :class="item.role"><image v-if="item.role === 'assistant'" class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /><AppIcon v-else name="user" :size="17" /></view>
           <view class="assistant-turn-body">
             <text class="assistant-message-label">{{ item.role === 'user' ? '你' : '求职助手 · 本地规则' }}</text>
             <view class="assistant-bubble"><text class="assistant-message-content" selectable>{{ item.content }}</text></view>
@@ -244,7 +244,7 @@ function tailor(job: CareerJob) {
           <view class="assistant-turn-body"><text class="assistant-message-label">你{{ loading ? '' : ' · 尚未完成' }}</text><view class="assistant-bubble"><text class="assistant-message-content" selectable>{{ pendingMessage }}</text></view></view>
         </view>
         <view v-if="loading" id="msg-typing" class="assistant-turn assistant">
-          <view class="assistant-avatar assistant"><AppIcon name="sparkles" :size="17" /></view>
+          <view class="assistant-avatar assistant"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /></view>
           <view class="assistant-turn-body"><text class="assistant-message-label">求职助手 · 本地规则</text><view class="assistant-bubble assistant-bubble-pending"><view class="assistant-typing"><view></view><view></view><view></view></view><text class="assistant-typing-text">{{ selectedResume ? '正在核对所选简历与资料…' : '正在检索企业资料…' }}</text></view></view>
         </view>
         </view>
@@ -269,7 +269,8 @@ function tailor(job: CareerJob) {
 <style scoped>
 .career-assistant{border-radius:24px;padding:25px 27px;min-width:0;overflow:hidden}
 .assistant-head{display:flex;align-items:center;gap:13px;margin-bottom:16px}
-.assistant-avatar{display:flex;align-items:center;justify-content:center;width:36px;height:36px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#eef6ff,#dbeaf9);border:1px solid #d6e6f5}
+.assistant-avatar{display:flex;align-items:center;justify-content:center;width:36px;height:36px;flex-shrink:0;border-radius:12px;background:linear-gradient(135deg,#eef6ff,#dbeaf9);border:1px solid #d6e6f5;overflow:hidden}
+.assistant-avatar-image{display:block;width:100%;height:100%;border-radius:inherit}
 .assistant-avatar-head{width:52px;height:52px;border-radius:17px;background:linear-gradient(135deg,#e9f4ff,#d3e6fa);border-color:#cfe1f4;box-shadow:0 8px 22px #5a8cbe21}
 .assistant-avatar.user{background:linear-gradient(135deg,#e8f4ee,#d6eadf);border-color:#cfe4d8}
 .assistant-head-main{flex:1;min-width:0}
@@ -326,7 +327,7 @@ function tailor(job: CareerJob) {
 .assistant-stream{height:56vh;min-height:330px;max-height:620px;padding:0;box-sizing:border-box}
 .assistant-stream-inner{padding:16px;box-sizing:border-box}
 .assistant-welcome{max-width:560px;margin:0 auto;padding:10px 4px 20px;text-align:center}
-.assistant-welcome-avatar{display:flex;align-items:center;justify-content:center;width:64px;height:64px;margin:10px auto 14px;border-radius:22px;background:linear-gradient(135deg,#eaf4ff,#d3e6fa);border:1px solid #cfe2f5;box-shadow:0 12px 28px #5a8cbe24}
+.assistant-welcome-avatar{display:flex;align-items:center;justify-content:center;width:64px;height:64px;margin:10px auto 14px;border-radius:22px;background:linear-gradient(135deg,#eaf4ff,#d3e6fa);border:1px solid #cfe2f5;box-shadow:0 12px 28px #5a8cbe24;overflow:hidden}
 .assistant-welcome-title{display:block;font-size:18px;font-weight:600;line-height:1.6;color:#44617f}
 .assistant-welcome-text{display:block;margin-top:9px;font-size:12px;line-height:1.95;color:#8298ae;text-align:left}
 .assistant-prompts{display:flex;flex-direction:column;gap:9px;margin-top:18px;text-align:left}
