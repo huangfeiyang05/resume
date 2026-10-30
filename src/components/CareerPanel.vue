@@ -10,7 +10,7 @@ import RecruitmentPortals from './RecruitmentPortals.vue';
 import CompanyLibrary from './CompanyLibrary.vue';
 import CareerAssistant from './CareerAssistant.vue';
 
-const props = defineProps<{ resumes: Resume[] }>();
+const props = defineProps<{ resumes: Resume[]; owner: string }>();
 const emit = defineEmits<{ contextChange: []; tailor: [job: CareerJob]; createResume: []; optimizeResume: [input: { resumeId: string; revision: number; targetRole: string }]; tailorAssistantJob: [input: { job: CareerJob; resumeId?: string; revision?: number }] }>();
 const c = useCareerWorkspace();
 const { state, jobs, materials, portals, applications, favoriteJobIds, loading, busy, error, notice } = c;
@@ -241,7 +241,7 @@ function copySource(value?: string) {
           <button class="glass-panel career-count" @click="section = 'applications'; applicationFilter = 'active'" role="button" tabindex="0"><text>{{ counts.active }}</text><text>投递与面试中</text><AppIcon name="clock" :size="20" /></button>
           <button class="glass-panel career-count" @click="section = 'applications'; applicationFilter = 'offer'" role="button" tabindex="0"><text>{{ counts.offer }}</text><text>收到录用</text><AppIcon name="check" :size="20" /></button>
         </view>
-        <CareerAssistant :resumes="savedResumes" @context-change="emit('contextChange')" @add-company="addCompanyJob" @tailor-assistant-job="emit('tailorAssistantJob', $event)" @create-resume="createResume" @optimize="emit('optimizeResume', $event)" />
+        <CareerAssistant :resumes="savedResumes" :owner="owner" @context-change="emit('contextChange')" @add-company="addCompanyJob" @tailor-assistant-job="emit('tailorAssistantJob', $event)" @create-resume="createResume" @optimize="emit('optimizeResume', $event)" />
       </template>
 
       <template v-else-if="section === 'jobs'">

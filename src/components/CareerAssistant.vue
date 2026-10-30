@@ -2,9 +2,10 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import type { CareerAssistantResult, CareerJob, CompanyRecord, Resume } from '../../shared/types';
 import { useCareerAssistant } from '../services/careerAssistant';
+import { createCareerHistory, MAX_CAREER_HISTORY_CONVERSATIONS, type CareerConversationSummary } from '../services/careerAssistantHistory';
 import AppIcon from './AppIcon.vue';
 
-const props = defineProps<{ resumes: Resume[] }>();
+const props = defineProps<{ resumes: Resume[]; owner: string }>();
 const emit = defineEmits<{
   addCompany: [company: CompanyRecord]; createResume: [];
   tailorAssistantJob: [input: { job: CareerJob; resumeId?: string; revision?: number }];
@@ -14,6 +15,10 @@ const emit = defineEmits<{
 const assistant = useCareerAssistant();
 const { selectedResume, updatedResume, requirements, messages, pendingMessage, loading, error, canRetry } = assistant;
 const draft = ref(''), showResume = ref(false), notice = ref(''), contextOpen = ref(false), scrollAnchor = ref('');
+let history = createCareerHistory(props.owner);
+const historyItems = ref<CareerConversationSummary[]>(history.list());
+const historyOpen = ref(false), activeId = ref('');
+let restoring = false;
 const resumeOptions = computed(() => ['先不选简历', ...props.resumes.map(item => `${item.title} · V${item.revision}`)]);
 const resumeIndex = computed(() => Math.max(0, props.resumes.findIndex(item => item.id === selectedResume.value?.id) + 1));
 const resumeLabel = computed(() => selectedResume.value ? `${selectedResume.value.title} · V${selectedResume.value.revision}` : '未选择（可选）');
@@ -24,6 +29,69 @@ const requirementLabel = computed(() => {
 });
 const turnCount = computed(() => Math.floor(messages.value.length / 2));
 const quickPrompts = ['结合我的简历，找适合的企业方向', '优先找应届生可以准备的岗位', '帮我检查简历还缺哪些事实'];
+function formatWhen(value: number) {
+  const date = new Date(value), now = new Date();
+  const two = (input: number) => String(input).padStart(2, '0');
+  const time = `${two(date.getHours())}:${two(date.getMinutes())}`;
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) return `今天 ${time}`;
+  return `${date.getFullYear() === now.getFullYear() ? '' : `${date.getFullYear()}-`}${two(date.getMonth() + 1)}-${two(date.getDate())} ${time}`;
+}
+function newConversationId() { return `h${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`; }
+function conversationTitle() {
+  const saved = historyItems.value.find(item => item.id === activeId.value);
+  if (saved) return saved.title;
+  const first = messages.value.find(item => item.role === 'user')?.content.replace(/\s+/g, ' ').trim() ?? '';
+  return first.slice(0, 24) || '未命名对话';
+}
+function persistConversation() {
+  if (!messages.value.length) return;
+  if (!activeId.value) activeId.value = newConversationId();
+  const record = {
+    id: activeId.value, title: conversationTitle(), updatedAt: Date.now(), messageCount: messages.value.length, requirements: requirements.value,
+    ...(selectedResume.value ? { resumeId: selectedResume.value.id, resumeRevision: selectedResume.value.revision } : {}), messages: messages.value,
+  };
+  if (!history.save(record)) notice.value = '这次对话较长，本机历史记录没有保存成功；可删除旧对话或清理本机缓存后重试。';
+  historyItems.value = history.list();
+}
+function toggleHistory() { historyItems.value = history.list(); historyOpen.value = !historyOpen.value; }
+function openConversation(item: CareerConversationSummary) {
+  if (loading.value) return;
+  const conversation = history.load(item.id);
+  if (!conversation) {
+    history.remove(item.id); historyItems.value = history.list();
+    notice.value = '这段历史对话已不存在，可能已被清理，请重新开始。'; return;
+  }
+  const resume = conversation.resumeId ? props.resumes.find(value => value.id === conversation.resumeId) : undefined;
+  restoring = true;
+  activeId.value = conversation.id;
+  assistant.restoreConversation({ messages: conversation.messages, requirements: conversation.requirements, ...(resume ? { resume } : {}) });
+  void nextTick(() => { restoring = false; });
+  historyOpen.value = false; contextOpen.value = false; showResume.value = false; draft.value = '';
+  if (conversation.resumeId && !resume) notice.value = '原对话使用的简历已不存在，已打开对话；继续提问前请重新选择简历。';
+  else if (resume && conversation.resumeRevision && conversation.resumeRevision !== resume.revision) notice.value = `原对话使用的是 V${conversation.resumeRevision}，当前简历已更新为 V${resume.revision}；继续提问会使用最新版本。`;
+  else notice.value = `已打开历史对话「${conversation.title}」。`;
+  emit('contextChange');
+}
+function removeConversation(item: CareerConversationSummary) {
+  history.remove(item.id);
+  historyItems.value = history.list();
+  if (activeId.value === item.id) activeId.value = '';
+  notice.value = '已删除这段本机历史对话；当前聊天内容保留。';
+}
+function startNew() {
+  emit('contextChange');
+  if (messages.value.length) { persistConversation(); notice.value = '已开始新对话，这段对话已保存在本机历史记录。'; }
+  else notice.value = '已开始新的对话。';
+  assistant.reset();
+  activeId.value = ''; draft.value = ''; showResume.value = false; historyOpen.value = false;
+}
+watch(() => props.owner, value => {
+  history = createCareerHistory(value);
+  historyItems.value = history.list();
+  historyOpen.value = false;
+  activeId.value = '';
+  if (messages.value.length || requirements.value || selectedResume.value) { assistant.restoreConversation({ messages: [], requirements: '' }); notice.value = '已切换账号，历史对话按账号分开保存在本机。'; }
+});
 watch(() => props.resumes, values => {
   if (!selectedResume.value) return;
   const latest = values.find(item => item.id === selectedResume.value?.id);
@@ -35,6 +103,8 @@ watch([() => messages.value.length, () => loading.value, () => pendingMessage.va
   await nextTick();
   scrollAnchor.value = loading.value ? 'msg-typing' : pendingMessage.value ? 'msg-pending' : messages.value.length ? `msg-${messages.value[messages.value.length - 1].id}` : 'msg-welcome';
 }, { flush: 'post' });
+watch(() => messages.value.length, () => { if (!restoring && messages.value.length) persistConversation(); });
+watch(() => [selectedResume.value?.id, requirements.value], () => { if (!messages.value.length) activeId.value = ''; });
 onUnmounted(() => { emit('contextChange'); assistant.dispose(); });
 function pickResume(event: { detail: { value: string | number } }) {
   assistant.selectResume(props.resumes[Number(event.detail.value) - 1]); showResume.value = false; notice.value = '';
@@ -67,7 +137,6 @@ function tailor(job: CareerJob) {
   const resume = selectedResume.value;
   emit('tailorAssistantJob', { job, ...(resume ? { resumeId: resume.id, revision: resume.revision } : {}) });
 }
-function restart() { emit('contextChange'); assistant.reset(); draft.value = ''; notice.value = '已清空本次对话，简历和求职要求保留。'; }
 </script>
 
 <template>
@@ -78,7 +147,30 @@ function restart() { emit('contextChange'); assistant.reset(); draft.value = '';
         <view class="assistant-title-row"><text class="assistant-title">求职助手</text><text class="assistant-mode">本地规则 · 对话模式</text></view>
         <text class="assistant-caption">读取你选择的简历文本，按明确条件检索企业资料、给出准备方向；未确认的条件会单独列出。</text>
       </view>
-      <button class="assistant-reset" :disabled="loading" @click="restart" role="button" tabindex="0"><AppIcon name="undo" :size="13" />清空</button>
+      <view class="assistant-head-actions">
+        <button class="assistant-reset" :disabled="loading" @click="toggleHistory" role="button" tabindex="0" :aria-expanded="historyOpen" aria-label="查看本机历史对话"><AppIcon name="clock" :size="13" />历史<text v-if="historyItems.length" class="assistant-history-count">{{ historyItems.length }}</text></button>
+        <button class="assistant-reset" :disabled="loading" @click="startNew" role="button" tabindex="0"><AppIcon name="plus" :size="13" />新对话</button>
+      </view>
+    </view>
+
+    <view v-if="historyOpen" class="assistant-history">
+      <view class="assistant-history-head">
+        <view class="assistant-history-heading">
+          <text class="assistant-small-title">历史对话</text>
+          <text class="assistant-history-caption">保存在本机，仅当前账号可见；最多保留 {{ MAX_CAREER_HISTORY_CONVERSATIONS }} 段，不上传服务端。</text>
+        </view>
+        <button class="text-button" @click="historyOpen = false" role="button" tabindex="0">收起</button>
+      </view>
+      <view v-if="!historyItems.length" class="assistant-history-empty"><text>还没有历史对话。发送第一个问题后会自动保存在本机。</text></view>
+      <view v-else class="assistant-history-list">
+        <view v-for="item in historyItems" :key="item.id" class="assistant-history-row" :class="{ active: item.id === activeId }">
+          <button class="assistant-history-open" :disabled="loading" @click="openConversation(item)" role="button" tabindex="0">
+            <text class="assistant-history-title">{{ item.title }}</text>
+            <text class="assistant-history-meta">{{ item.messageCount }} 条消息 · 更新于 {{ formatWhen(item.updatedAt) }}</text>
+          </button>
+          <button class="assistant-history-delete" :disabled="loading" @click="removeConversation(item)" aria-label="删除这段历史对话" role="button" tabindex="0"><AppIcon name="trash" :size="14" /></button>
+        </view>
+      </view>
     </view>
 
     <view class="assistant-context">
@@ -99,7 +191,7 @@ function restart() { emit('contextChange'); assistant.reset(); draft.value = '';
         </view>
         <view v-if="showResume && selectedResume" class="assistant-resume-preview"><text class="assistant-caption">本次对话使用 V{{ selectedResume.revision }}。{{ selectedResume.targetRole ? `简历目标：${selectedResume.targetRole}` : '简历尚未填写目标岗位' }}</text><text class="assistant-prose" selectable>{{ selectedResume.text }}</text></view>
         <textarea :value="requirements" @input="changeRequirements" class="assistant-requirements" :maxlength="2000" placeholder="例如：2027届计算机本科，优先杭州或上海，想做后端开发，接受中小型企业。也可以补充行业、学历、城市等条件。" aria-label="求职要求" />
-        <text class="assistant-help">更换简历或修改要求会开始新对话。只在本项目内读取所选简历；本次对话不会自动修改简历。</text>
+        <text class="assistant-help">更换简历或修改要求会开始新对话；发送后对话会自动保存在本机历史记录。只在本项目内读取所选简历；本次对话不会自动修改简历。</text>
       </view>
     </view>
 
@@ -188,6 +280,23 @@ function restart() { emit('contextChange'); assistant.reset(); draft.value = '';
 .assistant-head .assistant-caption{margin-top:3px}
 .assistant-reset{display:flex;align-items:center;gap:6px;flex-shrink:0;padding:8px 11px;font-size:11px;line-height:1.4;color:#8ba0b5;background:#f6fafd;border:1px solid #e3edf6;border-radius:10px}
 .assistant-reset[disabled]{opacity:.45}
+.assistant-head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+.assistant-history-count{min-width:16px;padding:1px 5px;border-radius:999px;background:#e5f1fb;color:#6d94b8;font-size:9px;line-height:1.5;text-align:center}
+.assistant-history{margin:-4px 0 15px;padding:13px 14px;background:#fbfdff;border:1px solid #e2ecf6;border-radius:14px}
+.assistant-history-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.assistant-history-heading{min-width:0}
+.assistant-history-head .assistant-small-title{margin-bottom:2px}
+.assistant-history-caption{display:block;font-size:10px;line-height:1.7;color:#9daebe;overflow-wrap:anywhere}
+.assistant-history-empty{padding:13px 2px 3px;font-size:11px;line-height:1.8;color:#93a7ba}
+.assistant-history-list{display:flex;flex-direction:column;gap:7px;margin-top:11px}
+.assistant-history-row{display:flex;align-items:center;gap:5px;padding:3px 5px 3px 0;background:#fff;border:1px solid #e6eef6;border-radius:10px}
+.assistant-history-row.active{background:#f3f9ff;border-color:#bcd8f2;box-shadow:0 3px 12px #5b8cbb0f}
+.assistant-history-open{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;background:transparent;border:none;text-align:left}
+.assistant-history-open[disabled]{opacity:.55}
+.assistant-history-title{display:block;max-width:100%;font-size:12px;line-height:1.6;color:#55718d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.assistant-history-meta{display:block;font-size:10px;line-height:1.6;color:#9daebe}
+.assistant-history-delete{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;color:#9db1c4;background:transparent;border:none;border-radius:8px}
+.assistant-history-delete[disabled]{opacity:.45}
 .assistant-context{padding:12px;background:linear-gradient(180deg,#f8fbff,#f2f8fd);border:1px solid #e2ebf4;border-radius:16px;margin-bottom:15px}
 .assistant-context-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .assistant-chip-picker{max-width:100%;min-width:0}
@@ -282,6 +391,8 @@ text[selectable]{user-select:text;-webkit-user-select:text}
 .assistant-mode{font-size:9px}
 .assistant-head .assistant-caption{font-size:10px;line-height:1.7}
 .assistant-reset{font-size:10px;padding:7px 9px}
+.assistant-head-actions{width:100%;justify-content:flex-end}
+.assistant-history-caption{font-size:9px}
 .assistant-context{padding:10px}
 .assistant-context-row{gap:7px}
 .assistant-chip{padding:7px 9px;flex:1}

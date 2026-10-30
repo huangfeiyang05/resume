@@ -76,12 +76,20 @@ export const careerAssistantApi = {
 };
 
 export interface CareerChatMessage { id: number; role: 'user' | 'assistant'; content: string; result?: CareerAssistantResult }
-/** Conversation exists only in this mounted workspace. Responses from a previous context are discarded. */
+/** Conversation lives in the mounted workspace or in a locally saved history record. Responses from a previous context are discarded. */
 export function useCareerAssistant() {
   const selectedResume = ref<Resume>(), updatedResume = ref<Resume>(), requirements = ref('');
   const messages = ref<CareerChatMessage[]>([]), pendingMessage = ref(''), loading = ref(false), error = ref(''), canRetry = ref(false);
   let disposed = false, requestId = 0, messageId = 0, retryInput: CareerAssistantInput | undefined;
   function reset() { ++requestId; messages.value = []; pendingMessage.value = ''; loading.value = false; error.value = ''; canRetry.value = false; retryInput = undefined; updatedResume.value = undefined; }
+  /** 载入本机保存的对话：消息 id 按顺序重排，清空待处理与冲突状态，不发起网络请求。 */
+  function restoreConversation(conversation: { messages: CareerChatMessage[]; requirements: string; resume?: Resume }) {
+    ++requestId; loading.value = false; pendingMessage.value = ''; error.value = ''; canRetry.value = false; retryInput = undefined; updatedResume.value = undefined;
+    selectedResume.value = conversation.resume ? { ...conversation.resume } : undefined;
+    requirements.value = conversation.requirements.slice(0, 2000);
+    messages.value = conversation.messages.slice(-30).map((message, index) => ({ ...message, id: index + 1 }));
+    messageId = messages.value.length;
+  }
   function selectResume(resume?: Resume) {
     if (selectedResume.value?.id === resume?.id && selectedResume.value?.revision === resume?.revision) return;
     reset(); selectedResume.value = resume ? { ...resume } : undefined;
@@ -129,5 +137,5 @@ export function useCareerAssistant() {
   }
   function retry() { return retryInput ? execute(retryInput) : Promise.resolve(false); }
   function dispose() { disposed = true; reset(); selectedResume.value = undefined; requirements.value = ''; }
-  return { selectedResume, updatedResume, requirements, messages, pendingMessage, loading, error, canRetry, selectResume, setRequirements, noteResumeUpdate, reviewUpdatedResume, send, retry, reset, dispose };
+  return { selectedResume, updatedResume, requirements, messages, pendingMessage, loading, error, canRetry, selectResume, setRequirements, noteResumeUpdate, reviewUpdatedResume, restoreConversation, send, retry, reset, dispose };
 }
