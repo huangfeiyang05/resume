@@ -3,6 +3,13 @@ import { onMounted, onUnmounted } from 'vue';
 import AppIcon from './AppIcon.vue';
 defineProps<{ title: string; subtitle?: string; wide?: boolean }>();
 const emit = defineEmits<{ close: [] }>();
+function overlayClose() {
+  // #ifdef H5
+  // 选中正文时不要因点击空白处关闭弹窗，避免复制到一半丢失选区。
+  if (window.getSelection()?.toString()) return;
+  // #endif
+  emit('close');
+}
 // #ifdef H5
 let previousFocus: HTMLElement | null = null;
 let previousOverflow = '';
@@ -26,7 +33,7 @@ onUnmounted(() => { document.body.style.overflow = previousOverflow; document.re
 // #endif
 </script>
 <template>
-  <view class="modal-overlay" @click="emit('close')">
+  <view class="modal-overlay" @click="overlayClose">
     <view class="modal-sheet" :class="{ wide }" role="dialog" aria-modal="true" :aria-label="title" @click.stop>
       <view class="modal-heading"><view><text class="modal-title">{{ title }}</text><text v-if="subtitle" class="modal-subtitle">{{ subtitle }}</text></view><button class="icon-button" aria-label="关闭弹窗" @click="emit('close')" role="button" tabindex="0"><AppIcon name="close" /></button></view>
       <slot />
