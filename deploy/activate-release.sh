@@ -13,6 +13,7 @@ readonly CURRENT=/opt/resume-youfang/current
 readonly STATE_DIR=/var/lib/resume-youfang/.data
 readonly DATA_FILE=/var/lib/resume-youfang/.data/resumes.json
 readonly CATALOG_FILE=/var/lib/resume-youfang/.data/career-catalog.json
+readonly COMPANY_FILE=/var/lib/resume-youfang/.data/company-catalog.json
 readonly BACKUP_ROOT=/var/backups/resume-youfang
 readonly NODE=/opt/nodejs/bin/node
 readonly SERVICE=resume-youfang
@@ -132,7 +133,7 @@ flock -n 9 || abort
 [[ $(current_target) == "$PREVIOUS_DIR" ]] || abort
 [[ ! -e $BACKUP_DIR && ! -L $BACKUP_DIR && ! -L $BACKUP_ROOT ]] || abort
 [[ ! -L $STATE_DIR && ( ! -e $STATE_DIR || -d $STATE_DIR ) ]] || abort
-for path in "$DATA_FILE" "$CATALOG_FILE"; do
+for path in "$DATA_FILE" "$CATALOG_FILE" "$COMPANY_FILE"; do
   [[ ! -L $path && ( ! -e $path || -f $path ) ]] || abort
 done
 systemctl is-active --quiet nginx || abort
@@ -161,12 +162,18 @@ NODE
 
 validate_data() {
   # JsonStore.read() validates and clones in memory; it must never write migrations.
-  runuser -u "$APP_USER" -- "$NODE" --input-type=module - "$RELEASE_DIR" "$DATA_FILE" >/dev/null 2>&1 <<'NODE'
+  runuser -u "$APP_USER" -- "$NODE" --input-type=module - "$RELEASE_DIR" "$DATA_FILE" "$COMPANY_FILE" >/dev/null 2>&1 <<'NODE'
 import { pathToFileURL } from 'node:url';
+import { readFile, stat } from 'node:fs/promises';
 try {
-  const [directory, database] = process.argv.slice(2);
+  const [directory, database, companies] = process.argv.slice(2);
   const { JsonStore } = await import(pathToFileURL(`${directory}/api/server/store.js`).href);
   await new JsonStore(database).read();
+  try {
+    if ((await stat(companies)).size > 20 * 1024 * 1024) process.exit(1);
+    const { validateCompanyCatalog } = await import(pathToFileURL(`${directory}/api/server/company-validation.js`).href);
+    validateCompanyCatalog(JSON.parse(await readFile(companies, 'utf8')));
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
 } catch { process.exit(1); }
 NODE
 }
@@ -186,6 +193,7 @@ mkdir -m 0700 -- "$BACKUP_DIR" >/dev/null 2>&1
 backup_created=1
 data_present=false
 catalog_present=false
+companies_present=false
 if [[ -f $DATA_FILE && ! -L $DATA_FILE ]]; then
   install -m 0600 -o root -g root -- "$DATA_FILE" "$BACKUP_DIR/resumes.json" >/dev/null 2>&1
   data_present=true
@@ -194,8 +202,12 @@ if [[ -f $CATALOG_FILE && ! -L $CATALOG_FILE ]]; then
   install -m 0600 -o root -g root -- "$CATALOG_FILE" "$BACKUP_DIR/career-catalog.json" >/dev/null 2>&1
   catalog_present=true
 fi
-printf '{"releaseId":"%s","previous":"%s","gitCommit":"%s","dataFilePresent":%s,"catalogFilePresent":%s}\n' \
-  "$release_id" "$previous_id" "$expected_commit" "$data_present" "$catalog_present" >"$BACKUP_DIR/manifest.json"
+if [[ -f $COMPANY_FILE && ! -L $COMPANY_FILE ]]; then
+  install -m 0600 -o root -g root -- "$COMPANY_FILE" "$BACKUP_DIR/company-catalog.json" >/dev/null 2>&1
+  companies_present=true
+fi
+printf '{"releaseId":"%s","previous":"%s","gitCommit":"%s","dataFilePresent":%s,"catalogFilePresent":%s,"companyFilePresent":%s}\n' \
+  "$release_id" "$previous_id" "$expected_commit" "$data_present" "$catalog_present" "$companies_present" >"$BACKUP_DIR/manifest.json"
 
 stage=activate
 [[ $(current_target) == "$PREVIOUS_DIR" ]] || abort
@@ -205,7 +217,7 @@ systemctl start "$SERVICE" >/dev/null 2>&1
 stage=health_verification
 wait_for_health
 [[ $(current_target) == "$RELEASE_DIR" ]] || abort
-[[ $(http_status resumes) == 401 && $(http_status career) == 401 ]] || abort
+[[ $(http_status resumes) == 401 && $(http_status career) == 401 && $(http_status career/companies) == 401 ]] || abort
 systemctl is-active --quiet nginx || abort
 
 trap - ERR HUP INT TERM

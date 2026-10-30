@@ -29,9 +29,18 @@ try {
     assert.equal(result.status, 201);
     return result.headers.get('set-cookie').split(';')[0];
   }
-  for (const path of ['/resumes', '/career']) assert.equal((await request(path)).status, 401);
+  for (const path of ['/resumes', '/career', '/career/companies']) assert.equal((await request(path)).status, 401);
   checks.push('private-routes-require-session');
   const owner = await account(), other = await account();
+  const companies = await request('/career/companies', 'GET', undefined, owner);
+  assert.equal(companies.status, 200);
+  assert.equal(companies.body.data.access, 'authenticated-test');
+  assert.equal(companies.body.data.catalogState, 'empty');
+  assert.equal(companies.body.data.total, 0);
+  assert.deepEqual(companies.body.data.items, []);
+  assert.equal((await request('/career/companies?page=0', 'GET', undefined, owner)).status, 400);
+  assert.equal((await request('/career/companies/missing-company', 'GET', undefined, owner)).status, 404);
+  checks.push('shared-company-test-access-honest-empty-state-and-query-validation');
   const workspace = await request('/career', 'GET', undefined, owner);
   assert.equal(workspace.status, 200);
   assert.equal(workspace.body.data.catalogState, 'ready');

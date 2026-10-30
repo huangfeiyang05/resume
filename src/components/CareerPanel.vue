@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue';
-import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobInput, CareerRecruitmentPortal, Resume } from '../../shared/types';
+import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobInput, CareerRecruitmentPortal, CompanyRecord, Resume } from '../../shared/types';
 import { inputLimits } from '../../shared/limits';
 import { api } from '../services/api';
 import { applicationStatusLabels, applicationTransitions, jobAcceptingPlans, useCareerWorkspace } from '../services/career';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
 import RecruitmentPortals from './RecruitmentPortals.vue';
+import CompanyLibrary from './CompanyLibrary.vue';
 
 const props = defineProps<{ resumes: Resume[] }>();
 const emit = defineEmits<{ tailor: [job: CareerJob]; createResume: [] }>();
@@ -19,6 +20,8 @@ const tabs: Array<{ id: Section; title: string }> = [
   { id: 'portals', title: '招聘入口' }, { id: 'materials', title: '复习资料' }, { id: 'applications', title: '投递计划' },
 ];
 const section = ref<Section>('overview');
+const companyView = ref<'companies' | 'jobs'>('companies');
+const companyLibrary = ref<{ reload: () => Promise<void> }>();
 const modal = ref<Modal>();
 const selectedJobId = ref(''), selectedApplicationId = ref(''), selectedMaterialId = ref('');
 const activeJob = computed(() => jobs.value.find(item => item.id === selectedJobId.value));
@@ -105,7 +108,16 @@ function showApplication(item: CareerApplication) {
   modal.value = 'application'; resetError(); void refreshResumes();
 }
 function showMaterial(id: string) { selectedMaterialId.value = id; modal.value = 'material'; resetError(); }
-function showJobForm() { modal.value = 'job-form'; resetError(); }
+function showJobForm() { companyView.value = 'jobs'; modal.value = 'job-form'; resetError(); }
+function refreshWorkspace() {
+  if (section.value === 'jobs' && companyView.value === 'companies') void companyLibrary.value?.reload();
+  else void c.load();
+}
+function addCompanyJob(company: CompanyRecord) {
+  Object.assign(jobForm, { company: company.name, title: '', major: '', location: '', description: '', companyOverview: '', sourceUrl: '', deadline: '' });
+  section.value = 'jobs'; showJobForm();
+  notice.value = '已带入企业名称，请核对最新公告后填写具体岗位、地区、专业和要求。';
+}
 function addPortalJob(portal: CareerRecruitmentPortal) {
   Object.assign(jobForm, { company: portal.organization, title: '', major: portal.majors.length === 1 ? portal.majors[0] : '', location: '', description: '', companyOverview: '', sourceUrl: '', deadline: '' });
   section.value = 'jobs'; showJobForm();
@@ -211,7 +223,7 @@ function copySource(value?: string) {
   <view class="career-panel">
     <view class="career-heading">
       <view><text class="career-eyebrow">高级会员功能预览</text><text class="career-title">为目标岗位，一步步准备。</text><text class="career-subtitle">收藏机会、打磨简历，把每一次投递记录清楚。</text></view>
-      <button class="button secondary career-refresh" :disabled="loading || busy" @click="c.load" role="button" tabindex="0"><AppIcon name="undo" :size="15" />重新读取</button>
+      <button class="button secondary career-refresh" :disabled="loading || busy" @click="refreshWorkspace" role="button" tabindex="0"><AppIcon name="undo" :size="15" />重新读取</button>
     </view>
     <view class="career-preview"><AppIcon name="info" :size="17" /><text>当前可体验求职工作台。复习资料和招聘入口可按专业查阅；投递进度由你手动记录，尚未开通自动代投，会员收费暂未开放。</text></view>
     <view v-if="visibleError && !modal" class="career-alert" role="alert"><text>{{ visibleError }}</text><button class="text-button" :disabled="busy || loading" @click="c.load" role="button" tabindex="0">重新读取</button></view>
@@ -238,10 +250,14 @@ function copySource(value?: string) {
       </template>
 
       <template v-else-if="section === 'jobs'">
+        <view class="career-status-filters" role="tablist" aria-label="企业与岗位视图"><button :class="{ active: companyView === 'companies' }" :aria-selected="companyView === 'companies'" @click="companyView = 'companies'" role="tab" tabindex="0">企业资料</button><button :class="{ active: companyView === 'jobs' }" :aria-selected="companyView === 'jobs'" @click="companyView = 'jobs'" role="tab" tabindex="0">目标岗位</button></view>
+        <CompanyLibrary v-if="companyView === 'companies'" ref="companyLibrary" @add-job="addCompanyJob" />
+        <template v-else>
         <view class="career-section-heading"><view><text class="career-section-title">公司与岗位</text><text class="career-caption">按专业整理机会，个人添加的岗位仅保存在你的账号中。</text></view><button class="button primary" :disabled="busy" @click="showJobForm" role="button" tabindex="0"><AppIcon name="plus" :size="16" />添加目标岗位</button></view>
         <view class="glass-panel career-filters"><view class="career-search"><AppIcon name="search" :size="17" /><input v-model="jobQuery" placeholder="搜索公司、岗位或地点" :maxlength="100" aria-label="搜索岗位" /></view><picker :range="jobMajors.map(value => value || '全部专业')" :value="Math.max(0, jobMajors.indexOf(major))" @change="pickMajor"><view class="career-picker">{{ major || '全部专业' }}<AppIcon name="chevron" :size="13" /></view></picker><button class="career-filter-toggle" :class="{ active: favoritesOnly }" :aria-pressed="favoritesOnly" @click="favoritesOnly = !favoritesOnly" role="button" tabindex="0">只看收藏</button></view>
         <view v-if="!filteredJobs.length" class="glass-panel career-empty"><AppIcon name="briefcase" :size="30" /><text>{{ jobs.length ? '没有符合筛选条件的岗位' : '还没有目标岗位' }}</text><text class="career-caption">{{ jobs.length ? '试试其他关键词，或清除当前筛选。' : '公司岗位库待补充。你可以先添加自己找到的真实岗位，开始准备。' }}</text><button class="button secondary" @click="jobs.length ? clearJobFilters() : showJobForm()" role="button" tabindex="0">{{ jobs.length ? '清除筛选' : '添加目标岗位' }}</button></view>
         <view v-else class="career-job-grid"><view v-for="item in filteredJobs" :key="item.id" class="glass-panel career-job-card"><button class="career-job-content" @click="showJob(item)" role="button" tabindex="0"><view class="career-row"><text class="career-job-company">{{ item.company }}</text><text class="career-tag" :class="{ closed: !jobAcceptingPlans(item) }">{{ jobAcceptingPlans(item) ? '可准备' : '已截止 / 关闭' }}</text></view><text class="career-job-title">{{ item.title }}</text><view class="career-tags"><text>{{ item.major }}</text><text>{{ item.location }}</text><text>{{ item.origin === 'personal' ? '个人添加' : '资料库' }}</text></view><text class="career-excerpt">{{ item.description.slice(0, 130) }}</text></button><view class="career-card-footer"><text>{{ item.deadline ? `截止 ${item.deadline}` : `更新 ${date(item.updatedAt)}` }}</text><button class="text-button" :disabled="busy" :aria-pressed="favoriteSet.has(item.id)" @click="c.favorite(item.id, !favoriteSet.has(item.id))" role="button" tabindex="0">{{ favoriteSet.has(item.id) ? '取消收藏' : '收藏岗位' }}<AppIcon :name="favoriteSet.has(item.id) ? 'check' : 'plus'" :size="14" /></button></view></view></view>
+        </template>
       </template>
 
       <template v-else-if="section === 'materials'">

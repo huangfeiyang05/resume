@@ -9,6 +9,10 @@ import { AuthService } from './auth.js';
 import { isIP } from 'node:net';
 import { CareerService } from './career.js';
 import { exportResume } from './exports.js';
+import { dirname, join } from 'node:path';
+import { CompanyCatalogRepository } from './company-catalog.js';
+import { validateCompanyId, validateCompanySearchParams } from './company-validation.js';
+import { searchCompanies } from './company-search.js';
 
 function json(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Cookie, Authorization' });
@@ -40,6 +44,7 @@ export interface ApiServerOptions {
   trustedOrigins?: string[];
   trustProxy?: boolean;
   careerCatalogPath?: string;
+  companyCatalogPath?: string;
 }
 const cookieName = 'youfang_session';
 function sessionToken(request: IncomingMessage) {
@@ -54,6 +59,9 @@ function sessionToken(request: IncomingMessage) {
 export function createApiServer(baseService = new ResumeService(new JsonStore()), options: ApiServerOptions = {}) {
   const auth = options.auth ?? new AuthService(baseService.store);
   const jobs = new AnalysisJobs(baseService);
+  // Shared company reference data is available to authenticated users during testing.
+  // Future paid access belongs here on the server, never in a client-supplied tier.
+  const companies = new CompanyCatalogRepository(options.companyCatalogPath ?? join(dirname(baseService.store.path), 'company-catalog.json'));
   const secureCookies = options.secureCookies ?? process.env.NODE_ENV === 'production';
   const trustedOrigins = new Set(options.trustedOrigins ?? ['http://127.0.0.1:5173', 'http://localhost:5173']);
   const cookie = (token: string, maxAge: number) => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureCookies ? '; Secure' : ''}`;
@@ -146,6 +154,16 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       } else if (path === '/api/v1/career') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await career.workspace() });
+      } else if (path === '/api/v1/career/companies') {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const input = validateCompanySearchParams(url.searchParams);
+        json(response, 200, { data: searchCompanies(await companies.load(), input) });
+      } else if ((match = path.match(/^\/api\/v1\/career\/companies\/([^/]+)$/))) {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '企业详情不接受查询参数。');
+        let id: string;
+        try { id = decodeURIComponent(match[1]); } catch { throw new HttpError(400, 'VALIDATION_ERROR', '企业 ID 格式无效。'); }
+        json(response, 200, { data: await companies.get(validateCompanyId(id)) });
       } else if (path === '/api/v1/career/jobs') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 201, { data: await career.createJob(await body(request)) });

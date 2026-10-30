@@ -84,6 +84,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf dist/resume-youfang.ta
 | `/opt/nodejs` | Node.js 官方运行时 |
 | `/var/lib/resume-youfang/.data/resumes.json` | 版本 3 的账号、会话、简历、不可变版本与恢复审计、报告、邮件挑战、个人岗位、收藏、投递快照和幂等记录，独立于程序版本 |
 | `/var/lib/resume-youfang/.data/career-catalog.json` | 可选自定义岗位、复习资料与招聘入口目录；存在时完整替换打包目录，缺失时使用随服务发布的原创公开资料；不随代码包上传或覆盖，无管理上传入口 |
+| `/var/lib/resume-youfang/.data/company-catalog.json` | 经审核的企业招聘参考资料，登录后测试共享；仅单独授权的数据导入写入，不随代码包或 Git 上传，代码发布时只读校验并受限备份 |
 | `/etc/resume-youfang/runtime.env` | 可选服务器配置，不提交 Git，不放静态目录 |
 | `/etc/nginx/sites-available/resume-youfang` | 生效的站点配置 |
 | `/etc/systemd/system/resume-youfang.service` | 单实例 API 服务 |
