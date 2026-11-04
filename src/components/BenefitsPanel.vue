@@ -4,6 +4,7 @@ import type { MembershipPreview, Plan, PlanId } from '../../shared/types';
 import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
+import PlanFeatureValue from './PlanFeatureValue.vue';
 
 const membership = ref<MembershipPreview>();
 const plans = ref<Plan[]>([]);
@@ -15,7 +16,7 @@ const paidPlans = computed(() => plans.value.filter((plan) => plan.id !== 'free'
 const selectedPlan = computed(() => paidPlans.value.find((plan) => plan.id === selectedPlanId.value));
 const rows: Array<{ key: keyof Plan['features']; label: string }> = [
   { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '简历优化' },
-  { key: 'companyJobs', label: '公司与岗位信息' }, { key: 'studyMaterials', label: '复习资料' },
+  { key: 'companyJobs', label: '岗位信息' }, { key: 'studyMaterials', label: '复习资料' },
   { key: 'smartDelivery', label: '智能投递' },
 ];
 const price = (cents: number | null) => cents === null ? '待定价' : cents === 0 ? '免费' : `¥${(cents / 100).toFixed(2)}`;
@@ -85,7 +86,7 @@ onMounted(load);
         <view v-for="row in rows" :key="row.key" class="benefits-comparison-row" role="row">
           <view class="comparison-feature-name" role="rowheader">{{ row.label }}</view>
           <view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId, 'comparison-free-column': plan.id === 'free' }" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key]}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
-            <text class="comparison-value">{{ plan.features[row.key] }}</text>
+            <PlanFeatureValue :value="plan.features[row.key]" />
           </view>
         </view>
       </view>
@@ -93,7 +94,7 @@ onMounted(load);
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" subtitle="价格待定，支付未开放" @close="purchaseOpen = false">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text>{{ selectedPlan.features[row.key] }}</text></view></view>
+      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><PlanFeatureValue class="benefits-checkout-feature-value" :value="selectedPlan.features[row.key]" align="end" /></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
       <view class="benefits-checkout-footer"><text>支付未开放，不会扣费或开通会员。</text><button class="button secondary" disabled role="button">支付暂未开放</button></view>
     </AppModal>
@@ -129,7 +130,6 @@ onMounted(load);
 .benefit-plan-button { width: 100%; font-size: 14px; min-height: 42px; padding: 10px 12px; border-radius: 10px; }
 .benefit-plan-button.current { color: #536174; opacity: 1; background: #f4f6f9; cursor: default; }
 .benefits-comparison { width: 100%; min-width: 0; overflow: hidden; }
-.comparison-value { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .benefits-comparison-row { display: grid; grid-template-columns: .9fr repeat(3,minmax(0,1fr)); }
 .benefits-comparison-row > view { display: flex; align-items: center; justify-content: center; min-width: 0; padding: 19px 14px; text-align: center; font-size: 14px; color: #38465a; line-height: 1.8; border-bottom: 1px solid #e2e7ef; overflow-wrap: anywhere; word-break: break-word; }
 .benefits-comparison-row:last-child > view { border-bottom: 0; }
@@ -153,7 +153,7 @@ onMounted(load);
 .benefits-summary-price { font-size: 27px; font-weight: 600; color: #1f2937; white-space: nowrap; }
 .benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; font-size: 14px; padding: 10px 0; line-height: 1.8; color: #38465a; }
 .benefits-checkout-feature > text:first-child { color: #536174; flex-shrink: 0; }
-.benefits-checkout-feature > text:last-child { text-align: right; }
+.benefits-checkout-feature-value { flex: 1; min-width: 0; }
 .benefits-checkout-message { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; margin-top: 18px; background: #f4f6f9; border: 1px solid #d8dfe8; border-radius: 10px; font-size: 14px; color: #536174; line-height: 1.8; }
 .benefits-checkout-message .app-icon { margin-top: 4px; flex-shrink: 0; }
 .benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
