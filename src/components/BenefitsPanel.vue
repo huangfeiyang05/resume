@@ -4,7 +4,6 @@ import type { MembershipPreview, Plan, PlanId } from '../../shared/types';
 import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
-import PlanFeatureValue from './PlanFeatureValue.vue';
 
 const membership = ref<MembershipPreview>();
 const plans = ref<Plan[]>([]);
@@ -32,6 +31,11 @@ function cardFeatures(plan: Plan): string[] {
   if (plan.id === 'free') return [plan.features.templates, '填写、预览与下载 Word'];
   if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', '一个自然月 · 手动续费'];
   return ['包含初级会员全部权益', '岗位筛选、收藏、官方招聘入口与复习资料', '投递计划与进度记录 · 用户手动更新'];
+}
+// Presentation of the plan description, not an account entitlement check.
+function featureClass(value: string): string {
+  const text = value.trim();
+  return text === '不包含' ? 'feature-excluded' : text ? 'feature-included' : 'feature-pending';
 }
 
 async function load() {
@@ -85,8 +89,8 @@ onMounted(load);
         <view class="benefits-comparison-row benefits-comparison-header" role="row"><view role="columnheader">权益</view><view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId, 'comparison-free-column': plan.id === 'free' }" role="columnheader"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view></view>
         <view v-for="row in rows" :key="row.key" class="benefits-comparison-row" role="row">
           <view class="comparison-feature-name" role="rowheader">{{ row.label }}</view>
-          <view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId, 'comparison-free-column': plan.id === 'free' }" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key]}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
-            <PlanFeatureValue :value="plan.features[row.key]" />
+          <view v-for="plan in plans" :key="plan.id" :class="[featureClass(plan.features[row.key]), { 'comparison-free-column': plan.id === 'free' }]" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key].trim() || '待确认'}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
+            <text class="comparison-value">{{ plan.features[row.key].trim() || '待确认' }}</text>
           </view>
         </view>
       </view>
@@ -94,7 +98,7 @@ onMounted(load);
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" subtitle="价格待定，支付未开放" @close="purchaseOpen = false">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><PlanFeatureValue class="benefits-checkout-feature-value" :value="selectedPlan.features[row.key]" align="end" /></view></view>
+      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature" :class="featureClass(selectedPlan.features[row.key])"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
       <view class="benefits-checkout-footer"><text>支付未开放，不会扣费或开通会员。</text><button class="button secondary" disabled role="button">支付暂未开放</button></view>
     </AppModal>
@@ -137,6 +141,10 @@ onMounted(load);
 .benefits-comparison-header > view { font-size: 15px; font-weight: 600; color: #1f2937; background: rgba(244,249,255,.42); flex-direction: column; gap: 6px; }
 .benefits-comparison-header > view:first-child { align-items: flex-start; justify-content: center; }
 .benefits-comparison-row .current-column { background: rgba(222,234,255,.44); }
+.benefits-comparison-row > .feature-included,.benefits-checkout-feature.feature-included { background: rgba(88,147,238,.26); color: #1d4f91; }
+.benefits-comparison-row > .feature-excluded,.benefits-checkout-feature.feature-excluded { background: rgba(209,218,230,.52); color: #596678; }
+.benefits-comparison-row > .feature-pending,.benefits-checkout-feature.feature-pending { background: rgba(235,240,246,.48); color: #596678; }
+.comparison-value { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .comparison-current-label { color: #2458c5; font-size: 12px; border-radius: 4px; background: #e0e9f9; padding: 1px 7px; }
 .benefits-state { min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 26px; font-size: 15px; color: #536174; }
 .benefits-loading { width: 24px; height: 24px; border: 2px solid #d8dfe8; border-top-color: #2458c5; border-radius: 50%; animation: benefits-spin 1s linear infinite; }
@@ -151,9 +159,9 @@ onMounted(load);
 .benefits-summary-name { font-size: 18px; font-weight: 600; color: #1f2937; }
 .benefits-summary-period { font-size: 13px; color: #536174; margin-top: 7px; line-height: 1.7; }
 .benefits-summary-price { font-size: 27px; font-weight: 600; color: #1f2937; white-space: nowrap; }
-.benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; font-size: 14px; padding: 10px 0; line-height: 1.8; color: #38465a; }
-.benefits-checkout-feature > text:first-child { color: #536174; flex-shrink: 0; }
-.benefits-checkout-feature-value { flex: 1; min-width: 0; }
+.benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-top: 8px; border-radius: 8px; font-size: 14px; padding: 12px; line-height: 1.8; }
+.benefits-checkout-feature > text:first-child { flex-shrink: 0; }
+.benefits-checkout-feature-value { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
 .benefits-checkout-message { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; margin-top: 18px; background: #f4f6f9; border: 1px solid #d8dfe8; border-radius: 10px; font-size: 14px; color: #536174; line-height: 1.8; }
 .benefits-checkout-message .app-icon { margin-top: 4px; flex-shrink: 0; }
 .benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
