@@ -14,5 +14,5 @@ onUnmounted(() => document.removeEventListener('keydown', activateButton));
 // #endif
 </script>
 <style>
-page { background: #f5f5f7; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif; }
+page { background: var(--bg, #f3f5f8); color: var(--ink, #1f2937); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif; }
 </style>

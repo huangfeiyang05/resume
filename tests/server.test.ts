@@ -115,8 +115,15 @@ test('apply requires factual confirmation and refuses edited or ambiguous source
   await assert.rejects(() => service.updateResume(saved.id, { title: '覆盖新版本', revision: 1 }), hasCode('REVISION_CONFLICT'));
 
   const duplicate = await service.createResume({ title: '重复段落', targetRole: '后端开发', text: '负责业务系统相关文档的整理和部门沟通。\n负责业务系统相关文档的整理和部门沟通。' });
-  const duplicatedReport = await service.analyze({ resumeId: duplicate.id });
-  await assert.rejects(() => service.applySuggestion(duplicatedReport.id, duplicatedReport.suggestions[0].id, { confirmed: true, replacement: '新的真实经历。', revision: 1 }), hasCode('AMBIGUOUS_SOURCE'));
+  // A future/legacy provider can still return ambiguous sources. Keep the
+  // service's independent guard even though current rules no longer emit them.
+  const ambiguousService = new ResumeService(service.store, { name: 'rules', async analyze(context) {
+    const report = await new RuleAnalysisProvider().analyze(context);
+    return { ...report, suggestions: [{ id: 'synthetic-ambiguous-suggestion', title: '合成歧义来源',
+      original: '负责业务系统相关文档的整理和部门沟通。', replacement: '请补充[请填写真实结果]。', reason: '合成测试', needsConfirmation: true, applied: false }] };
+  } }, service.userId);
+  const duplicatedReport = await ambiguousService.analyze({ resumeId: duplicate.id });
+  await assert.rejects(() => ambiguousService.applySuggestion(duplicatedReport.id, duplicatedReport.suggestions[0].id, { confirmed: true, replacement: '新的真实经历。', revision: 1 }), hasCode('AMBIGUOUS_SOURCE'));
 });
 
 test('apply rejects unresolved reviewed facts and total resume overflow without mutating data', async (t) => {

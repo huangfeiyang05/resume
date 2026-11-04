@@ -81,29 +81,25 @@ function submit() {
     <view class="auth-brand"><image class="auth-logo" src="/static/brand/logo.png" mode="aspectFill" alt="简历有方 Logo" /><text>简历有方</text></view>
     <view class="auth-layout">
       <view class="auth-intro">
-        <view class="home-eyebrow"><view class="blue-dot" />属于你的简历工作台</view>
-        <text class="auth-intro-title">{{ '好经历，\n值得被看见。' }}</text>
-        <text class="auth-intro-description">把真实经历整理清楚，找到表达中的不足，再逐项确认每一次修改。</text>
-        <view class="auth-intro-points"><view><AppIcon name="file" :size="18" /><text>集中管理自己的简历</text></view><view><AppIcon name="target" :size="18" /><text>围绕目标岗位完善表达</text></view><view><AppIcon name="shield" :size="18" /><text>登录后继续保存与修改</text></view></view>
+        <text class="auth-intro-title">{{ '简历与求职，\n一处管理。' }}</text>
+        <text class="auth-intro-description">整理简历、查找企业、记录投递。</text>
       </view>
       <view class="glass-panel auth-card">
         <view v-if="mode !== 'reset'" class="auth-mode-switch" role="tablist" aria-label="选择登录或注册"><button :class="{ active: mode === 'login' }" :aria-selected="mode === 'login'" :disabled="submitting" role="tab" tabindex="0" @click="changeMode('login')">登录</button><button :class="{ active: mode === 'register' }" :aria-selected="mode === 'register'" :disabled="submitting" role="tab" tabindex="0" @click="changeMode('register')">注册</button></view>
         <button v-else class="text-button auth-back" :disabled="submitting" role="button" tabindex="0" @click="changeMode('login')">返回登录</button>
         <text class="auth-title">{{ title }}</text>
-        <text class="auth-description">{{ mode === 'login' ? '登录后，继续打磨你的下一份机会。' : mode === 'register' ? '使用常用邮箱，开始整理属于你的经历。' : '通过已验证邮箱确认身份，再设置新密码。' }}</text>
+        <text v-if="mode === 'reset'" class="auth-description">使用已验证的邮箱重设密码。</text>
         <view v-if="notice && mode === 'login'" class="auth-success" role="status"><AppIcon name="check" :size="16" /><text>{{ notice }}</text></view>
         <view class="auth-form">
           <text class="field-label">邮箱地址</text><input v-model="email" class="text-input auth-input" type="text" inputmode="email" autocomplete="email" placeholder="输入你的邮箱" :maxlength="254" :disabled="busy" aria-label="邮箱地址" @confirm="submit" />
           <view v-if="needsCode" class="auth-field"><text class="field-label">邮箱验证码</text><view class="auth-code-row"><input v-model="code" class="text-input auth-input" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字验证码" :maxlength="6" :disabled="submitting" aria-label="邮箱验证码" @confirm="submit" /><button class="button secondary auth-code-send" :disabled="submitting || remaining > 0" role="button" tabindex="0" @click="sendCode">{{ codeBusy ? '正在发送…' : remaining > 0 ? `${remaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="codeMessage" class="auth-code-message" role="status">{{ codeMessage }}</text></view>
           <view class="auth-field"><view class="auth-label-row"><text class="field-label">{{ mode === 'reset' ? '新密码' : '密码' }}</text><button v-if="mode === 'login' && capabilities?.passwordReset" class="text-button auth-forgot" :disabled="submitting" role="button" tabindex="0" @click="changeMode('reset')">忘记密码？</button><view v-if="mode !== 'login' && password" class="password-strength" :data-level="strength.level"><view class="strength-bars"><view v-for="segment in 3" :key="segment" class="strength-segment" :class="{ on: strength.level >= segment }" /></view><text>{{ strength.label }}</text></view></view><input v-model="password" class="text-input auth-input" password type="text" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" :placeholder="mode === 'login' ? '输入密码' : '6 至 16 位，字母/数字/符号'" :maxlength="mode === 'login' ? 128 : PASSWORD_MAX_LENGTH" :disabled="submitting" aria-label="密码" @input="onPasswordInput" @confirm="submit" /></view>
           <view v-if="mode !== 'login'" class="auth-field"><text class="field-label">确认密码</text><input v-model="confirmation" class="text-input auth-input" password type="text" autocomplete="new-password" placeholder="再次输入密码" :maxlength="PASSWORD_MAX_LENGTH" :disabled="submitting" aria-label="确认密码" @input="onConfirmationInput" @confirm="submit" /></view>
-          <text v-if="mode === 'reset'" class="auth-reset-note">未验证邮箱的旧账号，需先使用原密码登录，在“我的”中完成邮箱验证后再使用找回功能。</text>
+          <text v-if="mode === 'reset'" class="auth-reset-note">邮箱未验证时，请先用原密码登录，在“我的”中完成验证。</text>
           <view v-if="message" class="auth-error" role="alert"><AppIcon name="info" :size="16" /><text>{{ message }}</text></view>
           <button class="button primary full-width auth-submit" :disabled="submitting || (mode === 'register' && !capabilities)" role="button" tabindex="0" @click="submit"><view v-if="busy" class="spinner" /><text>{{ busy ? '正在提交…' : submitLabel }}</text><AppIcon v-if="!busy" name="arrow" :size="17" /></button>
           <button v-if="restoreFailed" class="text-button auth-retry" :disabled="submitting" role="button" tabindex="0" @click="emit('retry')">重新检查登录状态</button>
         </view>
-        <view v-if="mode !== 'reset'" class="auth-alternatives"><view class="auth-divider"><view /><text>更多登录方式</text><view /></view><button class="auth-wechat-placeholder" disabled aria-label="微信小程序免登尚未开放"><view class="auth-future-dot" /><text>微信小程序免登</text><text class="auth-coming-soon">后续开放</text></button><text class="auth-phone-note">手机号验证登录将按后续接入情况开放。</text></view>
-        <text class="auth-footer-note">{{ capabilities?.emailVerification ? '验证码 10 分钟内有效，请使用能正常接收邮件的邮箱。' : '当前使用邮箱和密码注册登录，邮件验证与密码找回尚未启用。' }}</text>
       </view>
     </view>
   </view>

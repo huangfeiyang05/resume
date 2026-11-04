@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Analysis, AnalysisDimension, AnalysisIssue, AnalysisSuggestion, Resume } from '../shared/types.js';
+import { inputLimits } from '../shared/limits.js';
 
 export interface AnalysisContext {
   resume: Resume;
@@ -65,6 +66,49 @@ const responsibilityPattern = /(?:负责|参与|协助|完成|承担|跟进|维�
 const actionPattern = /(?:设计|实现|搭建|重构|优化|推动|解决|交付|开发|上线|built|designed|implemented|improved|delivered|reduced|launched)/i;
 export const hasUnresolvedPlaceholders = (text: string): boolean => /\[请填写真实[^\]]*\]/.test(text);
 
+function affirmativeMatch(line: string, pattern: RegExp): string | undefined {
+  for (const match of line.matchAll(new RegExp(pattern.source, 'gi'))) {
+    const prefix = line.slice(Math.max(0, match.index! - 20), match.index!);
+    if (/(?:未|尚未|没有|并未|无法|未能|未曾|计划|准备|预计|希望|待|打算|拟|not|never|plan to|planning to|will)\s*$/i.test(prefix)) continue;
+    return match[0];
+  }
+}
+
+// A stated delivery/acceptance result can be useful evidence without a number.
+// Keep this narrow: merely mentioning a test, launch plan or desired result is not evidence.
+const hasDeliveryEvidence = (line: string): boolean => line.split(/[，,。；;\n]/).some(clause =>
+  !/(?:计划|准备|预计|希望|争取|打算|尚未|未能|无法)/.test(clause) && !!affirmativeMatch(clause,
+    /(?:验收|评审|回归测试|集成测试|单元测试|测试)(?:结果)?(?:已|均|全部)?通过|已通过[^，,。；;\n]{0,12}(?:验收|评审|回归测试|集成测试|单元测试)|(?:按期|按时|如期)(?:交付|上线)/i));
+
+function contributionSuggestion(original: string): Omit<AnalysisSuggestion, 'id' | 'applied'> {
+  const focus = original.replace(/[。；;]$/, '');
+  const excerpt = focus.length > 18 ? `${focus.slice(0, 18)}…` : focus;
+  const action = affirmativeMatch(original, actionPattern);
+  const profiles = [
+    { pattern: /接口|\bAPI\b/i, question: '具体承担了哪些接口工作，怎样核对交付或使用结果？', facts: '接口交付结果和测试、验收或使用反馈依据' },
+    { pattern: /文档|资料|约定|说明书|材料/, question: '哪些内容由你整理或确认，交付后如何被采用或核对？', facts: '材料交付、采用情况和评审或确认依据' },
+    { pattern: /活动|推广|运营|增长/, question: '你负责哪一执行环节，实际交付了什么，如何核对反馈？', facts: '活动或运营交付结果和反馈依据' },
+    { pattern: /数据|分析|报表/, question: '形成了哪些数据交付或分析结果，如何核对或使用？', facts: '数据交付或分析结果和核对、使用依据' },
+    { pattern: /沟通|协作|协调|跟进/, question: '你具体跟进了什么事项，形成了什么可核对的结果？', facts: '协作交付或问题处理结果和确认依据' },
+  ];
+  const profile = profiles.find(({ pattern }) => pattern.test(original))
+    ?? { question: '具体交付了什么，可依据哪些记录或反馈核对？', facts: '交付结果和验收、记录或反馈依据' };
+  return {
+    title: `${action ? '补充验证依据' : '明确个人行动'}｜${excerpt}`,
+    original,
+    replacement: `${original}${action ? '' : ' 个人行动：[请填写真实负责范围与个人行动]；'} 交付与验证：[请填写真实${profile.facts}]。`,
+    reason: action
+      ? `“${excerpt}”已提到“${action}”的动作表达，重点补充交付与验证。${profile.question}`
+      : `“${excerpt}”主要是职责描述，还需明确本人实际承担的动作。${profile.question}`,
+    needsConfirmation: true,
+  };
+}
+
+function uniquelyLocated(text: string, original: string): boolean {
+  const first = text.indexOf(original);
+  return first >= 0 && text.indexOf(original, first + original.length) < 0;
+}
+
 export class RuleAnalysisProvider implements AnalysisProvider {
   readonly name = 'rules';
 
@@ -81,8 +125,8 @@ export class RuleAnalysisProvider implements AnalysisProvider {
       return withinWork;
     });
     const workLines = experienceLines.filter((line) => line.length >= 12 && (responsibilityPattern.test(line) || actionPattern.test(line)));
-    const unmeasured = workLines.filter((line) => !hasMeasuredImpact(line));
-    const measured = workLines.filter(hasMeasuredImpact);
+    const unmeasured = workLines.filter((line) => !hasMeasuredImpact(line) && !hasDeliveryEvidence(line));
+    const measured = workLines.filter((line) => hasMeasuredImpact(line) || hasDeliveryEvidence(line));
     const responsibilityOnly = workLines.filter((line) => responsibilityPattern.test(line) && !actionPattern.test(line));
     const expected = expectedKeywords(targetRole, jobDescription);
     const matched = expected.filter((keyword) => hasKeyword(text, keyword));
@@ -100,28 +144,27 @@ export class RuleAnalysisProvider implements AnalysisProvider {
 
     const addIssue = (issue: Omit<AnalysisIssue, 'id'>) => issues.push({ id: randomUUID(), ...issue });
     const addSuggestion = (suggestion: Omit<AnalysisSuggestion, 'id' | 'applied'>) => suggestions.push({ id: randomUUID(), applied: false, ...suggestion });
+    const candidates = [...new Set(unmeasured)].filter(original => uniquelyLocated(text, original))
+      .map(contributionSuggestion).filter(suggestion => suggestion.replacement.length <= inputLimits.replacement).slice(0, 3);
 
     if (unmeasured.length) {
       const evidence = unmeasured[0];
       addIssue({
         title: '经历写了做什么，还缺少结果证据', severity: 'high', category: 'impact',
         description: `${workLines.length} 条可识别经历中，${unmeasured.length} 条没有可识别的规模、效率或业务结果。招聘者难以判断你的贡献。`,
-        evidence, suggestion: '补充真实的行动、业务场景和可核实结果；没有数据时，写清交付范围与验证方式。', actionable: true,
+        evidence, suggestion: '补充真实的行动、业务场景和可核实结果；没有数据时，写清交付范围与验证方式。', actionable: candidates.length > 0,
       });
-      for (const original of unmeasured.slice(0, 3)) {
-        const concise = original.replace(/^[\s•·\-*\d.、]+/, '').replace(/[。；;]$/, '');
-        addSuggestion({
-          title: '把职责补充为可验证的贡献', original,
-          replacement: `${concise}；针对[请填写真实业务问题]，采取[请填写真实行动或技术方案]，取得[请填写真实结果与验证依据]。`,
-          reason: '保留原始事实，补齐问题、行动和结果。占位内容必须由你核实填写，不会自动生成业绩数字。', needsConfirmation: true,
-        });
-      }
+      candidates.forEach(addSuggestion);
+      const ambiguous = [...new Set(unmeasured)].filter(original => !uniquelyLocated(text, original));
+      if (ambiguous.length) addIssue({ title: '相同原文有多处，需先确定修改位置', severity: 'medium', category: 'clarity',
+        description: '部分经历的原文出现在多个位置，无法安全定位改写位置，未生成自动应用建议。', evidence: ambiguous[0],
+        suggestion: '在编辑器中确认具体段落，合并重复内容或补充各段区别后再诊断。', actionable: false });
     } else if (!workLines.length) {
       addIssue({ title: '缺少可识别的经历描述', severity: 'high', category: 'impact', description: '当前正文中没有识别到描述具体行动的工作或项目经历。规则可能漏识别特殊排版，请以原文为准。', evidence: lines.slice(0, 2).join(' / ').slice(0, 240), suggestion: '为一段真实经历补充场景、个人行动、交付成果与可验证结果。', actionable: false });
     }
 
     if (responsibilityOnly.length) {
-      addIssue({ title: '职责表达多，个人贡献不够突出', severity: responsibilityOnly.length >= 3 ? 'high' : 'medium', category: 'clarity', description: `${responsibilityOnly.length} 条经历以“负责 / 参与 / 协助”等职责词为主，没有识别到清晰的交付动作。`, evidence: responsibilityOnly[0], suggestion: '说明你独立解决了什么问题、作了什么选择、实际交付了什么。', actionable: unmeasured.includes(responsibilityOnly[0]) });
+      addIssue({ title: '职责表达多，个人贡献不够突出', severity: responsibilityOnly.length >= 3 ? 'high' : 'medium', category: 'clarity', description: `${responsibilityOnly.length} 条经历以“负责 / 参与 / 协助”等职责词为主，没有识别到清晰的交付动作。`, evidence: responsibilityOnly[0], suggestion: '说明你独立解决了什么问题、作了什么选择、实际交付了什么。', actionable: candidates.some(({ original }) => original === responsibilityOnly[0]) });
     }
 
     if (missingSections.length) {
