@@ -23,7 +23,6 @@ function choosePreviewLayout() {
 <template>
   <view id="template-section" class="glass-panel flow-card resume-layout-library">
     <view class="flow-card-heading layout-library-heading">
-      <view class="flow-step">03</view>
       <view class="layout-library-heading-copy">
         <text class="flow-card-title">简历布局</text>
       </view>
@@ -106,6 +105,36 @@ function choosePreviewLayout() {
  .resume-layout-library { margin-top: 20px; padding: 23px 18px 20px; }.layout-library-heading { gap: 10px; }.layout-library-count { padding: 4px 7px; font-size: 12px; }
  .layout-template-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }.layout-template-preview { padding: 14px 12px; background: rgba(232,240,250,.35); }.layout-template-choice { min-height: 80px; padding: 15px 12px; gap: 7px; align-items: flex-start; background: transparent; }.layout-template-name { font-size: 16px; }.layout-template-caption { font-size: 13px; }.layout-radio { width: 18px; height: 18px; margin-top: 4px; }.layout-selection-state > text { display: none; }
  .layout-template-actions { flex-direction: column; align-items: stretch; gap: 6px; margin: 0 12px; padding: 11px 0 13px; }.layout-view-button,.layout-download-button { min-height: 39px; padding: 7px 3px; font-size: 13px; }.layout-own-preview { width: 100%; min-height: 43px; }.layout-modal-actions { width: 100%; }.layout-modal-actions > button { flex: 1; }.layout-modal-document { margin: 0 -8px; padding: 10px; border-radius: 8px; background: rgba(232,240,250,.35); }
+}
+/* Phone cards keep the complete A4 thumbnail beside their actions. */
+@media (max-width: 600px) {
+  .resume-layout-library { padding: 20px 16px 17px; }
+  .layout-library-heading { gap: 8px; margin-bottom: 16px; }
+  .layout-library-count { padding: 4px 6px; }
+  .layout-template-grid { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  .layout-template-card { display: grid; grid-template-columns: 96px minmax(0,1fr); grid-template-areas: "preview choice" "preview actions"; column-gap: 14px; row-gap: 12px; align-items: start; padding: 12px; }
+  .layout-template-preview { grid-area: preview; align-self: start; width: 100%; padding: 0; border-radius: 5px; background: transparent; }
+  .layout-template-image { width: 100%; height: auto; }
+  .layout-template-choice { grid-area: choice; min-height: 0; padding: 1px 0 0; gap: 8px; align-items: flex-start; }
+  .layout-template-title-copy { flex: 1; min-width: 0; }
+  .layout-template-name { font-size: 16px; line-height: 1.55; }
+  .layout-template-caption { margin-top: 4px; font-size: 13px; line-height: 1.6; }
+  .layout-selection-state { margin-top: 2px; }
+  .layout-radio { margin-top: 0; width: 19px; height: 19px; }
+  .layout-template-actions { grid-area: actions; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 8px; margin: 0; padding: 0; border-top: 0; min-width: 0; }
+  .layout-view-button,.layout-download-button { min-height: 44px; padding: 8px; gap: 5px; font-size: 13px; }
+  .layout-library-footer { margin-top: 14px; }
+  .layout-own-preview { min-height: 44px; }
+  .layout-modal-toolbar { margin-bottom: 14px; gap: 10px; }
+  .layout-modal-actions { min-width: 0; flex-wrap: wrap; gap: 8px; }
+  .layout-modal-actions > button { flex: 1 1 120px; min-width: 0; min-height: 44px; white-space: normal; text-align: center; }
+  .layout-modal-document { margin: 0; padding: 7px; }
+}
+@media (max-width: 360px) {
+  .resume-layout-library { padding-left: 12px; padding-right: 12px; }
+  .layout-template-card { grid-template-columns: 80px minmax(0,1fr); column-gap: 11px; padding: 10px; }
+  .layout-template-actions { gap: 4px 6px; }
+  .layout-view-button,.layout-download-button { padding-left: 7px; padding-right: 7px; }
 }
 @media (prefers-reduced-motion: reduce) { .layout-template-card { transition: none; background: var(--glass-surface); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); } }
 </style>
