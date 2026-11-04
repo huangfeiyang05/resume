@@ -32,11 +32,6 @@ function cardFeatures(plan: Plan): string[] {
   if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', '一个自然月 · 手动续费'];
   return ['包含初级会员全部权益', '岗位筛选、收藏、官方招聘入口与复习资料', '投递计划与进度记录 · 用户手动更新'];
 }
-// Presentation of the plan description, not an account entitlement check.
-function featureClass(value: string): string {
-  const text = value.trim();
-  return text === '不包含' ? 'feature-excluded' : text ? 'feature-included' : 'feature-pending';
-}
 
 async function load() {
   if (!loading.value) loading.value = true;
@@ -85,20 +80,20 @@ onMounted(load);
       </view>
 
       <view class="benefits-section-heading comparison-heading"><text class="benefits-section-title">权益对比</text></view>
-      <view class="glass-panel benefits-comparison" role="table" aria-label="会员规划权益对比">
-        <view class="benefits-comparison-row benefits-comparison-header" role="row"><view role="columnheader">权益</view><view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId, 'comparison-free-column': plan.id === 'free' }" role="columnheader"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view></view>
+      <scroll-view scroll-x class="benefits-comparison-scroll"><view class="glass-panel benefits-comparison" role="table" aria-label="免费体验、初级会员与高级会员规划权益对比">
+        <view class="benefits-comparison-row benefits-comparison-header" role="row"><view role="columnheader">权益</view><view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId }" role="columnheader"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view></view>
         <view v-for="row in rows" :key="row.key" class="benefits-comparison-row" role="row">
           <view class="comparison-feature-name" role="rowheader">{{ row.label }}</view>
-          <view v-for="plan in plans" :key="plan.id" :class="[featureClass(plan.features[row.key]), { 'comparison-free-column': plan.id === 'free' }]" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key].trim() || '待确认'}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
+          <view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId }" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key].trim() || '待确认'}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
             <text class="comparison-value">{{ plan.features[row.key].trim() || '待确认' }}</text>
           </view>
         </view>
-      </view>
+      </view></scroll-view>
     </template>
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" subtitle="价格待定，支付未开放" @close="purchaseOpen = false">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature" :class="featureClass(selectedPlan.features[row.key])"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
+      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
       <view class="benefits-checkout-footer"><text>支付未开放，不会扣费或开通会员。</text><button class="button secondary" disabled role="button">支付暂未开放</button></view>
     </AppModal>
@@ -133,7 +128,8 @@ onMounted(load);
 .benefit-card-list-compact,.benefit-action-compact { display: none; }
 .benefit-plan-button { width: 100%; font-size: 14px; min-height: 42px; padding: 10px 12px; border-radius: 10px; }
 .benefit-plan-button.current { color: #536174; opacity: 1; background: #f4f6f9; cursor: default; }
-.benefits-comparison { width: 100%; min-width: 0; overflow: hidden; }
+.benefits-comparison-scroll { display: block; width: 100%; min-width: 0; }
+.benefits-comparison { width: 100%; min-width: 620px; overflow: hidden; }
 .benefits-comparison-row { display: grid; grid-template-columns: .9fr repeat(3,minmax(0,1fr)); }
 .benefits-comparison-row > view { display: flex; align-items: center; justify-content: center; min-width: 0; padding: 19px 14px; text-align: center; font-size: 14px; color: #38465a; line-height: 1.8; border-bottom: 1px solid #e2e7ef; overflow-wrap: anywhere; word-break: break-word; }
 .benefits-comparison-row:last-child > view { border-bottom: 0; }
@@ -141,9 +137,6 @@ onMounted(load);
 .benefits-comparison-header > view { font-size: 15px; font-weight: 600; color: #1f2937; background: rgba(244,249,255,.42); flex-direction: column; gap: 6px; }
 .benefits-comparison-header > view:first-child { align-items: flex-start; justify-content: center; }
 .benefits-comparison-row .current-column { background: rgba(222,234,255,.44); }
-.benefits-comparison-row > .feature-included,.benefits-checkout-feature.feature-included { background: rgba(88,147,238,.26); color: #1d4f91; }
-.benefits-comparison-row > .feature-excluded,.benefits-checkout-feature.feature-excluded { background: rgba(209,218,230,.52); color: #596678; }
-.benefits-comparison-row > .feature-pending,.benefits-checkout-feature.feature-pending { background: rgba(235,240,246,.48); color: #596678; }
 .comparison-value { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .comparison-current-label { color: #2458c5; font-size: 12px; border-radius: 4px; background: #e0e9f9; padding: 1px 7px; }
 .benefits-state { min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 26px; font-size: 15px; color: #536174; }
@@ -159,8 +152,8 @@ onMounted(load);
 .benefits-summary-name { font-size: 18px; font-weight: 600; color: #1f2937; }
 .benefits-summary-period { font-size: 13px; color: #536174; margin-top: 7px; line-height: 1.7; }
 .benefits-summary-price { font-size: 27px; font-weight: 600; color: #1f2937; white-space: nowrap; }
-.benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-top: 8px; border-radius: 8px; font-size: 14px; padding: 12px; line-height: 1.8; }
-.benefits-checkout-feature > text:first-child { flex-shrink: 0; }
+.benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; font-size: 14px; padding: 10px 0; line-height: 1.8; color: #38465a; }
+.benefits-checkout-feature > text:first-child { color: #536174; flex-shrink: 0; }
 .benefits-checkout-feature-value { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
 .benefits-checkout-message { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; margin-top: 18px; background: #f4f6f9; border: 1px solid #d8dfe8; border-radius: 10px; font-size: 14px; color: #536174; line-height: 1.8; }
 .benefits-checkout-message .app-icon { margin-top: 4px; flex-shrink: 0; }
@@ -168,7 +161,7 @@ onMounted(load);
 .benefits-checkout-footer > text { font-size: 13px; color: #536174; line-height: 1.8; }
 @media (max-width: 850px) { .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); }.benefit-plan { padding: 24px; }.benefit-plan-top { align-items: center; }.benefit-price { margin: 18px 0 22px; }.benefit-card-list { margin-bottom: 24px; } }
 @media (max-width: 600px) { .benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-checkout-footer { align-items: stretch; flex-direction: column; gap: 15px; }.benefits-checkout-footer .button { width: 100%; } }
-/* Keep compact plan cards and a three-column paid-plan comparison on mobile. */
+/* Keep compact plan cards on mobile; the full comparison can scroll horizontally. */
 @media (max-width: 600px) {
   .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
   .benefit-plan { padding: 14px 8px 12px; border-radius: 12px; }
@@ -185,11 +178,6 @@ onMounted(load);
   .benefit-card-list-compact text { min-width: 0; overflow-wrap: anywhere; }
   .benefit-action-compact { display: inline; }
   .benefit-plan-button { min-width: 0; min-height: 42px; padding: 9px 4px; gap: 4px; font-size: 13px; white-space: normal; }
-  .benefits-comparison-row { grid-template-columns: .95fr 1fr 1.45fr; }
-  .benefits-comparison-row > view { padding: 12px 8px; font-size: 14px; line-height: 1.8; white-space: normal; }
-  .benefits-comparison-row > view:first-child { padding-left: 10px; }
-  .benefits-comparison-row > .comparison-free-column { display: none; }
-  .benefits-comparison-header > view { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .benefits-loading { animation: none; } }
 </style>
