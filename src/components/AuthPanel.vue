@@ -4,6 +4,7 @@ import type { AuthCapabilities, EmailPasswordInput, ResetPasswordInput } from '.
 import { PASSWORD_MAX_LENGTH } from '../../shared/auth';
 import { useEmailChallenge, validateAuthForm, type AuthMode } from '../services/auth';
 import AppIcon from './AppIcon.vue';
+import SiteFooter from './SiteFooter.vue';
 
 const props = defineProps<{ busy: boolean; error: string; notice?: string; capabilities?: AuthCapabilities; restoreFailed?: boolean }>();
 const emit = defineEmits<{
@@ -102,5 +103,6 @@ function submit() {
         </view>
       </view>
     </view>
+    <SiteFooter />
   </view>
 </template>
