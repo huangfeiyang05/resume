@@ -5,7 +5,6 @@ import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
 
-const emit = defineEmits<{ explore: [] }>();
 const membership = ref<MembershipPreview>();
 const plans = ref<Plan[]>([]);
 const loading = ref(true);
@@ -80,16 +79,12 @@ onMounted(load);
         </view>
       </view>
 
-
-      <view class="glass-panel benefits-workspace"><view><text class="benefits-section-title">求职工作台</text><text>管理岗位、简历与投递进度。</text></view><button class="button primary" @click="emit('explore')" role="button" tabindex="0">进入工作台<AppIcon name="arrow" :size="16" /></button></view>
-
       <view class="benefits-section-heading comparison-heading"><text class="benefits-section-title">权益对比</text></view>
-      <view class="glass-panel benefits-comparison" role="table" aria-label="免费体验与两级会员规划权益对比">
-        <view class="benefits-comparison-row benefits-comparison-header" role="row"><view role="columnheader">权益</view><view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId }" role="columnheader"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view></view>
+      <view class="glass-panel benefits-comparison" role="table" aria-label="会员规划权益对比">
+        <view class="benefits-comparison-row benefits-comparison-header" role="row"><view role="columnheader">权益</view><view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId, 'comparison-free-column': plan.id === 'free' }" role="columnheader"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view></view>
         <view v-for="row in rows" :key="row.key" class="benefits-comparison-row" role="row">
           <view class="comparison-feature-name" role="rowheader">{{ row.label }}</view>
-          <view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId }" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key]}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
-            <view class="comparison-plan-label" aria-hidden="true"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view>
+          <view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId, 'comparison-free-column': plan.id === 'free' }" role="cell" :aria-label="`${row.label}，${plan.name}，${plan.features[row.key]}${plan.id === membership.currentPlanId ? '，当前方案' : ''}`">
             <text class="comparison-value">{{ plan.features[row.key] }}</text>
           </view>
         </view>
@@ -108,7 +103,7 @@ onMounted(load);
 <style scoped>
 .benefits-panel { min-width: 0; padding-bottom: 18px; }
 .benefits-preview-note { display: block; color: #536174; font-size: 13px; margin-bottom: 16px; }
-.benefits-current,.benefit-plan,.benefits-comparison,.benefits-state,.benefits-workspace { background: var(--glass-surface); border: 1px solid var(--glass-line); border-radius: 14px; box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
+.benefits-current,.benefit-plan,.benefits-comparison,.benefits-state { background: var(--glass-surface); border: 1px solid var(--glass-line); border-radius: 14px; box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
 .benefits-current { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px; }
 .benefits-current-main { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .benefits-gem { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 12px; background: #edf2fb; color: #2458c5; }
@@ -133,10 +128,7 @@ onMounted(load);
 .benefit-card-list-compact,.benefit-action-compact { display: none; }
 .benefit-plan-button { width: 100%; font-size: 14px; min-height: 42px; padding: 10px 12px; border-radius: 10px; }
 .benefit-plan-button.current { color: #536174; opacity: 1; background: #f4f6f9; cursor: default; }
-.benefits-workspace { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 26px; margin-top: 24px; }
-.benefits-workspace > view > text:last-child { display: block; color: #536174; font-size: 14px; line-height: 1.8; margin-top: 7px; }
 .benefits-comparison { width: 100%; min-width: 0; overflow: hidden; }
-.comparison-plan-label { display: none; }
 .comparison-value { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .benefits-comparison-row { display: grid; grid-template-columns: .9fr repeat(3,minmax(0,1fr)); }
 .benefits-comparison-row > view { display: flex; align-items: center; justify-content: center; min-width: 0; padding: 19px 14px; text-align: center; font-size: 14px; color: #38465a; line-height: 1.8; border-bottom: 1px solid #e2e7ef; overflow-wrap: anywhere; word-break: break-word; }
@@ -167,8 +159,8 @@ onMounted(load);
 .benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .benefits-checkout-footer > text { font-size: 13px; color: #536174; line-height: 1.8; }
 @media (max-width: 850px) { .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); }.benefit-plan { padding: 24px; }.benefit-plan-top { align-items: center; }.benefit-price { margin: 18px 0 22px; }.benefit-card-list { margin-bottom: 24px; } }
-@media (max-width: 600px) { .benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-workspace { padding: 23px 20px; align-items: stretch; flex-direction: column; gap: 18px; }.benefits-workspace .button { width: 100%; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-checkout-footer { align-items: stretch; flex-direction: column; gap: 15px; }.benefits-checkout-footer .button { width: 100%; } }
-/* Each mobile feature shows all three plans in place, with no horizontal scroller. */
+@media (max-width: 600px) { .benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-checkout-footer { align-items: stretch; flex-direction: column; gap: 15px; }.benefits-checkout-footer .button { width: 100%; } }
+/* Keep compact plan cards and a three-column paid-plan comparison on mobile. */
 @media (max-width: 600px) {
   .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
   .benefit-plan { padding: 14px 8px 12px; border-radius: 12px; }
@@ -185,17 +177,11 @@ onMounted(load);
   .benefit-card-list-compact text { min-width: 0; overflow-wrap: anywhere; }
   .benefit-action-compact { display: inline; }
   .benefit-plan-button { min-width: 0; min-height: 42px; padding: 9px 4px; gap: 4px; font-size: 13px; white-space: normal; }
-  .benefits-comparison { overflow: visible; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .benefits-comparison-row { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 12px; border: 1px solid var(--glass-line); border-radius: 12px; overflow: hidden; background: var(--glass-surface); box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
-  .benefits-comparison-row:last-child { margin-bottom: 0; }
-  .benefits-comparison-row > view { flex-direction: column; justify-content: flex-start; padding: 12px 8px; border-bottom: 0; font-size: 14px; line-height: 1.8; min-width: 0; white-space: normal; }
-  .benefits-comparison-row > .comparison-feature-name:first-child { grid-column: 1 / -1; align-items: flex-start; padding: 11px 12px; border-bottom: 1px solid #d8dfe8; background: rgba(244,249,255,.42); color: #1f2937; font-size: 15px; font-weight: 600; }
-  .comparison-plan-label { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 3px 4px; width: 100%; min-height: 43px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; font-weight: 600; color: #536174; }
-  .current-column .comparison-plan-label { color: #2458c5; }
-  .comparison-plan-label .comparison-current-label { padding: 1px 5px; font-weight: 500; }
-  .comparison-value { width: 100%; }
-  /* Keep the table's complete column headers available to assistive technology. */
-  .benefits-comparison-header { position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; box-shadow: none; }
+  .benefits-comparison-row { grid-template-columns: .95fr 1fr 1.45fr; }
+  .benefits-comparison-row > view { padding: 12px 8px; font-size: 14px; line-height: 1.8; white-space: normal; }
+  .benefits-comparison-row > view:first-child { padding-left: 10px; }
+  .benefits-comparison-row > .comparison-free-column { display: none; }
+  .benefits-comparison-header > view { font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .benefits-loading { animation: none; } }
 </style>
