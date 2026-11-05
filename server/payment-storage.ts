@@ -19,6 +19,7 @@ export interface StoredPaymentOrder extends PaymentOrder {
 export interface PaymentStorage { orders: StoredPaymentOrder[] }
 
 const statuses: PaymentOrderStatus[] = ['pending', 'paid', 'closed', 'failed'];
+const channels: PaymentChannel[] = ['jsapi', 'native', 'alipay-page', 'alipay-wap'];
 const plans: PaidPlanId[] = ['basic', 'premium'];
 const tradeNumber = /^[A-Za-z0-9_-]{20,32}$/;
 
@@ -45,7 +46,7 @@ function normalizeOrder(value: unknown): StoredPaymentOrder {
     ['id', 'userId', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'outTradeNo', 'description'],
     ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'transactionId', 'paymentEventId', 'channel']);
   const channel = item.channel === undefined ? 'jsapi' : item.channel;
-  if (channel !== 'jsapi' && channel !== 'native') return malformed();
+  if (!channels.includes(channel as PaymentChannel)) return malformed();
   if (!identifier(item.id) || !identifier(item.userId) || !plans.includes(item.planId as PaidPlanId)
     || !Number.isSafeInteger(item.amountCents) || (item.amountCents as number) <= 0
     || !statuses.includes(item.status as PaymentOrderStatus)
@@ -61,7 +62,7 @@ function normalizeOrder(value: unknown): StoredPaymentOrder {
     || !optionalString(item.paymentEventId, /^[A-Za-z0-9_-]{6,128}$/)) return malformed();
   const status = item.status as PaymentOrderStatus;
   if ((status === 'paid') !== (item.paidAt !== undefined) || (status === 'paid') !== (item.transactionId !== undefined) || (status === 'paid') !== (item.paymentEventId !== undefined)) return malformed();
-  return { ...(structuredClone(item) as unknown as StoredPaymentOrder), channel };
+  return { ...(structuredClone(item) as unknown as StoredPaymentOrder), channel: channel as PaymentChannel };
 }
 
 /** Missing fields are migrated to an empty list; malformed present fields refuse to load. */

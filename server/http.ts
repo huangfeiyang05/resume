@@ -5,6 +5,7 @@ import { ResumeService } from './service.js';
 import { limits, validateVersionRevision } from './validation.js';
 import { PaymentService } from './payments.js';
 import type { WechatPayGateway } from './wechat-pay.js';
+import type { AlipayGateway } from './alipay.js';
 import type { BillingPricing } from './payment-config.js';
 import { AnalysisJobs } from './jobs.js';
 import { AuthService } from './auth.js';
@@ -20,6 +21,11 @@ import { answerCareerAssistant } from './career-assistant.js';
 function json(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Cookie, Authorization' });
   response.end(JSON.stringify(value));
+}
+
+function text(response: ServerResponse, status: number, value: string) {
+  response.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  response.end(value);
 }
 
 async function rawBody(request: IncomingMessage, allowEmpty = false): Promise<string> {
@@ -47,6 +53,27 @@ async function body(request: IncomingMessage, allowEmpty = false): Promise<unkno
   catch { throw new HttpError(400, 'INVALID_JSON', '请求体不是有效的 JSON。'); }
 }
 
+/** Alipay notifications are application/x-www-form-urlencoded, so they need their own bounded reader. */
+async function formBody(request: IncomingMessage): Promise<string> {
+  const declared = request.headers['content-length'];
+  if (declared && Number(declared) > limits.bodyBytes) throw new HttpError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 256 KB 限制。');
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > limits.bodyBytes) throw new HttpError(413, 'PAYLOAD_TOO_LARGE', '请求体超过 256 KB 限制。');
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function formFields(raw: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  new URLSearchParams(raw).forEach((value, key) => { fields[key] = value; });
+  return fields;
+}
+
 export interface ApiServerOptions {
   auth?: AuthService;
   secureCookies?: boolean;
@@ -55,6 +82,7 @@ export interface ApiServerOptions {
   careerCatalogPath?: string;
   companyCatalogPath?: string;
   paymentGateway?: WechatPayGateway;
+  paymentAlipay?: AlipayGateway;
   pricing?: BillingPricing;
   paymentAppid?: string;
   paymentMchid?: string;
@@ -76,6 +104,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
   const payments = new PaymentService({
     store: baseService.store, quota: jobs.quota, ...(options.pricing ? { pricing: options.pricing } : {}),
     ...(options.paymentGateway ? { gateway: options.paymentGateway } : {}),
+    ...(options.paymentAlipay ? { alipay: options.paymentAlipay } : {}),
     ...(options.paymentAppid ? { appid: options.paymentAppid } : {}),
     ...(options.paymentMchid ? { mchid: options.paymentMchid } : {}),
     ...(options.paymentNotifyUrl ? { notifyUrl: options.paymentNotifyUrl } : {}),
@@ -116,6 +145,18 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const raw = await rawBody(request);
         json(response, 200, await payments.applyNotification(request.headers, raw)); return;
+      }
+      if (path === '/api/v1/billing/alipay/notify') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const fields = formFields(await formBody(request));
+        try {
+          await payments.applyAlipayNotification(fields);
+        } catch (error) {
+          // Alipay retries until it receives the literal "success"; log only the safe error code.
+          console.error('[resume-api] alipay notification rejected', error instanceof HttpError ? error.code : error instanceof Error ? error.name : 'UnknownError');
+          text(response, 200, 'failure'); return;
+        }
+        text(response, 200, 'success'); return;
       }
       if (path === '/api/v1/auth/providers') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
@@ -190,7 +231,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         const session = await auth.authenticate(sessionToken(request));
         json(response, 200, { data: await auth.bindWechat(session.user.id, await body(request), clientAddress(request)) }); return;
       }
-      const publicRoute = path === '/api/v1/health' || path === '/api/v1/plans';
+      const publicRoute = path === '/api/v1/health' || path === '/api/v1/plans' || path === '/api/v1/billing/payment-methods';
       const service = publicRoute ? baseService : baseService.forUser((await auth.authenticate(sessionToken(request))).user.id);
       const career = new CareerService(service.store, service.userId, options.careerCatalogPath);
       let match: RegExpMatchArray | null;
@@ -206,6 +247,9 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       } else if (path === '/api/v1/plans') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: payments.plans() });
+      } else if (path === '/api/v1/billing/payment-methods') {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        json(response, 200, { data: payments.methods() });
       } else if (path === '/api/v1/billing/checkout') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 201, { data: await payments.checkout(service.userId, await body(request)) });

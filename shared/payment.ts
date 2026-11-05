@@ -1,7 +1,8 @@
 import type { PaidPlanId, PlanId } from './membership.js';
 
 export type PaymentOrderStatus = 'pending' | 'paid' | 'closed' | 'failed';
-export type PaymentChannel = 'jsapi' | 'native';
+/** jsapi/native: WeChat Pay; alipay-page/alipay-wap: Alipay web checkout on H5. */
+export type PaymentChannel = 'jsapi' | 'native' | 'alipay-page' | 'alipay-wap';
 
 /** Client-safe order summary. It never contains WeChat secrets, openid or raw callback data. */
 export interface PaymentOrder {
@@ -35,12 +36,19 @@ export interface NativePaymentParams {
   expiresAt: string;
 }
 
+/** Redirect target for Alipay page/wap checkout. The URL is signed on the server. */
+export interface AlipayPaymentParams {
+  redirectUrl: string;
+}
+
 export interface CheckoutResult {
   order: PaymentOrder;
   /** Present for mini-program JSAPI payments. */
   payment?: WechatPaymentParams;
   /** Present for H5 Native scan payments. */
   native?: NativePaymentParams;
+  /** Present for Alipay page/wap payments. */
+  alipay?: AlipayPaymentParams;
 }
 
 /** Server-side quote used by the confirmation screen before an order is created. */

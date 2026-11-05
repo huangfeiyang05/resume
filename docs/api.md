@@ -75,9 +75,11 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
 | GET | `/plans` | 返回 `free / basic / premium` 三档权益与服务器价格（分）；未配置支付时 `paymentAvailable` 为 false，价格仍返回当前服务端配置 |
 | GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade`、当前方案；升级补差价由服务端计算 |
-| POST | `/billing/checkout` | `{planId,requestId,channel?}`，`channel` 为 `jsapi`（默认，小程序）或 `native`（H5 扫码）→ 201 创建或复用 `pending` 订单；JSAPI 返回订单摘要 + `wx.requestPayment` 参数，Native 返回订单摘要 + `native.codeUrl/qrCodeDataUrl/expiresAt`；未配置支付返回 503 `PAYMENT_NOT_CONFIGURED`；JSAPI 未绑定微信返回 409 `WECHAT_NOT_BOUND`；同一 `requestId` 换方案/金额/支付方式返回 409 `IDEMPOTENCY_KEY_CONFLICT` |
+| GET | `/billing/payment-methods` | 公开；返回 `{wechat:boolean,alipay:boolean}`，即服务器当前已配置并启用的支付渠道，前端据此决定按钮是否展示 |
+| POST | `/billing/checkout` | `{planId,requestId,channel?}`，`channel` 为 `jsapi`（默认，小程序）、`native`（H5 微信扫码）或 `alipay-page`/`alipay-wap`（H5 支付宝）→ 201 创建或复用 `pending` 订单；JSAPI 返回订单摘要 + `wx.requestPayment` 参数，Native 返回订单摘要 + `native.codeUrl/qrCodeDataUrl/expiresAt`，支付宝返回订单摘要 + `alipay.redirectUrl`；未配置对应渠道返回 503 `PAYMENT_NOT_CONFIGURED`；JSAPI 未绑定微信返回 409 `WECHAT_NOT_BOUND`；同一 `requestId` 换方案/金额/支付方式返回 409 `IDEMPOTENCY_KEY_CONFLICT` |
 | GET | `/billing/orders/:id` | 返回当前会话本人的订单摘要（不含 prepayId 或其他用户订单）；不存在按 404 |
 | POST | `/billing/wechat/notify` | 微信支付 v3 异步通知入口，公开但必须通过平台公钥验签；处理成功返回 `{code:'SUCCESS'}`，失败返回错误且不发放会员 |
+| POST | `/billing/alipay/notify` | 支付宝异步通知入口，公开但必须通过 RSA2 验签；校验 app_id/seller_id/订单/金额后入账，成功返回纯文本 `success`，失败返回 `failure` 且不发放会员 |
 | POST | `/auth/wechat/bind` | `{code}` → `{bound:true,openidMasked}`；服务端用小程序 code 换 openid 并绑定当前账号，绑定其他账号返回 409 |
 | GET | `/resumes` | 返回本人简历数组，按更新时间倒序 |
 | POST | `/resumes` | `{title, targetRole?, text}` → 201 + 归属当前会话用户的简历 |
@@ -168,7 +170,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 `AiQuotaSummary.status` 为 `preview / active / inactive`。仅 `active` 带 0–100 的整数 `remainingPercent` 与 ISO 时区时间；百分比按已确认实际用量计算并向上取整，正余额不会被舍入为 0%。`pending` 表示尚有处理或用量核对，预占不作为实际扣减展示；百分比大于零不保证可以绕过在途任务或保守预占检查。周起点来自首次可信激活，每 7 天刷新；`resetsAt` 到会员末期截断为 `expiresAt`，此时界面显示额度有效至而非承诺续期刷新。续费和升级保持周起点，升级保留本周消耗后换用高级总量。
 
-充值接口只接受 `{planId}`。旧 `single / weekly / monthly` 档位、无效方案及免费方案返回 400，也拒绝客户端提交价格、会员等级、有效期或支付结果等字段。合法 `basic / premium` 方案返回 `{error:{code:'PAYMENT_NOT_CONFIGURED',message:'会员价格待定，支付暂未开放，本次未扣费。'}}`（503）。默认没有可信会员记录时仍为免费预览，额度状态 `preview`、百分比和刷新/到期值为 `null`，不虚构余额或有效期；有有效服务端记录时返回 `mode: active`、对应等级、`limitsEnforced: true` 和有效周额度摘要；记录已过期时为 `quota.status: inactive`，百分比及刷新时间为 `null`，保留实际到期时间。`paymentAvailable` 始终为 `false`。已有单进程持久化会员事件和额度账本，但没有支付 SDK、支付回调或真实订单发放链路；内部 `activateMembership` 仅供未来已验证支付适配器和受信测试，不是用户可调用的 HTTP 授予接口。规则日期计算和查看方案均不改变账号权益，页面不提供可点击的开通操作。
+`/billing/checkout` 只接受服务端定义的字段：`planId`、至少 16 字符的幂等 `requestId`，以及可选 `channel`（`jsapi`/`native`/`alipay-page`/`alipay-wap`）。旧档位、无效方案、免费方案、客户端提交的价格/会员等级/有效期/支付结果字段返回 400；未配置对应支付渠道返回 503 `PAYMENT_NOT_CONFIGURED`，不会扣费或发放会员。`paymentAvailable` 由服务器支付配置决定；默认没有可信会员记录时仍为免费预览。订单状态以服务端异步通知和会员账本为准，客户端 toast、跳转返回页或 `order.status` 单独都不能作为发放权益的依据。内部 `activateMembership` 仅供已验证支付适配器和受信测试调用，不是用户可调用的 HTTP 授予接口。
 
 ## 百炼诊断
 

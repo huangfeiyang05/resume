@@ -9,6 +9,7 @@ import { AuthService } from '../server/auth.js';
 import { createApiServer } from '../server/http.js';
 import { defaultPricing } from '../server/payment-config.js';
 import type { JsapiOrderInput, NotifyPayload, WechatPayGateway } from '../server/wechat-pay.js';
+import type { AlipayGateway, AlipayNotification } from '../server/alipay.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
 
@@ -21,6 +22,7 @@ async function fixture(t: TestContext) {
   const service = new ResumeService(new JsonStore(path));
   const auth = new AuthService(service.store, { wechat: { exchange: async (code: string) => ({ openid: code === 'alice-code' ? 'openid-alice-1234' : 'openid-other-5678' }) } });
   let notification: NotifyPayload | undefined;
+  let alipayNotification: AlipayNotification | undefined;
   const gateway: WechatPayGateway = {
     async createJsapiOrder(input: JsapiOrderInput) {
       return {
@@ -37,8 +39,17 @@ async function fixture(t: TestContext) {
       return notification;
     },
   };
+  const alipay: AlipayGateway = {
+    async createPayment(input) {
+      return { redirectUrl: `https://openapi.alipay.com/gateway.do?out_trade_no=${input.outTradeNo}&mode=${input.mode}` };
+    },
+    parseNotification: () => {
+      if (!alipayNotification) throw new Error('alipay notification fixture missing');
+      return alipayNotification;
+    },
+  };
   const server = createApiServer(service, {
-    auth, paymentGateway: gateway, pricing: defaultPricing,
+    auth, paymentGateway: gateway, paymentAlipay: alipay, pricing: defaultPricing,
     paymentAppid: appid, paymentMchid: mchid, paymentNotifyUrl: 'https://www.youfangcv.site/api/v1/billing/wechat/notify',
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -62,6 +73,11 @@ async function fixture(t: TestContext) {
     service, request,
     bind: async () => assert.equal((await request('/auth/wechat/bind', 'POST', { code: 'alice-code' })).status, 200),
     setNotification: (value: NotifyPayload) => { notification = value; },
+    setAlipayNotification: (value: AlipayNotification) => { alipayNotification = value; },
+    notifyAlipay: async (fields: Record<string, string>) => {
+      const result = await fetch(`${base}/billing/alipay/notify`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields) });
+      return { status: result.status, text: await result.text() };
+    },
   };
 }
 
@@ -122,6 +138,57 @@ test('native checkout creates a scan order without binding WeChat', async (t) =>
   const mismatch = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'native-request-123456', channel: 'jsapi' });
   assert.equal(mismatch.status, 409);
   assert.equal(mismatch.body.error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+});
+
+test('Alipay page and wap checkout return a signed redirect without binding WeChat', async (t) => {
+  const { service, request } = await fixture(t);
+  const methods = await request('/billing/payment-methods');
+  assert.equal(methods.status, 200);
+  assert.deepEqual(methods.body.data, { wechat: true, alipay: true });
+  const page = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'alipay-page-123456', channel: 'alipay-page' });
+  assert.equal(page.status, 201, JSON.stringify(page.body));
+  const pageResult = page.body.data as CheckoutResult;
+  assert.equal(pageResult.order.channel, 'alipay-page');
+  assert.equal(pageResult.payment, undefined);
+  assert.equal(pageResult.native, undefined);
+  assert.match(pageResult.alipay?.redirectUrl ?? '', /^https:\/\/openapi\.alipay\.com\//);
+  const wap = await request('/billing/checkout', 'POST', { planId: 'premium', requestId: 'alipay-wap-123456', channel: 'alipay-wap' });
+  assert.equal(wap.status, 201, JSON.stringify(wap.body));
+  const wapResult = wap.body.data as CheckoutResult;
+  assert.equal(wapResult.order.channel, 'alipay-wap');
+  assert.equal(wapResult.order.amountCents, 2490);
+  assert.match(wapResult.alipay?.redirectUrl ?? '', /^https:\/\/openapi\.alipay\.com\//);
+  assert.equal((await service.store.read()).orders.length, 2);
+  const repeated = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'alipay-page-123456', channel: 'alipay-page' });
+  assert.equal(repeated.status, 201);
+  assert.equal(repeated.body.data.order.id, pageResult.order.id);
+  const mismatch = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'alipay-page-123456', channel: 'alipay-wap' });
+  assert.equal(mismatch.status, 409);
+  assert.equal(mismatch.body.error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+});
+
+test('a verified Alipay notification activates the order and retries are idempotent', async (t) => {
+  const { service, request, setAlipayNotification, notifyAlipay } = await fixture(t);
+  const checkout = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'alipay-notify-123456', channel: 'alipay-wap' });
+  assert.equal(checkout.status, 201);
+  const order = checkout.body.data.order as CheckoutResult['order'];
+  const stored = (await service.store.read()).orders.find(candidate => candidate.id === order.id)!;
+  const notification: AlipayNotification = { appId: '2021000000000000', sellerId: '2088000000000000', outTradeNo: stored.outTradeNo, tradeNo: '2026110522000000001', tradeStatus: 'TRADE_SUCCESS', amountCents: 990, paidAt: '2026-11-05T01:00:00.000Z' };
+  setAlipayNotification(notification);
+  const applied = await notifyAlipay({ sign: 'fixture-signature', sign_type: 'RSA2' });
+  assert.equal(applied.status, 200);
+  assert.equal(applied.text, 'success');
+  const active = (await request('/membership')).body.data as MembershipState;
+  assert.equal(active.mode, 'active');
+  assert.equal(active.currentPlanId, 'basic');
+  const expiresAt = active.quota.expiresAt;
+  const repeated = await notifyAlipay({ sign: 'fixture-signature', sign_type: 'RSA2' });
+  assert.equal(repeated.text, 'success');
+  assert.equal(((await request('/membership')).body.data as MembershipState).quota.expiresAt, expiresAt);
+  setAlipayNotification({ ...notification, amountCents: 1 });
+  const mismatch = await notifyAlipay({ sign: 'fixture-signature', sign_type: 'RSA2' });
+  assert.equal(mismatch.status, 200);
+  assert.equal(mismatch.text, 'failure');
 });
 
 test('a verified payment notification grants the term once and never trusts or re-applies duplicates', async (t) => {

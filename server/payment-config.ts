@@ -54,6 +54,16 @@ export interface PaymentConfig {
   notifyUrl: string;
 }
 
+export interface AlipayConfig {
+  appId: string;
+  sellerId?: string;
+  privateKeyPem: string;
+  alipayPublicKeyPem: string;
+  gateway: string;
+  notifyUrl: string;
+  returnUrl: string;
+}
+
 const requiredVariables = [
   'WECHAT_PAY_MCHID', 'WECHAT_PAY_APPID', 'WECHAT_PAY_APP_SECRET', 'WECHAT_PAY_MERCHANT_SERIAL_NO',
   'WECHAT_PAY_PRIVATE_KEY_PATH', 'WECHAT_PAY_API_V3_KEY', 'WECHAT_PAY_PUBLIC_KEY_PATH', 'WECHAT_PAY_NOTIFY_URL',
@@ -82,6 +92,42 @@ export function loadPaymentConfig(env: NodeJS.ProcessEnv = process.env): Payment
   const platformPublicKeyId = env.WECHAT_PAY_PUBLIC_KEY_ID?.trim();
   if (platformPublicKeyId !== undefined && !/^PUB_KEY_ID_[A-Za-z0-9]+$/.test(platformPublicKeyId)) throw new Error('WECHAT_PAY_PUBLIC_KEY_ID is invalid.');
   return { appid, appSecret: env.WECHAT_PAY_APP_SECRET!.trim(), mchid, merchantSerialNo, privateKeyPem, apiV3Key, platformPublicKeyPem, ...(platformPublicKeyId ? { platformPublicKeyId } : {}), notifyUrl: notify.toString() };
+}
+
+const defaultAlipayGateway = 'https://openapi.alipay.com/gateway.do';
+const alipayRequiredVariables = [
+  'ALIPAY_APP_ID', 'ALIPAY_PRIVATE_KEY_PATH', 'ALIPAY_PUBLIC_KEY_PATH', 'ALIPAY_NOTIFY_URL', 'ALIPAY_RETURN_URL',
+] as const;
+
+/**
+ * Alipay web checkout is optional and independent from WeChat Pay. A partial
+ * configuration refuses to start, matching the WeChat Pay behavior.
+ */
+export function loadAlipayConfig(env: NodeJS.ProcessEnv = process.env): AlipayConfig | undefined {
+  const present = alipayRequiredVariables.filter(name => typeof env[name] === 'string' && env[name]!.trim() !== '');
+  if (present.length === 0) return undefined;
+  const missing = alipayRequiredVariables.filter(name => !present.includes(name));
+  if (missing.length) throw new Error(`Alipay configuration is incomplete: ${missing.join(', ')}.`);
+  const appId = env.ALIPAY_APP_ID!.trim();
+  if (!/^\d{8,32}$/.test(appId)) throw new Error('ALIPAY_APP_ID is invalid.');
+  const sellerId = env.ALIPAY_SELLER_ID?.trim();
+  if (sellerId !== undefined && !/^\d{8,32}$/.test(sellerId)) throw new Error('ALIPAY_SELLER_ID is invalid.');
+  const gateway = (env.ALIPAY_GATEWAY ?? defaultAlipayGateway).trim();
+  let gatewayUrl: URL;
+  try { gatewayUrl = new URL(gateway); } catch { throw new Error('ALIPAY_GATEWAY is not a valid URL.'); }
+  if (gatewayUrl.protocol !== 'https:') throw new Error('ALIPAY_GATEWAY must be an HTTPS URL.');
+  const notifyUrl = publicHttpsUrl(env.ALIPAY_NOTIFY_URL!.trim(), 'ALIPAY_NOTIFY_URL');
+  const returnUrl = publicHttpsUrl(env.ALIPAY_RETURN_URL!.trim(), 'ALIPAY_RETURN_URL');
+  const privateKeyPem = readPem(env.ALIPAY_PRIVATE_KEY_PATH!, 'ALIPAY_PRIVATE_KEY_PATH', 'PRIVATE KEY');
+  const alipayPublicKeyPem = readPem(env.ALIPAY_PUBLIC_KEY_PATH!, 'ALIPAY_PUBLIC_KEY_PATH', 'PUBLIC KEY');
+  return { appId, ...(sellerId ? { sellerId } : {}), privateKeyPem, alipayPublicKeyPem, gateway, notifyUrl, returnUrl };
+}
+
+function publicHttpsUrl(value: string, variable: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error(`${variable} is not a valid URL.`); }
+  if (url.protocol !== 'https:' || url.hostname === 'localhost' || url.hostname === '127.0.0.1') throw new Error(`${variable} must be a public HTTPS URL.`);
+  return url.toString();
 }
 
 function readPem(path: string, variable: string, marker: string): string {

@@ -1,4 +1,4 @@
-import type { AiQuotaSummary, CheckoutResult, MembershipQuote, MembershipState, NativePaymentParams, PaymentChannel, PaymentOrder, Plan, PlanId, WechatPaymentParams } from '../../shared/types';
+import type { AiQuotaSummary, AlipayPaymentParams, CheckoutResult, MembershipQuote, MembershipState, NativePaymentParams, PaymentChannel, PaymentOrder, Plan, PlanId, WechatPaymentParams } from '../../shared/types';
 import { request } from './api';
 
 export class MembershipApiError extends Error {
@@ -88,10 +88,25 @@ export const membershipApi = {
     if (!result || result.bound !== true || typeof result.openidMasked !== 'string') invalidResponse();
     return result;
   },
+  async methods(): Promise<{ wechat: boolean; alipay: boolean }> {
+    const result = await request<{ wechat: boolean; alipay: boolean }>('/billing/payment-methods');
+    if (!result || typeof result !== 'object' || Array.isArray(result)
+      || Object.keys(result).some(key => !['wechat', 'alipay'].includes(key))
+      || typeof result.wechat !== 'boolean' || typeof result.alipay !== 'boolean') invalidResponse();
+    return result;
+  },
   async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi'): Promise<CheckoutResult> {
     const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId, channel });
     if (!result || typeof result !== 'object' || Array.isArray(result)) invalidResponse();
     const order = validateOrder(result.order);
+    if (order.channel === 'alipay-page' || order.channel === 'alipay-wap') {
+      const alipay = result.alipay as AlipayPaymentParams;
+      if (!alipay || typeof alipay !== 'object' || Array.isArray(alipay)
+        || Object.keys(alipay).some(key => !['redirectUrl'].includes(key))
+        || typeof alipay.redirectUrl !== 'string' || !/^https:\/\//.test(alipay.redirectUrl) || alipay.redirectUrl.length > 4000
+        || result.payment !== undefined || result.native !== undefined) invalidResponse();
+      return { order, alipay };
+    }
     if (order.channel === 'native') {
       const native = result.native as NativePaymentParams;
       if (!native || typeof native !== 'object' || Array.isArray(native)
@@ -120,7 +135,7 @@ function validateOrder(value: unknown): PaymentOrder {
   const order = value as PaymentOrder;
   if (typeof order.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(order.id)
     || !['basic', 'premium'].includes(order.planId) || !Number.isSafeInteger(order.amountCents) || order.amountCents <= 0
-    || !['pending', 'paid', 'closed', 'failed'].includes(order.status) || !['jsapi', 'native'].includes(order.channel)
+    || !['pending', 'paid', 'closed', 'failed'].includes(order.status) || !['jsapi', 'native', 'alipay-page', 'alipay-wap'].includes(order.channel)
     || !isInstant(order.createdAt) || !isInstant(order.expiresAt)
     || (order.paidAt !== undefined && !isInstant(order.paidAt))
     || Object.keys(order).some(key => !['id', 'planId', 'amountCents', 'status', 'channel', 'createdAt', 'expiresAt', 'paidAt'].includes(key))) invalidResponse();

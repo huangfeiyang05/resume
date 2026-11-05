@@ -131,6 +131,26 @@ test('native checkout accepts a scan payload and rejects broken QR data', async 
   }
 });
 
+test('Alipay checkout accepts a signed redirect and payment methods are strictly validated', async t => {
+  const { requests, respond } = fixture(t);
+  respond(options => options.success({ statusCode: 200, data: { data: { wechat: true, alipay: true } } }));
+  assert.deepEqual(await membershipApi.methods(), { wechat: true, alipay: true });
+  assert.match(requests.at(-1)!.url, /\/billing\/payment-methods$/);
+  for (const invalid of [null, {}, { wechat: true }, { wechat: 'yes', alipay: true }, { wechat: true, alipay: true, extra: true }]) {
+    respond(options => options.success({ statusCode: 200, data: { data: invalid } }));
+    await assert.rejects(membershipApi.methods(), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+  }
+  const order = { id: 'order-12345678', planId: 'premium' as const, amountCents: 2490, status: 'pending' as const, channel: 'alipay-page' as const, createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
+  const alipay = { redirectUrl: 'https://openapi.alipay.com/gateway.do?out_trade_no=YF20261105abcdef' };
+  respond(options => options.success({ statusCode: 201, data: { data: { order, alipay } } }));
+  assert.deepEqual(await membershipApi.checkout('premium', 'request-id-123456', 'alipay-page'), { order, alipay });
+  assert.deepEqual(requests.at(-1)?.data, { planId: 'premium', requestId: 'request-id-123456', channel: 'alipay-page' });
+  for (const invalid of [{ order, alipay: { redirectUrl: 'http://openapi.alipay.com/' } }, { order, alipay: { redirectUrl: '' } }, { order, alipay, payment: { appId: 'wx7c30911964bf6fe7', timeStamp: '1762345678', nonceStr: 'nonce-value', package: 'prepay_id=wx1234567890abcdef', signType: 'RSA', paySign: 'signature-value' } }]) {
+    respond(options => options.success({ statusCode: 201, data: { data: invalid } }));
+    await assert.rejects(membershipApi.checkout('premium', 'request-id-123456', 'alipay-page'), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+  }
+});
+
 test('payment quote and order responses are strictly validated', async t => {
   const { respond } = fixture(t);
   const quote = { planId: 'premium', amountCents: 2490, listPriceCents: 2990, promotionLabel: '首充优惠', kind: 'purchase', currentPlanId: 'free' };

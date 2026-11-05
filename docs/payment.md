@@ -1,8 +1,8 @@
-# 微信支付接入
+# 微信支付与支付宝网页支付接入
 
-2026-11-05 按用户确认的价格接入微信支付 v3 JSAPI：初级会员 ¥9.90/月，高级会员 ¥29.90/月；高级首次付费优惠价 ¥24.90/月，界面写“首充优惠”；仅首次付费可享，再次购买/升级按原价 ¥29.90 计算，不虚构“前 100 名”等与实际规则不符的稀缺数量。会员按一个自然月手动续费，不自动扣款。
+2026-11-05 按用户确认的价格接入微信支付 v3（小程序 JSAPI + H5 Native 扫码）与支付宝网页支付（电脑网站 `alipay.trade.page.pay`、手机网站 `alipay.trade.wap.pay`）：初级会员 ¥9.90/月，高级会员 ¥29.90/月；高级首次付费优惠价 ¥24.90/月，界面写“首充优惠”；仅首次付费可享，再次购买/升级按原价 ¥29.90 计算，不虚构“前 100 名”等与实际规则不符的稀缺数量。会员按一个自然月手动续费，不自动扣款。
 
-代码已实现，但**没有服务器支付密钥时不启用**：`loadPaymentConfig()` 在微信支付变量全部缺失时返回 `undefined`，页面继续显示“支付暂未开放”，`/billing/checkout` 返回 503 `PAYMENT_NOT_CONFIGURED`。真实扣款还须运营者配置商户号、证书和回调地址，并完成小额真实支付验收。
+代码已实现，但**没有服务器支付密钥时不启用**：微信或支付宝变量全部缺失时对应渠道不展示，`/billing/checkout` 返回 503 `PAYMENT_NOT_CONFIGURED`。真实扣款还须运营者配置商户参数、证书/密钥和回调地址，并完成小额真实支付验收。
 
 ## 金额与商品
 
@@ -42,12 +42,12 @@
 | `shared/payment.ts` | 订单、支付参数、报价、绑定结果等前后端类型 |
 | `server/payment-config.ts` | 价格配置、`WECHAT_PAY_*` 环境变量解析和 PEM 校验 |
 | `server/payment-storage.ts` | 订单持久化、2 小时过期、严格 schema |
-| `server/wechat-pay.ts` | 微信支付 v3 商户签名、平台公钥验签、JSAPI 下单、回调解密 |
+| `server/wechat-pay.ts` | 微信支付 v3 商户签名、平台公钥验签、JSAPI/Native 下单、回调解密 |
 | `server/wechat-identity.ts` | 小程序 code 换 `openid`，app secret 只在服务端使用 |
-| `server/payments.ts` | 报价、下单、幂等、查单、回调入账 |
-| `server/http.ts` | `/billing/quote`、`/billing/checkout`（`channel=jsapi/native`）、`/billing/orders/:id`、`/billing/wechat/notify`、`/auth/wechat/bind` |
-| `server/payments.ts` | JSAPI/Native 下单、扫码二维码生成、订单查询、回调验签入账与幂等 |
-| `tests/payment.test.ts` | 假网关的报价、下单、幂等、回调验签后入账与重复通知测试 |
+| `server/alipay.ts` | 支付宝 RSA2 签名、电脑/手机网站收银台 URL、异步通知验签与金额解析 |
+| `server/payments.ts` | 报价、下单、幂等、查单、微信/支付宝回调入账 |
+| `server/http.ts` | `/billing/quote`、`/billing/checkout`（`channel=jsapi/native/alipay-page/alipay-wap`）、`/billing/payment-methods`、`/billing/orders/:id`、`/billing/wechat/notify`、`/billing/alipay/notify`、`/auth/wechat/bind` |
+| `tests/payment.test.ts` | 假网关的报价、下单、幂等、微信/支付宝回调验签后入账与重复通知测试 |
 
 订单仍写入版本 3 的 JSON 数据，`orders` 字段缺失时按空数组迁移。这不是 MySQL 事务或多实例生产账本；并发下单、升级、退款和额度结算上线前仍须用数据库事务与幂等键重做。
 
@@ -67,6 +67,20 @@ WECHAT_PAY_PUBLIC_KEY_ID=<可选：微信支付公钥 ID>
 WECHAT_PAY_NOTIFY_URL=https://www.youfangcv.site/api/v1/billing/wechat/notify
 ```
 
+支付宝网页支付另需（同样只放服务器）：
+
+```sh
+ALIPAY_APP_ID=<支付宝开放平台应用 APPID>
+ALIPAY_SELLER_ID=<可选：支付宝商户 PID，配置后回调会额外校验>
+ALIPAY_PRIVATE_KEY_PATH=/etc/resume-youfang/alipay/app_private_key.pem
+ALIPAY_PUBLIC_KEY_PATH=/etc/resume-youfang/alipay/alipay_public_key.pem
+ALIPAY_NOTIFY_URL=https://www.youfangcv.site/api/v1/billing/alipay/notify
+ALIPAY_RETURN_URL=https://www.youfangcv.site/
+ALIPAY_GATEWAY=https://openapi.alipay.com/gateway.do
+```
+
+支付宝应用需在开放平台签约 **电脑网站支付** 与 **手机网站支付**，并配置应用公钥、支付宝公钥与授权回调地址。`ALIPAY_NOTIFY_URL` 必须是公网 HTTPS；应用私钥和支付宝公钥只放服务器受限目录。
+
 注意：
 
 - 商户 API 私钥、平台公钥、AppSecret、APIv3 密钥只能放在服务器权限受限的目录和 `0600` 文件中；不要发聊天、写日志、放进 `VITE_` 变量、静态目录或 Git。
@@ -74,11 +88,22 @@ WECHAT_PAY_NOTIFY_URL=https://www.youfangcv.site/api/v1/billing/wechat/notify
 - 配置完成后重启服务。可用 `/api/v1/plans` 检查价格，`/api/v1/membership` 的 `paymentAvailable` 应为 `true`。不要用“已配置”代替真实支付验收。
 - 价格覆盖变量：`MEMBERSHIP_BASIC_PRICE_CENTS`、`MEMBERSHIP_PREMIUM_PRICE_CENTS`、`MEMBERSHIP_PREMIUM_LIST_PRICE_CENTS`、`MEMBERSHIP_PREMIUM_PROMOTION_LABEL`。修改价格会改变所有新订单报价，旧订单仍按创建时金额校验。
 
+## 支付宝网页支付
+
+H5 会员弹窗在支付宝已配置时显示“支付宝支付”按钮。前端按浏览器设备选择 `alipay-page`（桌面，`alipay.trade.page.pay` + `FAST_INSTANT_TRADE_PAY`）或 `alipay-wap`（移动浏览器，`alipay.trade.wap.pay` + `QUICK_WAP_WAY`），服务端签名后返回收银台 `redirectUrl`，浏览器跳转支付宝完成支付。
+
+1. 前端调用 `/billing/checkout`，`channel` 为 `alipay-page` 或 `alipay-wap`，不要求绑定微信 openid。
+2. 服务端复用同一套报价与订单幂等规则，创建 `pending` 订单，签名拼接收银台 URL 返回 `alipay.redirectUrl`。
+3. 支付宝异步通知 `POST /api/v1/billing/alipay/notify`（`application/x-www-form-urlencoded`）：服务端用支付宝公钥 RSA2 验签，校验 `app_id`、可选 `seller_id`、`out_trade_no`、金额与交易状态；通过后调用 `QuotaService.activateMembership` 幂等入账，再标记订单 `paid`。通知必须返回纯文本 `success`，否则支付宝会重试；失败返回 `failure` 并只记录安全错误码。
+4. 浏览器从支付宝返回站点后，前端用本地保存的待确认订单轮询 `/billing/orders/:id`，确认 `paid` 后刷新权益。不能以跳转返回页代替服务端回调到账。
+5. 支付宝回调没有微信的 `openid` 支付人字段，因此不校验支付人 openid；其他金额、商户、订单归属校验保持一致。
+
 ## 平台限制
 
 - 微信支付没有公开的沙箱环境，代码测试使用注入的假网关；真实支付只能用小额订单验收，并在验收后按需退款。
 - iOS 小程序不允许用微信支付购买虚拟会员/虚拟服务。本项目在 iOS 端不展示可支付状态，提示用户使用 Android 或后续开放的方式；不能绕过平台规则。
-- H5 端使用 **Native 扫码支付**：电脑网页最合适；手机浏览器中自己扫自己体验较差，可截图后在微信内识别。未接公众号 JSAPI 网页支付，如后续接入需另行配置公众号 AppID、授权目录与回调。
+- H5 端支持 **微信 Native 扫码** 与 **支付宝电脑/手机网站支付**；电脑网页优先，手机浏览器里微信扫码体验较差，支付宝手机网站支付会跳转支付宝 App 或网页收银台。未接公众号 JSAPI 网页支付。
+- 支付宝网页支付需在开放平台签约电脑网站支付、手机网站支付；测试环境可使用支付宝沙箱，但本项目尚未配置沙箱，真实验收需商家账号。`ALIPAY_RETURN_URL` 只负责跳回站点，不能作为发放权益的依据。
 - iOS 小程序端继续屏蔽虚拟会员购买；H5 扫码不受小程序 iOS 限制，但仍需遵守微信支付及平台规则。
 - Native 支付需在商户平台开通产品；商户平台的“Native 支付回调链接”应填 `https://www.youfangcv.site/api/v1/billing/wechat/notify`，与 `WECHAT_PAY_NOTIFY_URL` 保持一致。
 - 退款、关单、账单下载、后台对账尚未实现；当前订单只有前端可查的 `pending/paid/closed/failed` 状态。正式运营前须补后台对账、退款与人工客服流程。
@@ -93,4 +118,4 @@ npm run build:h5
 npm run build:mp-weixin
 ```
 
-`tests/payment.test.ts` 覆盖：服务端报价、未绑定微信拒绝下单、`requestId` 幂等复用、回调入账、重复回调不重复延长、金额不符拒绝。真实支付验收须另做：金额篡改、伪造通知验签失败、并发重复回调、小程序端到端支付与到账查询；当前未做微信真机支付验证，页面显示效果由用户自行验收。
+`tests/payment.test.ts` 覆盖：服务端报价、未绑定微信拒绝下单、`requestId` 幂等复用、微信/支付宝回调入账、重复回调不重复延长、金额不符拒绝、支付宝 page/wap 下单与换渠道冲突。真实支付验收须另做：金额篡改、伪造通知验签失败、并发重复回调、小程序端到端支付、H5 微信扫码与支付宝网页端到端支付与到账查询；当前未做真实支付、微信真机或浏览器显示验证，页面效果由用户自行验收。
