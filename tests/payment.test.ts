@@ -74,7 +74,11 @@ test('payment availability requires a configured gateway and prices come from th
   assert.equal(plans[1].priceCents, 990);
   assert.equal(plans[2].priceCents, 2490);
   assert.equal(plans[2].listPriceCents, 2990);
-  assert.equal(plans[2].promotionLabel, '限时优惠');
+  assert.equal(plans[2].promotionLabel, '首充优惠');
+  const firstQuote = await request('/billing/quote?planId=premium');
+  assert.equal(firstQuote.body.data.amountCents, 2490);
+  assert.equal(firstQuote.body.data.listPriceCents, 2990);
+  assert.equal(firstQuote.body.data.promotionLabel, '首充优惠');
   const checkout = await request('/billing/checkout', 'POST', { planId: 'basic' });
   assert.equal(checkout.status, 400);
 });
@@ -137,6 +141,10 @@ test('a verified payment notification grants the term once and never trusts or r
   assert.equal(active.quota.status, 'active');
   assert.equal(active.quota.remainingPercent, 100);
   const expiresAt = active.quota.expiresAt;
+  const secondQuote = await request('/billing/quote?planId=premium');
+  assert.equal(secondQuote.body.data.amountCents, 2000);
+  assert.equal(secondQuote.body.data.listPriceCents, undefined);
+  assert.equal(secondQuote.body.data.promotionLabel, undefined);
   const repeated = await request('/billing/wechat/notify', 'POST', { id: 'notify-1' });
   assert.equal(repeated.status, 200);
   assert.equal(((await request('/membership')).body.data as MembershipState).quota.expiresAt, expiresAt);

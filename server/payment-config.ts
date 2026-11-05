@@ -11,12 +11,12 @@ export interface BillingPricing { basic: PriceConfig; premium: PriceConfig }
 
 /**
  * Prices approved by the product owner on 2026-11-05:
- * basic ¥9.90 / month, premium ¥29.90 / month with a ¥24.90 limited-time promotion.
- * The promotion is intentionally labelled "限时优惠", not a fabricated "first 100" count.
+ * basic ¥9.90 / month, premium ¥29.90 / month with a ¥24.90 first-purchase promotion.
+ * The promotion is labelled "首充优惠": only a user with no paid order gets it; repeat payments use the list price.
  */
 export const defaultPricing: BillingPricing = {
   basic: { priceCents: 990 },
-  premium: { priceCents: 2490, listPriceCents: 2990, promotionLabel: '限时优惠' },
+  premium: { priceCents: 2490, listPriceCents: 2990, promotionLabel: '首充优惠' },
 };
 
 function cents(value: string | undefined, fallback: number, name: string): number {
@@ -37,7 +37,7 @@ export function loadBillingPricing(env: NodeJS.ProcessEnv = process.env): Billin
   return {
     basic: { priceCents: basicPrice },
     premium: listPrice > premiumPrice
-      ? { priceCents: premiumPrice, listPriceCents: listPrice, promotionLabel: label ?? '限时优惠' }
+      ? { priceCents: premiumPrice, listPriceCents: listPrice, promotionLabel: label ?? '首充优惠' }
       : { priceCents: premiumPrice },
   };
 }

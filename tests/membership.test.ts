@@ -69,7 +69,7 @@ test('three current tiers expose configured prices and honest promotion labels',
     { id: 'basic', priceCents: 990, listPriceCents: undefined, durationMonths: 1 },
     { id: 'premium', priceCents: 2490, listPriceCents: 2990, durationMonths: 1 },
   ]);
-  assert.equal(plans[2].promotionLabel, '限时优惠');
+  assert.equal(plans[2].promotionLabel, '首充优惠');
   const [free, basic, premium] = plans;
   assert.match(free.features.templates, /3/);
   assert.equal(free.features.optimization, '不包含');

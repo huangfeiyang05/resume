@@ -10,7 +10,7 @@ export interface Plan {
   priceCents: number | null;
   /** Undiscounted monthly price in cents; omitted when the current price is not a promotion. */
   listPriceCents?: number;
-  /** Honest promotion wording, e.g. "限时优惠"; never a fabricated scarcity count. */
+  /** Honest promotion wording, e.g. "首充优惠"; never a fabricated scarcity count. */
   promotionLabel?: string;
   durationMonths: 0 | 1;
   periodLabel: string;

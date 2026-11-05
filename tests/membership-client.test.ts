@@ -133,7 +133,7 @@ test('native checkout accepts a scan payload and rejects broken QR data', async 
 
 test('payment quote and order responses are strictly validated', async t => {
   const { respond } = fixture(t);
-  const quote = { planId: 'premium', amountCents: 2490, listPriceCents: 2990, promotionLabel: '限时优惠', kind: 'purchase', currentPlanId: 'free' };
+  const quote = { planId: 'premium', amountCents: 2490, listPriceCents: 2990, promotionLabel: '首充优惠', kind: 'purchase', currentPlanId: 'free' };
   respond(options => options.success({ statusCode: 200, data: { data: quote } }));
   assert.deepEqual(await membershipApi.quote('premium'), quote);
   for (const invalid of [{ ...quote, amountCents: '2490' }, { ...quote, kind: 'upgrade' , currentPlanId: 'free' }, { ...quote, listPriceCents: 2000 }, { ...quote, promotionLabel: 1 }]) {

@@ -84,17 +84,21 @@ export class PaymentService {
       throw new HttpError(409, 'MEMBERSHIP_DOWNGRADE_NOT_SUPPORTED', '高级会员有效期内不能改为初级会员，请在到期后选择。');
     }
     const targetPrice = planPricing(this.pricing, target);
-    let amountCents = targetPrice.priceCents;
+    const snapshot = await this.store.read();
+    const hasPaidBefore = snapshot.orders.some(order => order.userId === userId && order.status === 'paid');
+    const promoEligible = !hasPaidBefore && targetPrice.listPriceCents !== undefined && targetPrice.listPriceCents > targetPrice.priceCents;
+    const unitPrice = promoEligible ? targetPrice.priceCents : (targetPrice.listPriceCents ?? targetPrice.priceCents);
+    let amountCents = unitPrice;
     let kind: MembershipQuote['kind'] = 'purchase';
     if (active && record.planId === target) kind = 'renewal';
     else if (active && record.planId === 'basic' && target === 'premium') {
       kind = 'upgrade';
-      amountCents = Math.max(0, targetPrice.priceCents - planPricing(this.pricing, 'basic').priceCents);
+      amountCents = Math.max(0, unitPrice - planPricing(this.pricing, 'basic').priceCents);
     }
     return {
       planId: target, amountCents, kind, currentPlanId: active ? record.planId : 'free',
-      ...(targetPrice.listPriceCents !== undefined ? { listPriceCents: targetPrice.listPriceCents } : {}),
-      ...(targetPrice.promotionLabel !== undefined ? { promotionLabel: targetPrice.promotionLabel } : {}),
+      ...(promoEligible && targetPrice.listPriceCents !== undefined ? { listPriceCents: targetPrice.listPriceCents } : {}),
+      ...(promoEligible && targetPrice.promotionLabel !== undefined ? { promotionLabel: targetPrice.promotionLabel } : {}),
     };
   }
 

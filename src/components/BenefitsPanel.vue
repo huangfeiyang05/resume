@@ -37,6 +37,8 @@ const rows: Array<{ key: keyof Plan['features']; label: string }> = [
 const price = (cents: number | null) => cents === null ? '待定价' : cents === 0 ? '免费' : `¥${(cents / 100).toFixed(2)}`;
 const compareAtPrice = (plan: Plan | undefined) => plan && plan.priceCents !== null && plan.listPriceCents && plan.listPriceCents > plan.priceCents ? plan.listPriceCents : null;
 const selectedListPrice = computed(() => { const plan = selectedPlan.value; if (!plan || selectedAmount.value !== plan.priceCents) return null; return compareAtPrice(plan); });
+const optionPrice = (plan: Plan) => selectedPlanId.value === plan.id && quote.value && quote.value.kind !== 'upgrade' ? quote.value.amountCents : plan.priceCents;
+const optionListPrice = (plan: Plan) => selectedPlanId.value === plan.id ? (quote.value?.listPriceCents ?? null) : compareAtPrice(plan);
 const upgradeCopy = computed(() => membership.value?.policy.upgrade.expiryBase === 'payment-time'
   ? '初级有效期内升高级补月价差额，支付成功后重算一个自然月；原剩余天数不叠加。'
   : '升级规则暂时不可用。');
@@ -226,7 +228,7 @@ onMounted(load);
     </template>
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? (miniProgram ? '微信支付 · 一个自然月 · 手动续费' : '微信扫码支付 · 一个自然月 · 手动续费') : '当前为方案预览，支付暂未开放'" @close="closePurchase">
-      <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text v-if="compareAtPrice(plan)" class="benefits-checkout-option-list">{{ price(compareAtPrice(plan)) }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
+      <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text v-if="optionListPrice(plan)" class="benefits-checkout-option-list">{{ price(optionListPrice(plan)) }}</text><text>{{ price(optionPrice(plan)) }}</text></button></view>
       <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付后重算一个自然月' : '一个自然月 · 手动续费') }}</text></view><view class="benefits-summary-prices"><text class="benefits-summary-price">{{ price(selectedAmount) }}</text><text v-if="selectedListPrice" class="benefits-summary-list">{{ price(selectedListPrice) }}</text></view></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
       <view v-if="nativePayment" class="benefits-native-payment">
