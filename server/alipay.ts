@@ -48,13 +48,21 @@ function amountText(amountCents: number): string {
   return (amountCents / 100).toFixed(2);
 }
 
-/** Alipay signs/verifies raw values (not URL-encoded), sorted by key, excluding sign and sign_type. */
-export function alipaySignContent(params: Record<string, string>): string {
+/** Alipay signs/verifies raw values (not URL-encoded), sorted by key. Requests include sign_type; notifications exclude it. */
+function signableContent(params: Record<string, string>, includeSignType: boolean): string {
   return Object.keys(params)
-    .filter((key) => key !== 'sign' && key !== 'sign_type' && params[key] !== undefined && params[key] !== '')
+    .filter((key) => key !== 'sign' && (includeSignType || key !== 'sign_type') && params[key] !== undefined && params[key] !== '')
     .sort()
     .map((key) => `${key}=${params[key]}`)
     .join('&');
+}
+
+export function alipaySignContent(params: Record<string, string>): string {
+  return signableContent(params, true);
+}
+
+function alipayNotificationSignContent(params: Record<string, string>): string {
+  return signableContent(params, false);
 }
 
 export class AlipayClient implements AlipayGateway {
@@ -66,7 +74,7 @@ export class AlipayClient implements AlipayGateway {
 
   private verify(params: Record<string, string>, signature: string): boolean {
     try {
-      return createVerify('RSA-SHA256').update(alipaySignContent(params), 'utf8')
+      return createVerify('RSA-SHA256').update(alipayNotificationSignContent(params), 'utf8')
         .verify(this.config.alipayPublicKeyPem, signature, 'base64');
     } catch {
       return false;

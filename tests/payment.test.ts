@@ -10,6 +10,7 @@ import { createApiServer } from '../server/http.js';
 import { defaultPricing } from '../server/payment-config.js';
 import type { JsapiOrderInput, NotifyPayload, WechatPayGateway } from '../server/wechat-pay.js';
 import type { AlipayGateway, AlipayNotification } from '../server/alipay.js';
+import { alipaySignContent } from '../server/alipay.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
 
@@ -218,4 +219,11 @@ test('a verified payment notification grants the term once and never trusts or r
   setNotification({ id: 'notify-2', eventType: 'TRANSACTION.SUCCESS', transaction: { ...base, amountCents: 1 } });
   const mismatch = await request('/billing/wechat/notify', 'POST', { id: 'notify-2' });
   assert.equal(mismatch.status, 409);
+});
+
+test('Alipay request signatures include sign_type and exclude only sign', () => {
+  assert.equal(
+    alipaySignContent({ sign: 'signature', sign_type: 'RSA2', app_id: '2021007118606050', empty: '', charset: 'utf-8' }),
+    'app_id=2021007118606050&charset=utf-8&sign_type=RSA2',
+  );
 });
