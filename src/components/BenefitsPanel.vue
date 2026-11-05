@@ -30,7 +30,7 @@ const selectedAmount = computed(() => quote.value?.amountCents ?? selectedPlan.v
 const canPay = computed(() => membership.value?.paymentAvailable === true && (!miniProgram || !iosDevice));
 const rows: Array<{ key: keyof Plan['features']; label: string }> = [
   { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '简历优化' },
-  { key: 'aiQuota', label: 'AI 额度' },
+  { key: 'aiQuota', label: 'AI 工具额度' },
   { key: 'companyJobs', label: '岗位信息' }, { key: 'studyMaterials', label: '复习资料' },
   { key: 'smartDelivery', label: '智能投递' },
 ];
@@ -39,17 +39,17 @@ const compareAtPrice = (plan: Plan | undefined) => plan && plan.priceCents !== n
 const selectedListPrice = computed(() => { const plan = selectedPlan.value; if (!plan || selectedAmount.value !== plan.priceCents) return null; return compareAtPrice(plan); });
 const optionPrice = (plan: Plan) => selectedPlanId.value === plan.id && quote.value && quote.value.kind !== 'upgrade' ? quote.value.amountCents : plan.priceCents;
 const optionListPrice = (plan: Plan) => selectedPlanId.value === plan.id ? (quote.value?.listPriceCents ?? null) : compareAtPrice(plan);
-const upgradeCopy = computed(() => membership.value?.policy.upgrade.expiryBase === 'payment-time'
-  ? '初级有效期内升高级补月价差额，支付成功后重算一个自然月；原剩余天数不叠加。'
+const upgradeCopy = computed(() => membership.value?.policy.upgrade.expiryBase === 'current-expiry'
+  ? '初级有效期内升高级补月价差额，支付升级成功后，即免费往后增加一个月会员时间。'
   : '升级规则暂时不可用。');
 const compactFeatures: Record<PlanId, string[]> = {
   free: ['基础模板', 'Word下载'],
-  basic: ['基础模板', '简历优化', '标准周额度'],
-  premium: ['初级权益', '更高周额度', '公司岗位', '复习资料', '投递管理'],
+  basic: ['基础模板', '简历优化', 'AI 工具额度'],
+  premium: ['初级权益', 'AI 工具额度', '公司岗位', '复习资料', '投递管理'],
 };
 function cardFeatures(plan: Plan): string[] {
   if (plan.id === 'free') return [plan.features.templates, '填写、预览与下载 Word'];
-  if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', plan.features.aiQuota, '一个自然月 · 手动续费'];
+  if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', plan.features.aiQuota];
   return ['包含初级会员全部权益', plan.features.aiQuota, '岗位筛选、收藏、官方招聘入口与复习资料', '投递计划与进度记录 · 用户手动更新'];
 }
 
@@ -229,8 +229,8 @@ onMounted(load);
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? (miniProgram ? '微信支付 · 一个自然月 · 手动续费' : '微信扫码支付 · 一个自然月 · 手动续费') : '当前为方案预览，支付暂未开放'" @close="closePurchase">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text v-if="optionListPrice(plan)" class="benefits-checkout-option-list">{{ price(optionListPrice(plan)) }}</text><text>{{ price(optionPrice(plan)) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付后重算一个自然月' : '一个自然月 · 手动续费') }}</text></view><view class="benefits-summary-prices"><text class="benefits-summary-price">{{ price(selectedAmount) }}</text><text v-if="selectedListPrice" class="benefits-summary-list">{{ price(selectedListPrice) }}</text></view></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
-      <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
+      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付成功后会员顺延一个月' : '一个自然月 · 手动续费') }}</text></view><view class="benefits-summary-prices"><text class="benefits-summary-price">{{ price(selectedAmount) }}</text><text v-if="selectedListPrice" class="benefits-summary-list">{{ price(selectedListPrice) }}</text></view></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
+      <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}</text></view>
       <view v-if="nativePayment" class="benefits-native-payment">
         <image class="benefits-native-qr" :src="nativePayment.qrCodeDataUrl" mode="aspectFit" aria-label="微信支付二维码" />
         <text class="benefits-native-title">请使用微信扫一扫支付 {{ price(selectedAmount) }}</text>
