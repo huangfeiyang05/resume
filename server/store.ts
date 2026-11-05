@@ -6,6 +6,8 @@ import type { AuthUser } from '../shared/auth.js';
 import type { EmailCodePurpose } from '../shared/auth.js';
 import { normalizeCareerStorage, type CareerStorage } from './career-validation.js';
 import { normalizeResumeHistory, type StoredResumeVersion, type StoredResumeRestore } from './resume-history.js';
+import { normalizeAnalysisTasks, type AnalysisTaskStorage } from './job-storage.js';
+import { normalizeQuotaStorage, type QuotaStorage } from './quota-storage.js';
 
 export const legacyWorkspaceId = 'legacy-local-workspace';
 export interface StoredUser extends AuthUser { passwordHash: string }
@@ -26,7 +28,7 @@ export interface StoredEmailChallenge {
   consumedAt?: string;
 }
 
-export interface Database extends CareerStorage {
+export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStorage {
   version: 3;
   users: StoredUser[];
   sessions: StoredSession[];
@@ -71,6 +73,7 @@ export class JsonStore {
         return {
         version: 3, users: [], sessions: [], emailChallenges: [],
         ...normalizeCareerStorage({}),
+        ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}),
         ...normalizeResumeHistory({}, resumes),
         resumes,
         analyses: parsed.analyses.map((analysis: Analysis) => ({ ...analysis, userId: legacyWorkspaceId })),
@@ -83,7 +86,7 @@ export class JsonStore {
         throw new Error('Unsupported or malformed account database.');
       }
       if (parsed.version === 2) {
-        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [] };
+        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [] };
       }
       if (!Array.isArray(parsed.emailChallenges)
         || parsed.users.some((user: StoredUser) => typeof user.emailVerified !== 'boolean')
@@ -97,10 +100,10 @@ export class JsonStore {
           || !['pending', 'sent', 'failed', 'consumed', 'expired', 'locked', 'superseded'].includes(challenge.status))) {
         throw new Error('Unsupported or malformed email challenge database.');
       }
-      return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes) };
+      return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return { version: 3, users: [], sessions: [], emailChallenges: [], resumes: [], analyses: [], ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []) };
+      return { version: 3, users: [], sessions: [], emailChallenges: [], resumes: [], analyses: [], ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}) };
     }
   }
 

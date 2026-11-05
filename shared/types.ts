@@ -15,7 +15,8 @@ export interface ResumeExportFile extends ResumeExportInput {
   mimeType: string;
   contentBase64: string;
 }
-export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, CheckoutInput } from './membership.js';
+export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput } from './membership.js';
+export type { AiQuotaSummary } from './quota.js';
 export type { ApplicationStatus, CareerJob, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
 export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, WechatLoginInput, PhoneLoginInput } from './auth.js';
 export type { EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput } from './auth.js';
@@ -112,6 +113,8 @@ export interface AnalysisInput {
   targetRole?: string;
   /** Required for each real-model request; never grants access to other users. */
   aiConsent?: boolean;
+  /** Reuse for a submission whose response is unknown; changed inputs require a new key. */
+  idempotencyKey?: string;
 }
 
 export interface ApplySuggestionInput {

@@ -30,6 +30,40 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   const health = ref<Health>();
   const aiConsent = ref(false);
   let consentPrompt: Promise<boolean> | undefined;
+  // Keep uncertain submissions across reconnects/reloads so a retry cannot create a second model call.
+  const pendingAnalysisStorageKey = options.userId ? `resume-user-${options.userId}-analysis-requests` : 'resume-analysis-requests';
+  type PendingAnalysis = { fingerprint: string; key: string; jobId?: string };
+  let pendingAnalysisRequests: PendingAnalysis[] = [];
+  try {
+    const stored: unknown = uni.getStorageSync(pendingAnalysisStorageKey);
+    if (Array.isArray(stored)) pendingAnalysisRequests = stored.filter((item): item is PendingAnalysis => !!item && typeof item === 'object'
+      && typeof item.fingerprint === 'string' && item.fingerprint.length <= 30_000
+      && typeof item.key === 'string' && /^[A-Za-z0-9_-]{8,100}$/.test(item.key)
+      && (item.jobId === undefined || typeof item.jobId === 'string')).slice(0, 20);
+  } catch { /* A new submission must successfully persist its identity below before dispatch. */ }
+  function persistPendingAnalysis(required = false) {
+    try { uni.setStorageSync(pendingAnalysisStorageKey, pendingAnalysisRequests.map(item => ({ ...item }))); }
+    catch {
+      if (required) throw new ApiError('无法保存诊断请求标识，请检查设备存储后重试。', 'REQUEST_ID_STORAGE_FAILED', 0);
+    }
+  }
+  function pendingAnalysis(input: Parameters<typeof api.analyze>[0]): PendingAnalysis {
+    const fingerprint = JSON.stringify([input.resumeId, input.resumeRevision, input.targetRole ?? '', input.jobDescription ?? '']);
+    const existing = pendingAnalysisRequests.find(item => item.fingerprint === fingerprint);
+    if (existing) return existing;
+    if (pendingAnalysisRequests.length >= 20) throw new ApiError('尚有诊断请求状态未确认，请先查看诊断历史或稍后重试。', 'ANALYSIS_STATUS_PENDING', 409);
+    const uuid = typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID()
+      : `analysis-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+    const entry = { fingerprint, key: uuid };
+    pendingAnalysisRequests.push(entry);
+    try { persistPendingAnalysis(true); }
+    catch (error) { pendingAnalysisRequests = pendingAnalysisRequests.filter(item => item !== entry); throw error; }
+    return entry;
+  }
+  function finishPendingAnalysis(entry: PendingAnalysis) {
+    pendingAnalysisRequests = pendingAnalysisRequests.filter(item => item.key !== entry.key);
+    persistPendingAnalysis();
+  }
   const analysisRunning = ref(false);
   let activeJob = '';
   let cancelRequested = false;
@@ -90,19 +124,38 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   }
   async function modelAnalysis(input: Parameters<typeof api.analyze>[0]): Promise<Analysis> {
     cancelRequested = false;
-    const job = await api.startAnalysis({ ...input, aiConsent: true });
+    const savedRevision = input.resumeRevision ?? resumes.value.find(item => item.id === input.resumeId)?.revision;
+    if (savedRevision === undefined) throw new ApiError('请先载入已保存的简历，再发起诊断。', 'REVISION_REQUIRED', 409);
+    const submission = { ...input, resumeRevision: savedRevision };
+    const pending = pendingAnalysis(submission);
+    const job = pending.jobId ? await api.job(pending.jobId)
+      : await api.startAnalysis({ ...submission, aiConsent: true, idempotencyKey: pending.key });
+    pending.jobId = job.id;
+    persistPendingAnalysis();
     activeJob = job.id;
     const deadline = Date.now() + 60_000;
     try {
       while (true) {
         if (cancelRequested || disposed) {
           const cancelled = await api.cancelJob(job.id);
-          if (cancelled.status === 'completed' && cancelled.analysisId) return await api.analysis(cancelled.analysisId);
+          if (cancelled.status === 'completed' && cancelled.analysisId) {
+            const result = await api.analysis(cancelled.analysisId);
+            finishPendingAnalysis(pending);
+            return result;
+          }
+          if (cancelled.status === 'cancelled' || cancelled.status === 'failed') finishPendingAnalysis(pending);
           throw new ApiError('诊断已请求取消，未应用任何修改。', 'ANALYSIS_CANCELLED', 409);
         }
         const current = await api.job(job.id);
-        if (current.status === 'completed' && current.analysisId) return await api.analysis(current.analysisId);
-        if (current.status === 'failed' || current.status === 'cancelled') throw new ApiError(current.error?.message || '诊断已取消。', current.error?.code || 'ANALYSIS_CANCELLED', 400);
+        if (current.status === 'completed' && current.analysisId) {
+          const result = await api.analysis(current.analysisId);
+          finishPendingAnalysis(pending);
+          return result;
+        }
+        if (current.status === 'failed' || current.status === 'cancelled') {
+          finishPendingAnalysis(pending);
+          throw new ApiError(current.error?.message || '诊断已取消。', current.error?.code || 'ANALYSIS_CANCELLED', 400);
+        }
         if (Date.now() > deadline) { await api.cancelJob(job.id); throw new ApiError('等待报告超时，已请求取消；可在诊断历史中查看是否已完成。', 'MODEL_TIMEOUT', 504); }
         busy.value = current.status === 'queued' ? '诊断任务已提交' : '千问正在分析，可随时取消';
         await new Promise<void>(resolve => {
@@ -111,7 +164,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
         });
       }
     } catch (error) {
-      // Polling transport failures must not leave a billable task running unnoticed.
+      // Cancel on a polling failure, but retain the identity until a terminal state is actually observed.
       await api.cancelJob(job.id).catch(() => undefined);
       throw error;
     } finally { activeJob = ''; }

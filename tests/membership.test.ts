@@ -10,6 +10,7 @@ import { HttpError } from '../server/errors.js';
 import { calculateMembershipPeriod } from '../server/membership.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
+import { QuotaService } from '../server/quota.js';
 
 async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), 'resume-membership-'));
@@ -80,6 +81,31 @@ test('three current tiers replace legacy products and leave paid prices unset', 
   assert.match(premium.features.companyJobs, /专业/);
   assert.match(premium.features.smartDelivery, /精选投递/);
   assert.equal((await request('/plans', 'POST', {})).status, 405);
+});
+
+test('trusted membership exposes only a user-scoped remaining percentage and rules do not consume AI quota', async t => {
+  const { service, request } = await fixture(t);
+  const userId = (await request('/auth/me')).body.data.user.id as string;
+  const quota = new QuotaService(service.store);
+  await quota.activateMembership({ userId, planId: 'basic', verifiedPaymentAt: new Date().toISOString(), verifiedEventId: 'verified-membership-test', idempotencyKey: 'membership-test-event' });
+  const initial = await request('/membership');
+  assert.equal(initial.body.data.mode, 'active');
+  assert.equal(initial.body.data.currentPlanId, 'basic');
+  assert.equal(initial.body.data.paymentAvailable, false);
+  assert.equal(initial.body.data.quota.remainingPercent, 100);
+  assert.equal(initial.body.data.limitsEnforced, true);
+  await quota.reserve(userId, 'metered-membership-test', 'a'.repeat(64), 50_000);
+  await quota.dispatch(userId, 'metered-membership-test');
+  await quota.settle(userId, 'metered-membership-test', { inputTokens: 30_000, outputTokens: 10_000, totalTokens: 40_000 });
+  const result = await request('/membership/quota');
+  assert.deepEqual(Object.keys(result.body.data).sort(), ['expiresAt', 'pending', 'remainingPercent', 'resetsAt', 'status']);
+  assert.equal(result.body.data.remainingPercent, 80);
+  assert.equal(/tokens|inputHash|requestId|200000|800000/i.test(JSON.stringify(result.body)), false);
+  const resume = await request('/resumes', 'POST', { title: '规则不扣额度', text: '项目经历\n负责真实业务开发并维护实际验收记录。' });
+  assert.equal((await request('/analyses', 'POST', { resumeId: resume.body.data.id })).status, 201);
+  assert.equal((await request('/membership/quota')).body.data.remainingPercent, 80);
+  assert.equal((await request('/membership/quota', 'POST', { remainingPercent: 100 })).status, 405);
+  assert.equal((await service.store.read()).aiUsage.length, 1);
 });
 
 test('checkout validates plan identity and leaves membership and persisted data unchanged', async (t) => {

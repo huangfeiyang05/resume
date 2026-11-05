@@ -7,12 +7,19 @@ export interface AnalysisContext {
   jobDescription?: string;
   targetRole?: string;
   signal?: AbortSignal;
+  /** Server-only hooks: dispatch is recorded before sending; usage is supplier-reported. */
+  metering?: {
+    onDispatch(): Promise<void>;
+    onUsage(usage: { inputTokens: number; outputTokens: number; totalTokens: number; requestId?: string }): Promise<void>;
+  };
 }
 
 /** Replace this boundary with an authenticated Spring AI or LangGraph HTTP adapter. */
 export interface AnalysisProvider {
   readonly name: string;
   readonly model?: string;
+  /** Conservative reservation only; never an actual usage or settlement amount. */
+  estimateReservation?(context: AnalysisContext): number;
   analyze(context: AnalysisContext): Promise<Analysis>;
 }
 

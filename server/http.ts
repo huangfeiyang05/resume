@@ -3,7 +3,7 @@ import { HttpError } from './errors.js';
 import { JsonStore } from './store.js';
 import { ResumeService } from './service.js';
 import { limits, validateVersionRevision } from './validation.js';
-import { checkout, getMembership, listPlans } from './membership.js';
+import { checkout, membershipState, listPlans } from './membership.js';
 import { AnalysisJobs } from './jobs.js';
 import { AuthService } from './auth.js';
 import { isIP } from 'node:net';
@@ -145,7 +145,12 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         json(response, 200, { data: { status: 'ok', analysisEngine: service.provider.name, aiConfigured: service.provider.name === 'bailian', ...(service.provider.model ? { model: service.provider.model } : {}), persistence: 'local-json' } });
       } else if (path === '/api/v1/membership') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        json(response, 200, { data: getMembership() });
+        const quota = await jobs.quota.current(service.userId);
+        const membership = await jobs.quota.getMembershipRecord(service.userId);
+        json(response, 200, { data: membershipState(quota, membership?.planId) });
+      } else if (path === '/api/v1/membership/quota') {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        json(response, 200, { data: await jobs.quota.current(service.userId) });
       } else if (path === '/api/v1/plans') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: listPlans() });

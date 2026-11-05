@@ -9,10 +9,11 @@ import { randomUUID } from 'node:crypto';
 
 const releaseRoot = resolve(process.argv[2] ?? resolve(import.meta.dirname, '..'));
 const load = file => import(pathToFileURL(join(releaseRoot, 'api/server', file)).href);
-const [{ createApiServer }, { ResumeService }, { JsonStore }] = await Promise.all([load('http.js'), load('service.js'), load('store.js')]);
+const [{ createApiServer }, { ResumeService }, { JsonStore }, { QuotaService }] = await Promise.all([load('http.js'), load('service.js'), load('store.js'), load('quota.js')]);
 const catalog = JSON.parse(await readFile(join(releaseRoot, 'api/server/assets/career/catalog.json'), 'utf8'));
 const directory = await mkdtemp(join(tmpdir(), 'youfang-release-check-'));
-const server = createApiServer(new ResumeService(new JsonStore(join(directory, 'isolated.json'))), { secureCookies: false });
+const store = new JsonStore(join(directory, 'isolated.json'));
+const server = createApiServer(new ResumeService(store), { secureCookies: false });
 const checks = [];
 try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -29,10 +30,13 @@ try {
     assert.equal(result.status, 201);
     return result.headers.get('set-cookie').split(';')[0];
   }
-  for (const path of ['/resumes', '/career', '/career/companies']) assert.equal((await request(path)).status, 401);
+  for (const path of ['/resumes', '/career', '/career/companies', '/membership', '/membership/quota']) assert.equal((await request(path)).status, 401);
   assert.equal((await request('/career/assistant', 'POST', { requirements: '', message: '查找企业' })).status, 401);
   checks.push('private-routes-require-session');
   const owner = await account(), other = await account();
+  const preview = await request('/membership', 'GET', undefined, owner);
+  assert.equal(preview.body.data.quota.status, 'preview');
+  assert.equal(preview.body.data.quota.remainingPercent, null);
   const companies = await request('/career/companies', 'GET', undefined, owner);
   assert.equal(companies.status, 200);
   assert.equal(companies.body.data.access, 'authenticated-test');
@@ -87,6 +91,21 @@ try {
   assert.equal(repeated.body.data.resume.revision, 3);
   assert.deepEqual((await request(`${path}/versions`, 'GET', undefined, owner)).body.data.map(item => item.revision), [3, 2, 1]);
   checks.push('revision-conflicts-private-history-and-idempotent-restoration');
+  // Synthetic trusted events test compiled ledger behavior only; no real membership or provider request.
+  const userId = (await request('/auth/me', 'GET', undefined, owner)).body.data.user.id;
+  const quota = new QuotaService(store);
+  await quota.activateMembership({ userId, planId: 'basic', verifiedPaymentAt: new Date().toISOString(), verifiedEventId: `fixture-${randomUUID()}`, idempotencyKey: `fixture-${randomUUID()}` });
+  await quota.reserve(userId, 'release-quota-fixture', 'a'.repeat(64), 50000);
+  await quota.dispatch(userId, 'release-quota-fixture');
+  await quota.settle(userId, 'release-quota-fixture', { inputTokens: 30000, outputTokens: 10000, totalTokens: 40000 });
+  const summary = (await request('/membership/quota', 'GET', undefined, owner)).body.data;
+  assert.equal(summary.remainingPercent, 80);
+  assert.deepEqual(Object.keys(summary).sort(), ['expiresAt', 'pending', 'remainingPercent', 'resetsAt', 'status']);
+  assert.equal((await request('/membership/quota', 'GET', undefined, other)).body.data.remainingPercent, null);
+  assert.equal((await request('/analyses', 'POST', { resumeId: original.id, resumeRevision: 3 }, owner)).status, 201);
+  assert.equal((await request('/membership/quota', 'GET', undefined, owner)).body.data.remainingPercent, 80);
+  assert.equal((await new QuotaService(new JsonStore(store.path)).current(userId)).remainingPercent, 80);
+  checks.push('percentage-only-private-quota-actual-token-ledger-reload-and-free-rules');
   assert.equal((await request(path, 'DELETE', undefined, owner)).status, 200);
   assert.equal((await request(`${path}/versions`, 'GET', undefined, owner)).status, 404);
   for (const cookie of [owner, other]) assert.equal((await request('/auth/logout', 'POST', {}, cookie)).status, 200);

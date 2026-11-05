@@ -1,4 +1,4 @@
-import type { MembershipPolicy, MembershipPreview, PaidPlanId, Plan } from '../shared/types.js';
+import type { MembershipPolicy, MembershipPreview, MembershipState, AiQuotaSummary, PaidPlanId, Plan } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 
 /** Current product design. Paid benefits are neither sold nor enforced in preview mode. */
@@ -9,6 +9,7 @@ const plans: Plan[] = [
     features: {
       templates: '3 款基础模板', optimization: '不包含', companyJobs: '不包含',
       studyMaterials: '不包含', smartDelivery: '不包含',
+      aiQuota: '规则功能不消耗 AI 额度',
     },
   },
   {
@@ -17,6 +18,7 @@ const plans: Plan[] = [
     features: {
       templates: '包含基础模板', optimization: '包含', companyJobs: '不包含',
       studyMaterials: '不包含', smartDelivery: '不包含',
+      aiQuota: '标准周额度 · 查看剩余百分比',
     },
   },
   {
@@ -25,6 +27,7 @@ const plans: Plan[] = [
     features: {
       templates: '包含基础模板', optimization: '包含初级全部优化权益', companyJobs: '分专业岗位筛选、收藏与官方招聘入口',
       studyMaterials: '分专业原创准备清单与复习提纲', smartDelivery: '精选投递计划与手动进度记录',
+      aiQuota: '更高周额度 · 查看剩余百分比',
     },
   },
 ];
@@ -46,6 +49,16 @@ export function getMembership(): MembershipPreview {
   return {
     mode: 'preview', currentPlanId: 'free', currentPlanName: '免费体验',
     paymentAvailable: false, limitsEnforced: false, policy: structuredClone(policy),
+    quota: { status: 'preview', remainingPercent: null, resetsAt: null, expiresAt: null, pending: false },
+  };
+}
+
+/** The caller resolves this from a trusted account record, never from a request body. */
+export function membershipState(quota: AiQuotaSummary, planId?: PaidPlanId): MembershipState {
+  if (quota.status !== 'active' || !planId) return { ...getMembership(), quota };
+  return {
+    mode: 'active', currentPlanId: planId, currentPlanName: planId === 'basic' ? '初级会员' : '高级会员',
+    paymentAvailable: false, limitsEnforced: true, policy: structuredClone(policy), quota,
   };
 }
 

@@ -37,7 +37,7 @@
 
 H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环境启用 Secure；H5 注册和登录响应不返回原始令牌。小程序在注册或登录请求中声明 `X-Auth-Client: mp-weixin`，服务端才在会话响应中附加 `token`；后续发送 `Authorization: Bearer <token>`。此请求头只选择会话传输方式，不授予微信身份、会员或额外权限。会话绝对有效期为 7 天，退出后撤销，重启服务后仍以持久化会话状态验证。服务端只保存随机令牌的 SHA-256 哈希。
 
-`/health`、`/plans` 与认证入口允许未登录访问；`/membership`、账单预览以及所有简历、报告、诊断任务和建议应用接口要求有效会话。所有资源查询与修改均从可信会话确定用户，不能通过客户端提交 `userId` 越权；请求其他用户资源按不存在返回 404。不同用户的草稿与工作空间缓存也分别保存。
+`/health`、`/plans` 与认证入口允许未登录访问；`/membership`、`/membership/quota`、账单预览以及所有简历、报告、诊断任务和建议应用接口要求有效会话。所有资源查询与修改均从可信会话确定用户，不能通过客户端提交 `userId` 越权；请求其他用户资源按不存在返回 404。不同用户的草稿与工作空间缓存也分别保存。
 
 H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 `AUTH_TRUSTED_ORIGINS` 配置精确来源列表，不把客户端传入的 Host 或转发头视为授权；小程序 Bearer 通道不依赖浏览器 Cookie。`AUTH_SECURE_COOKIES` 控制 Cookie 的 Secure 属性，默认随 `NODE_ENV=production` 启用，公网 HTTPS 不应关闭。
 
@@ -58,7 +58,8 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 方法 | 路径（前缀 `/api/v1`） | 请求 / 返回 |
 | --- | --- | --- |
 | GET | `/health` | 返回 `status: ok`、`analysisEngine: rules / bailian`、`aiConfigured`（本地配置是否启用，非可用性检测）、可选 `model`、`persistence: local-json` |
-| GET | `/membership` | 返回本地权益预览状态，`mode: preview`、`currentPlanId: free`、`currentPlanName: 免费体验`、`paymentAvailable: false`、`limitsEnforced: false`，以及结构化会员周期与升级规则 `policy` |
+| GET | `/membership` | 返回 `MembershipState`：无可信会员时为免费 `preview`，有效可信会员为 `active`；包含当前方案、固定关闭的支付状态、`policy` 和仅百分比的 `quota` |
+| GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
 | GET | `/plans` | 返回 `free / basic / premium` 三档规划权益；免费价格为 `0`，两档付费价格为 `null`（待定价），类型由 `shared/types.ts` 导出 |
 | POST | `/billing/checkout` | `{planId}`，有效付费方案明确返回 503 `PAYMENT_NOT_CONFIGURED`；不创建订单、不扣费、不发放权益 |
 | GET | `/resumes` | 返回本人简历数组，按更新时间倒序 |
@@ -71,14 +72,14 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | POST | `/resumes/:id/versions/:revision/restore` | `{revision,confirmed,idempotencyKey}` → `{resume,restoredFromRevision,alreadyRestored,noChange}`；路径为历史修订号，请求体为当前修订号 |
 | POST | `/resumes/:id/export` | `{revision, format: "docx" \| "pdf", template: "minimal" \| "modern" \| "business"}` → 200 + `ResumeExportFile`：`{revision, format, template, resumeId, fileName, mimeType, contentBase64}`；正文由服务端读取，文件上限 8 MB |
 | POST | `/analyses` | 接收同下方任务的输入，规则模式同步诊断；启用百炼时返回 `USE_ANALYSIS_JOB` |
-| POST | `/analysis-jobs` | `{resumeId, resumeRevision?, jobDescription?, targetRole?, aiConsent?}` → 202 + 任务；百炼模式必须 `aiConsent: true` |
+| POST | `/analysis-jobs` | `{resumeId, resumeRevision?, jobDescription?, targetRole?, aiConsent?, idempotencyKey?}` → 202 + 持久化任务；百炼模式必须 `aiConsent: true`，有效会员的真实模型请求还必须带修订号及幂等键 |
 | GET | `/analysis-jobs/:id` | `queued / running / completed / failed / cancelled`；成功后含 `analysisId`，失败含安全错误 |
 | DELETE | `/analysis-jobs/:id` | 请求取消，运行中由执行路径确认；已经提交持久化的任务可能返回 completed |
 | GET | `/analyses/:id` | 返回本人诊断报告 |
 | GET | `/resumes/:id/analyses` | 返回本人该简历的诊断历史 |
 | POST | `/analyses/:id/suggestions/:suggestionId/apply` | `{confirmed?, replacement?, revision}` → `{resume,analysis,alreadyApplied}` |
 
-诊断输入可选的 `resumeRevision` 是本次预期的已保存版本，提供时须为正整数；同步诊断、任务入队及执行前均检查，过期返回 `REVISION_CONFLICT`，不会调用 provider 或写入报告。旧客户端未传时继续分析当前保存版本。
+诊断输入可选的 `resumeRevision` 是本次预期的已保存版本，提供时须为正整数；同步诊断、任务入队及执行前均检查，过期返回 `REVISION_CONFLICT`，不会调用 provider 或写入报告。规则及无会员记录的演示请求仍兼容旧客户端省略修订号；有效会员的真实模型请求缺少 `resumeRevision` 或 `idempotencyKey` 返回 400 `ANALYSIS_REQUEST_GUARD_REQUIRED`。现有客户端的真实模型请求始终携带当前保存版本和账号隔离的幂等键；提交响应不明时复用键，已知任务 ID 时直接恢复查询。
 
 `revision` 从 1 开始。正文、名称或目标岗位实际改变时递增；完全相同的更新不递增。编辑和采用建议必须携带读取时的 `revision`，缺失返回 400，版本不匹配返回 409，避免覆盖新内容。已经采用的同一建议可携带原修订号重试，仍返回 `alreadyApplied: true`，不会重复修改。报告中的 `resumeRevision` 表示诊断所依据的版本，`inputSnapshot` 固定当时的正文、目标岗位和 JD，`inputHash` 为此快照的 SHA-256；采用建议会更新简历，报告分数仍属于原版本，需重新诊断获取新分数。
 
@@ -114,39 +115,49 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 400 | `CONFIRMATION_REQUIRED` / `PLACEHOLDERS_UNRESOLVED` | 建议尚未核实或占位未填 |
 | 401 | `AUTH_REQUIRED` / `INVALID_CREDENTIALS` | 会话缺失或过期、邮箱密码不匹配 |
 | 403 | `ORIGIN_NOT_ALLOWED` | Cookie 写请求来源未获授权 |
+| 403 | `MEMBERSHIP_EXPIRED` | 会员已到期，拒绝新的真实模型调用 |
+| 400 | `ANALYSIS_REQUEST_GUARD_REQUIRED` | 有效会员的模型请求缺少修订号或幂等键 |
 | 404 | `NOT_FOUND` | 接口、简历、报告或建议不存在，或不属于当前用户 |
 | 405 | `METHOD_NOT_ALLOWED` | 请求方法不支持 |
 | 409 | `EMAIL_ALREADY_REGISTERED` | 邮箱已注册 |
 | 409 | `REVISION_CONFLICT` / `SOURCE_CONFLICT` | 版本已变化 |
 | 409 | `SOURCE_MISMATCH` / `AMBIGUOUS_SOURCE` / `ALREADY_APPLIED` | 原文冲突或重复请求不一致 |
-| 409 | `IDEMPOTENCY_CONFLICT` | 同一历史恢复请求标识携带了不同版本 |
+| 409 | `IDEMPOTENCY_CONFLICT` | 同一历史恢复或诊断请求标识携带了不同输入 |
 | 409 | `EXPORT_CANCELLED` | 导出请求被取消（客户端断开或服务停止） |
 | 413 | `PAYLOAD_TOO_LARGE` | 请求过大 |
 | 413 | `EXPORT_TOO_LARGE` | 生成文件超过 8 MB |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | 不是 JSON 请求 |
 | 429 | `AUTH_RATE_LIMITED` / `AUTH_BUSY` | 认证请求过频或密码计算并发已满 |
 | 429 | `EXPORT_BUSY` | 已有导出任务正在生成 |
+| 429 | `AI_QUOTA_EXHAUSTED` | 本周余额不足以覆盖模型预占，不再派发 |
+| 429 | `QUOTA_TASK_PENDING` | 本人已有调用处理中或用量待核对，暂不能派发新调用 |
 | 500 | `INTERNAL_ERROR` | 本地存储或内部服务失败，详细信息仅服务日志可见 |
 | 501 | `WECHAT_LOGIN_NOT_CONFIGURED` / `PHONE_LOGIN_NOT_CONFIGURED` | 登录适配器尚未接入 |
 | 502 | `EXPORT_RENDER_FAILED` | 文件渲染失败或生成结果无效 |
 | 503 | `MAIL_NOT_CONFIGURED` / `MAIL_DELIVERY_FAILED` | 邮件服务未配置或发送未成功，不能视为验证码已发送 |
 | 504 | `EXPORT_TIMEOUT` | 导出超过 20 秒未完成 |
 
-账号、会话、简历、报告和邮件挑战落盘到 `.data/resumes.json` 的版本 3 格式，采用临时文件 + rename 原子提交，写入权限为当前用户可读写；密码使用 scrypt 哈希，不保存明文密码。兼容迁移保留版本 1 的旧无主简历与报告隔离，不自动分配给第一位注册账号；版本 2 的账号、会话及业务归属继续保留，旧邮箱验证状态不会被擅自提升。此存储仅支持单进程，不是生产数据库；文件解析文本和账号邮箱可能包含个人信息，请按真实业务需要配置保留与删除策略，备份不得提交 Git。
+账号、会话、简历、报告、邮件挑战、诊断任务、可信会员事件与模型用量账本落盘到 `.data/resumes.json` 的版本 3 格式，采用临时文件 + rename 原子提交，写入权限为当前用户可读写；密码使用 scrypt 哈希，不保存明文密码。兼容迁移保留版本 1 的旧无主简历与报告隔离，不自动分配给第一位注册账号；版本 2 的账号、会话及业务归属继续保留，旧邮箱验证状态不会被擅自提升。此存储仅支持单进程，不是生产数据库；文件解析文本和账号邮箱可能包含个人信息，请按真实业务需要配置保留与删除策略，备份不得提交 Git。
 
 ## 权益与充值预览
 
-权益页使用 `free / basic / premium` 三档：免费体验包含模板简历；初级会员规划提供简历优化；高级会员包含初级权益，以及按专业分类的公司和岗位信息、复习资料、精选投递（智能投递）。工作台提供岗位目录筛选、个人岗位添加、收藏、复习正文阅读和投递计划/手动进度记录；默认包含覆盖现有 16 个专业的应届生准备材料和官方招聘入口；入口不等同在招岗位，当前没有自动执行投递。会员权益、价格和周期由服务端返回，客户端不能自行授予身份。已确定金额使用整数分；付费 `priceCents: null` 表示待定价，不能按零元商品处理。使用次数尚未确定，不沿用原方案配额，也不承诺无限模型调用。
+权益页使用 `free / basic / premium` 三档：免费体验包含模板简历；初级会员规划提供简历优化；高级会员包含初级权益，以及按专业分类的公司和岗位信息、复习资料、精选投递（智能投递）。工作台提供岗位目录筛选、个人岗位添加、收藏、复习正文阅读和投递计划/手动进度记录；默认包含覆盖现有 16 个专业的应届生准备材料和官方招聘入口；入口不等同在招岗位，当前没有自动执行投递。会员权益、价格和周期由服务端返回，客户端不能自行授予身份。已确定金额使用整数分；付费 `priceCents: null` 表示待定价，不能按零元商品处理。AI 周额度已采用实际输入加输出 Token 结算，后台试运行上限为初级 200,000、高级 800,000 Token；公共响应只提供剩余百分比，不使用固定次数或点数。详情见 [AI 周额度](ai-quota.md)。
 
 `membership.policy` 描述一个自然月、手动续费、上海时区及初级升高级的补差价和周期重置规则。有效初级升级时应补高级月价减初级月价；服务端确认支付成功后立即生效，从升级时刻重新计算一个自然月，原到期日和剩余天数不叠加。月末无对应日期时取次月月底同一时刻；已过期按高级新购。同档有效会员续费从原到期时刻延长一个自然月，过期后从确认付款时刻起算。详见 [会员机制](membership.md)。这些是本项目产品规则，不是对其他平台退款、抵扣政策的承诺。
 
-充值接口只接受 `{planId}`。旧 `single / weekly / monthly` 档位、无效方案及免费方案返回 400，也拒绝客户端提交价格、会员等级、有效期或支付结果等字段。合法 `basic / premium` 方案返回 `{error:{code:'PAYMENT_NOT_CONFIGURED',message:'会员价格待定，支付暂未开放，本次未扣费。'}}`（503）。当前 `membership` 仍只提供预览状态，不伪造已用或剩余额度、不执行套餐扣次和简历数量限制；没有会员持久化、支付 SDK、支付回调、订单库、发放或额度账本。规则日期计算不改变账号权益，查看方案不会写入虚假订单；页面不提供可点击的开通操作。
+`AiQuotaSummary.status` 为 `preview / active / inactive`。仅 `active` 带 0–100 的整数 `remainingPercent` 与 ISO 时区时间；百分比按已确认实际用量计算并向上取整，正余额不会被舍入为 0%。`pending` 表示尚有处理或用量核对，预占不作为实际扣减展示；百分比大于零不保证可以绕过在途任务或保守预占检查。周起点来自首次可信激活，每 7 天刷新；`resetsAt` 到会员末期截断为 `expiresAt`，此时界面显示额度有效至而非承诺续期刷新。续费和升级保持周起点，升级保留本周消耗后换用高级总量。
+
+充值接口只接受 `{planId}`。旧 `single / weekly / monthly` 档位、无效方案及免费方案返回 400，也拒绝客户端提交价格、会员等级、有效期或支付结果等字段。合法 `basic / premium` 方案返回 `{error:{code:'PAYMENT_NOT_CONFIGURED',message:'会员价格待定，支付暂未开放，本次未扣费。'}}`（503）。默认没有可信会员记录时仍为免费预览，额度状态 `preview`、百分比和刷新/到期值为 `null`，不虚构余额或有效期；有有效服务端记录时返回 `mode: active`、对应等级、`limitsEnforced: true` 和有效周额度摘要；记录已过期时为 `quota.status: inactive`，百分比及刷新时间为 `null`，保留实际到期时间。`paymentAvailable` 始终为 `false`。已有单进程持久化会员事件和额度账本，但没有支付 SDK、支付回调或真实订单发放链路；内部 `activateMembership` 仅供未来已验证支付适配器和受信测试，不是用户可调用的 HTTP 授予接口。规则日期计算和查看方案均不改变账号权益，页面不提供可点击的开通操作。
 
 ## 百炼诊断
 
 `engine: bailian` 表示真实模型建议通过结构及来源校验；`modelRun` 固定模型名、提示词版本、工作流版本、温度、输出上限、脱敏输入 hash、告知版本与确认记录，`knowledgeScope: none` 明确尚未检索知识库。参考分、维度和关键词仍来自规则基线，前端分别标注，不将文本覆盖包装为实际能力。
 
-任务受限为本机单并发，保留最近 50 条任务元数据（新任务时清理超过一小时的记录），不是持久队列。输入绑定提交时简历修订号，生成期间或保存前发生修改会拒绝；取消在持久化提交检查前生效。失败不写报告，不修改简历，不发放或扣除业务权益；百炼供应商可能仍计入已处理请求的费用。服务端总调用超时 45 秒、自动重试次数 0、输出最多 4,000 tokens、响应最多 96 KB、脱敏输入 JSON 最多 20,000 字符。客户端轮询不超过约一分钟并提供取消；重启后任务 ID 不保留。
+任务受限为单进程全局单并发，任务 ID、输入快照、修订号、输入/请求 hash、模型与工作流配置和幂等键持久化到 `analysisTasks`；不是多实例生产任务队列。同一用户、同一幂等键和相同输入返回原任务，不再次调用模型；同键不同输入返回 `IDEMPOTENCY_CONFLICT`。进程启动将旧 `queued / running` 任务标为 `failed`、错误码 `JOB_INTERRUPTED`，保留 ID，不自动重放。尚未发送的额度预占释放；已发送但没有实际用量的记录转为 `pending`。
+
+输入绑定提交时简历修订号，生成期间或保存前修改会拒绝写报告；取消在报告持久化提交前生效。模型响应中的实际输入/输出 Token 在内容校验前结算，因此失败、超时、取消、版本冲突或保存失败不撤销已发生的用量；尚未派发的失败不扣减。已派发而没有有效供应商 `usage` 时保留待核对，阻止该用户新模型请求；不能按字数或失败状态估算扣减。完成报告也不保证用量已结算，缺失 `usage` 的成功报告仍可能伴随 `pending`。GET 报告、确认应用、导出及本地规则不消耗模型额度。
+
+服务端模型超时 45 秒、自动重试次数 0、输出最多 4,000 tokens、响应最多 96 KB、脱敏输入 JSON 最多 20,000 字符。客户端轮询约一分钟并提供取消，不把取消当作供应商免单。周额度与未知用量核对详见 [AI 周额度](ai-quota.md)。
 
 字段白名单、长度、枚举、原文唯一定位、建议原文不重叠及待补问题中的数字风险均由服务端校验。服务端保留原句，使用模型的 `missingInformation` 问题生成 `[请填写真实…]`，不把模型改写直接当作经历。所有 AI 建议设置 `needsConfirmation: true`，必须经过用户审核，结构合法不保证事实语义正确。原报告与规则报告使用相同版本冲突、占位校验和重复应用语义。API 不返回模型密钥、AccessKey 或上游原始报错。
 

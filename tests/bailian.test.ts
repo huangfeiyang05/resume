@@ -3,6 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { BailianAnalysisProvider, redactContacts, validateModelOutput } from '../server/bailian.js';
 import { loadModelConfig, defaultModel } from '../server/model-config.js';
 import { ResumeService } from '../server/service.js';
@@ -15,7 +16,7 @@ const original = '负责订单系统接口开发，参与数据库查询优化�
 const sample: Resume = { id: 'sample', title: '测试', targetRole: 'Java 后端开发', text: `专业技能\nJava、MySQL。\n项目经历\n${original}`, revision: 1, createdAt: '2026-10-11T00:00:00Z', updatedAt: '2026-10-11T00:00:00Z' };
 const config = { enabled: true, apiKey: 'sk-test-only', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: defaultModel };
 const output = () => ({ summary: '先补充实际交付范围与验证依据。', issues: [{ title: '贡献依据不足', severity: 'high', category: 'impact', description: '描述了职责，缺少可核实的成果。', evidence: original, suggestion: '说明真实的验收依据。' }], suggestions: [{ title: '补充真实结果', original, missingInformation: ['验证方式'], reason: '需要用户补充并核实。' }] });
-const response = (value = output()) => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] }), { status: 200 });
+const response = (value = output()) => new Response(JSON.stringify({ id: randomUUID(), usage: { prompt_tokens: 120, completion_tokens: 35, total_tokens: 155 }, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] }), { status: 200 });
 const hasCode = (code: string) => (e: unknown) => e instanceof HttpError && e.code === code;
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
 async function store(t: TestContext) {

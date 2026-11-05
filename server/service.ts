@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ApplySuggestionResult, Resume, ResumeVersionSummary, RestoreResumeResult } from '../shared/types.js';
-import { hasUnresolvedPlaceholders, RuleAnalysisProvider, type AnalysisProvider } from './analysis.js';
+import { hasUnresolvedPlaceholders, RuleAnalysisProvider, type AnalysisProvider, type AnalysisContext } from './analysis.js';
 import { HttpError, notFound } from './errors.js';
 import { JsonStore, legacyWorkspaceId, type StoredResume, type StoredAnalysis } from './store.js';
 import { limits, validateAnalysisInput, validateApplyInput, validateResumeInput, validateResumeUpdate, validateRestoreInput } from './validation.js';
@@ -59,6 +59,7 @@ export class ResumeService {
       database.resumeVersions = database.resumeVersions.filter(item => item.resumeId !== id || item.userId !== this.userId);
       database.resumeRestores = database.resumeRestores.filter(item => item.resumeId !== id || item.userId !== this.userId);
       database.analyses = database.analyses.filter(analysis => analysis.resumeId !== id || analysis.userId !== this.userId);
+      database.analysisTasks = database.analysisTasks.filter(task => task.job.resumeId !== id || task.userId !== this.userId);
       const applicationIds = new Set(database.careerApplications.filter(item => item.userId === this.userId && item.resumeSnapshot.id === id).map(item => item.id));
       database.careerApplications = database.careerApplications.filter(item => !applicationIds.has(item.id));
       for (const key of database.careerKeys) if (key.userId === this.userId && applicationIds.has(key.applicationId)) key.deleted = true;
@@ -106,19 +107,24 @@ export class ResumeService {
     });
   }
 
-  async analyze(body: unknown, signal?: AbortSignal, snapshot?: Resume) {
+  async analyze(body: unknown, signal?: AbortSignal, snapshot?: Resume, metering?: AnalysisContext['metering'], taskId?: string) {
     const input = validateAnalysisInput(body);
     if (this.provider.name === 'bailian' && input.aiConsent !== true) throw new HttpError(400, 'AI_CONSENT_REQUIRED', '请先确认将脱敏后的简历及岗位要求发送至阿里云百炼进行分析。');
     const currentResume = await this.getResume(input.resumeId);
     if (input.resumeRevision !== undefined && input.resumeRevision !== currentResume.revision) throw new HttpError(409, 'REVISION_CONFLICT', '简历版本已变化，请重新核对后再诊断。');
     const resume = snapshot ?? currentResume;
     if (resume.id !== input.resumeId || currentResume.revision !== resume.revision) throw new HttpError(409, 'REVISION_CONFLICT', '任务提交后简历已变化，请重新诊断。');
-    const analysis = await this.provider.analyze({ resume, jobDescription: input.jobDescription, targetRole: input.targetRole ?? resume.targetRole, signal });
+    const analysis = await this.provider.analyze({ resume, jobDescription: input.jobDescription, targetRole: input.targetRole ?? resume.targetRole, signal, metering });
     return this.store.mutate((database) => {
       if (signal?.aborted) throw new HttpError(409, 'ANALYSIS_CANCELLED', '诊断已取消，未保存报告。');
       const current = database.resumes.find(item => item.id === resume.id && item.userId === this.userId) ?? notFound('简历');
       if (current.revision !== resume.revision) throw new HttpError(409, 'REVISION_CONFLICT', '分析期间简历已发生变化，请重新诊断。');
       database.analyses.push({ ...analysis, userId: this.userId });
+      if (taskId) {
+        const task = database.analysisTasks.find(item => item.job.id === taskId && item.userId === this.userId);
+        if (!task) notFound('诊断任务');
+        Object.assign(task.job, { status: 'completed' as const, analysisId: analysis.id, updatedAt: new Date().toISOString() });
+      }
       return analysis;
     });
   }

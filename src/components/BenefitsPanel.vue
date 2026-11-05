@@ -1,20 +1,23 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { MembershipPreview, Plan, PlanId } from '../../shared/types';
+import type { MembershipState, Plan, PlanId } from '../../shared/types';
 import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
 
-const membership = ref<MembershipPreview>();
+const membership = ref<MembershipState>();
 const plans = ref<Plan[]>([]);
 const loading = ref(true);
 const error = ref('');
+const quotaLoading = ref(false);
+const quotaError = ref('');
 const purchaseOpen = ref(false);
 const selectedPlanId = ref<PlanId>('basic');
 const paidPlans = computed(() => plans.value.filter((plan) => plan.id !== 'free'));
 const selectedPlan = computed(() => paidPlans.value.find((plan) => plan.id === selectedPlanId.value));
 const rows: Array<{ key: keyof Plan['features']; label: string }> = [
   { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '简历优化' },
+  { key: 'aiQuota', label: 'AI 额度' },
   { key: 'companyJobs', label: '岗位信息' }, { key: 'studyMaterials', label: '复习资料' },
   { key: 'smartDelivery', label: '智能投递' },
 ];
@@ -24,15 +27,29 @@ const upgradeCopy = computed(() => membership.value?.policy.upgrade.expiryBase =
   : '升级规则暂时不可用。');
 const compactFeatures: Record<PlanId, string[]> = {
   free: ['基础模板', 'Word下载'],
-  basic: ['基础模板', '简历优化', '手动续费'],
-  premium: ['初级权益', '公司岗位', '复习资料', '投递管理'],
+  basic: ['基础模板', '简历优化', '标准周额度'],
+  premium: ['初级权益', '更高周额度', '公司岗位', '复习资料', '投递管理'],
 };
 function cardFeatures(plan: Plan): string[] {
   if (plan.id === 'free') return [plan.features.templates, '填写、预览与下载 Word'];
-  if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', '一个自然月 · 手动续费'];
-  return ['包含初级会员全部权益', '岗位筛选、收藏、官方招聘入口与复习资料', '投递计划与进度记录 · 用户手动更新'];
+  if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', plan.features.aiQuota, '一个自然月 · 手动续费'];
+  return ['包含初级会员全部权益', plan.features.aiQuota, '岗位筛选、收藏、官方招聘入口与复习资料', '投递计划与进度记录 · 用户手动更新'];
 }
 
+function quotaTime(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(Date.parse(value) + 8 * 60 * 60 * 1000);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月${date.getUTCDate()}日 ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}（北京时间）`;
+}
+async function refreshQuota() {
+  if (quotaLoading.value) return;
+  quotaLoading.value = true;
+  quotaError.value = '';
+  try { membership.value = await membershipApi.current(); }
+  catch (cause) { quotaError.value = cause instanceof Error ? cause.message : '额度暂时无法刷新，请稍后重试。'; }
+  finally { quotaLoading.value = false; }
+}
 async function load() {
   if (!loading.value) loading.value = true;
   error.value = '';
@@ -58,13 +75,27 @@ onMounted(load);
 
 <template>
   <view class="benefits-panel">
-    <text class="benefits-preview-note">方案预览 · 支付暂未开放</text>
+    <text class="benefits-preview-note">{{ membership?.mode === 'active' ? '支付暂未开放' : '方案预览 · 支付暂未开放' }}</text>
     <view v-if="loading" class="glass-panel benefits-state" role="status" aria-live="polite"><view class="benefits-loading" /><text>正在读取你的权益…</text></view>
     <view v-else-if="error" class="glass-panel benefits-state" role="alert"><AppIcon name="info" :size="24" /><text>{{ error }}</text><button class="button secondary" @click="load" role="button" tabindex="0">重新加载</button></view>
     <template v-else-if="membership">
       <view class="glass-panel benefits-current">
         <view class="benefits-current-main"><view class="benefits-gem"><AppIcon name="crown" :size="27" /></view><view><text class="benefits-overline">我的当前权益</text><text class="benefits-current-name">{{ membership.currentPlanName }}</text></view></view>
         <button class="button primary benefits-upgrade" @click="openPurchase()" role="button" tabindex="0">查看会员方案<AppIcon name="arrow" :size="16" /></button>
+      </view>
+
+      <view class="glass-panel benefits-quota">
+        <view class="benefits-quota-heading"><text class="benefits-quota-title">本周 AI 额度</text><button class="text-button" :disabled="quotaLoading" @click="refreshQuota" role="button" tabindex="0">{{ quotaLoading ? '正在刷新…' : '刷新额度' }}</button></view>
+        <template v-if="membership.quota.status === 'active'">
+          <text class="benefits-quota-value">剩余 {{ membership.quota.remainingPercent }}%</text>
+          <view class="benefits-quota-track" role="progressbar" aria-label="本周 AI 剩余额度" :aria-valuenow="membership.quota.remainingPercent ?? 0" :aria-valuemin="0" :aria-valuemax="100"><view class="benefits-quota-fill" :style="{ width: `${membership.quota.remainingPercent}%` }" /></view>
+          <text class="benefits-quota-detail">{{ membership.quota.resetsAt === membership.quota.expiresAt ? '本期额度有效至' : '下次刷新' }}：{{ quotaTime(membership.quota.resetsAt) }}</text>
+          <text v-if="membership.quota.remainingPercent === 0" class="benefits-quota-detail">{{ membership.quota.resetsAt === membership.quota.expiresAt ? '本周 AI 额度已用完。' : '本周 AI 额度已用完，请等待额度刷新。' }}</text>
+        </template>
+        <template v-else><text class="benefits-quota-empty">{{ membership.quota.status === 'inactive' ? '会员已到期，AI 额度暂不可用' : 'AI 额度尚未启用' }}</text><text class="benefits-quota-detail">{{ membership.quota.status === 'inactive' ? '历史报告仍可查看，规则功能继续可用。' : '当前为权益预览，未发放会员额度。' }}</text></template>
+        <text v-if="membership.quota.pending" class="benefits-quota-detail">有模型用量待确认，确认后更新剩余额度。</text>
+        <text v-if="membership.quota.status === 'active'" class="benefits-quota-note">按实际模型用量计入周额度，已产生用量的超时或失败请求也会计入。查看报告、确认应用和规则功能不消耗 AI 额度。</text>
+        <text v-if="quotaError" class="benefits-quota-error" role="alert">{{ quotaError }}</text>
       </view>
 
       <view class="benefits-section-heading"><text class="benefits-section-title">会员方案</text></view>
@@ -103,7 +134,7 @@ onMounted(load);
 <style scoped>
 .benefits-panel { min-width: 0; padding-bottom: 18px; }
 .benefits-preview-note { display: block; color: #536174; font-size: 13px; margin-bottom: 16px; }
-.benefits-current,.benefit-plan,.benefits-comparison,.benefits-state { background: var(--glass-surface); border: 1px solid var(--glass-line); border-radius: 14px; box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
+.benefits-current,.benefits-quota,.benefit-plan,.benefits-comparison,.benefits-state { background: var(--glass-surface); border: 1px solid var(--glass-line); border-radius: 14px; box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
 .benefits-current { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px; }
 .benefits-current-main { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .benefits-gem { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 12px; background: #edf2fb; color: #2458c5; }
@@ -111,6 +142,17 @@ onMounted(load);
 .benefits-overline { font-size: 13px; color: #536174; }
 .benefits-current-name { margin-top: 5px; font-size: 24px; line-height: 1.4; font-weight: 650; color: #1f2937; }
 .benefits-upgrade { border-radius: 10px; }
+.benefits-quota { margin-top: 18px; padding: 24px 28px; }
+.benefits-quota-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.benefits-quota-title { color: #1f2937; font-size: 16px; font-weight: 600; }
+.benefits-quota-value { display: block; margin-top: 14px; color: #1f2937; font-size: 27px; font-weight: 650; line-height: 1.5; }
+.benefits-quota-track { height: 8px; margin: 14px 0; border-radius: 8px; background: #e3e9f2; overflow: hidden; }
+.benefits-quota-fill { height: 100%; border-radius: inherit; background: #2458c5; }
+.benefits-quota-detail,.benefits-quota-note,.benefits-quota-empty,.benefits-quota-error { display: block; font-size: 13px; line-height: 1.8; color: #536174; }
+.benefits-quota-empty { margin-top: 14px; font-size: 16px; color: #38465a; }
+.benefits-quota-note { margin-top: 14px; }
+.benefits-quota-error { margin-top: 12px; color: #a23636; }
+
 .benefits-section-heading { margin: 32px 0 18px; }
 .benefits-section-title { display: block; color: #1f2937; font-size: 20px; font-weight: 650; line-height: 1.5; }
 .benefits-plans { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
@@ -160,7 +202,7 @@ onMounted(load);
 .benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .benefits-checkout-footer > text { font-size: 13px; color: #536174; line-height: 1.8; }
 @media (max-width: 850px) { .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); }.benefit-plan { padding: 24px; }.benefit-plan-top { align-items: center; }.benefit-price { margin: 18px 0 22px; }.benefit-card-list { margin-bottom: 24px; } }
-@media (max-width: 600px) { .benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-checkout-footer { align-items: stretch; flex-direction: column; gap: 15px; }.benefits-checkout-footer .button { width: 100%; } }
+@media (max-width: 600px) { .benefits-quota { padding: 22px 20px; }.benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-checkout-footer { align-items: stretch; flex-direction: column; gap: 15px; }.benefits-checkout-footer .button { width: 100%; } }
 /* Keep compact plan cards on mobile; the full comparison can scroll horizontally. */
 @media (max-width: 600px) {
   .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { getMembership, listPlans } from '../server/membership.js';
+import { getMembership, listPlans, membershipState } from '../server/membership.js';
 import { ApiError, onUnauthorized, setAuthToken } from '../src/services/api.js';
 import { membershipApi, MembershipApiError } from '../src/services/membership.js';
 
@@ -16,7 +16,7 @@ function fixture(t: TestContext, native = false) {
   if (native) globals.wx = {}; else delete globals.wx;
   const requests: RequestOptions[] = [];
   let respond = (options: RequestOptions) => options.success({
-    statusCode: 200, data: { data: options.url.endsWith('/plans') ? listPlans() : getMembership() },
+    statusCode: 200, data: { data: options.url.endsWith('/plans') ? listPlans() : options.url.endsWith('/quota') ? getMembership().quota : getMembership() },
   });
   globals.uni = { request: (options: RequestOptions) => { requests.push(options); respond(options); } };
   setAuthToken('');
@@ -69,6 +69,8 @@ test('membership client rejects obsolete, malformed or ambiguous plan data', asy
     (plans: any[]) => { plans[0].priceCents = null; },
     (plans: any[]) => { plans[1].durationMonths = 0; },
     (plans: any[]) => { delete plans[2].features.studyMaterials; },
+    (plans: any[]) => { delete plans[1].features.aiQuota; },
+    (plans: any[]) => { plans[2].features.aiQuota = 800000; },
     (plans: any[]) => { plans[2].highlight = 3; },
     (plans: any[]) => { plans[2].features = null; },
   ]) {
@@ -109,4 +111,46 @@ test('checkout posts only the selected plan and cannot turn an unexpected succes
   assert.deepEqual(await membershipApi.current(), before);
   respond(options => options.success({ statusCode: 503, data: { error: { code: 'PAYMENT_NOT_CONFIGURED', message: '支付暂未开放，本次未扣费。' } } }));
   await assert.rejects(membershipApi.checkout('basic'), error => error instanceof ApiError && error.code === 'PAYMENT_NOT_CONFIGURED');
+});
+
+test('membership accepts trusted paid states and exposes percentage-only quota summaries', async t => {
+  const { requests, respond } = fixture(t);
+  const quota = { status: 'active' as const, remainingPercent: 78, resetsAt: '2026-11-12T07:00:00.000Z', expiresAt: '2026-12-05T07:00:00.000Z', pending: false };
+  for (const planId of ['basic', 'premium'] as const) {
+    const state = membershipState(quota, planId);
+    respond(options => options.success({ statusCode: 200, data: { data: options.url.endsWith('/quota') ? quota : state } }));
+    const current = await membershipApi.current();
+    assert.equal(current.mode, 'active');
+    assert.equal(current.currentPlanId, planId);
+    assert.deepEqual(current.quota, quota);
+    assert.deepEqual(await membershipApi.quota(), quota);
+  }
+  assert.ok(requests.some(item => item.url.endsWith('/membership/quota')));
+  const inactive = { status: 'inactive' as const, remainingPercent: null, resetsAt: null, expiresAt: '2026-11-05T07:00:00.000Z', pending: true };
+  respond(options => options.success({ statusCode: 200, data: { data: membershipState(inactive) } }));
+  assert.deepEqual((await membershipApi.current()).quota, inactive);
+});
+
+test('membership rejects missing, fabricated, out-of-range and leaking quota responses', async t => {
+  const { respond } = fixture(t);
+  const active = { status: 'active', remainingPercent: 78, resetsAt: '2026-11-12T07:00:00.000Z', expiresAt: '2026-12-05T07:00:00.000Z', pending: false };
+  const malformed: unknown[] = [undefined, null, [], {},
+    { ...active, remainingPercent: -1 }, { ...active, remainingPercent: 101 }, { ...active, remainingPercent: 78.5 },
+    { ...active, remainingPercent: '78' }, { ...active, remainingPercent: null },
+    { ...active, resetsAt: null }, { ...active, resetsAt: 'not-a-date' },
+    { ...active, resetsAt: '2026-02-31T00:00:00Z' }, { ...active, resetsAt: '2026-11-12T24:00:00Z' }, { ...active, resetsAt: '2026-11-12T15:00:00' },
+    { ...active, expiresAt: null }, { ...active, pending: 'false' },
+    { ...active, remainingTokens: 156000 }, { ...active, limitTokens: 200000 },
+    { status: 'preview', remainingPercent: 100, resetsAt: null, expiresAt: null, pending: false },
+    { status: 'inactive', remainingPercent: 78, resetsAt: null, expiresAt: null, pending: false },
+  ];
+  for (const quota of malformed) {
+    respond(options => options.success({ statusCode: 200, data: { data: quota } }));
+    await assert.rejects(membershipApi.quota(), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+    respond(options => options.success({ statusCode: 200, data: { data: { ...getMembership(), quota } } }));
+    await assert.rejects(membershipApi.current(), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+  }
+  // A valid active balance cannot be attached to a preview/free identity.
+  respond(options => options.success({ statusCode: 200, data: { data: { ...getMembership(), quota: active } } }));
+  await assert.rejects(membershipApi.current(), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
 });

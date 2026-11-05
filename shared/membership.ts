@@ -1,5 +1,6 @@
 export type PlanId = 'free' | 'basic' | 'premium';
 export type PaidPlanId = Exclude<PlanId, 'free'>;
+import type { AiQuotaSummary } from './quota.js';
 
 /** Product planning only. Values are not active entitlements or validated launch prices. */
 export interface Plan {
@@ -17,6 +18,7 @@ export interface Plan {
     companyJobs: string;
     studyMaterials: string;
     smartDelivery: string;
+    aiQuota: string;
   };
 }
 
@@ -45,6 +47,20 @@ export interface MembershipPreview {
   paymentAvailable: false;
   limitsEnforced: false;
   policy: MembershipPolicy;
+  quota: AiQuotaSummary;
 }
+
+/** A trusted server-side entitlement; checkout remains unavailable. */
+export interface MembershipActive {
+  mode: 'active';
+  currentPlanId: PaidPlanId;
+  currentPlanName: string;
+  paymentAvailable: false;
+  limitsEnforced: true;
+  policy: MembershipPolicy;
+  quota: AiQuotaSummary;
+}
+
+export type MembershipState = MembershipPreview | MembershipActive;
 
 export interface CheckoutInput { planId: PlanId }
