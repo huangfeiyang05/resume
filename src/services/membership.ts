@@ -51,7 +51,7 @@ export const membershipApi = {
       || policy.activation !== 'verified-payment' || policy.autoRenew !== false || policy.renewalBase !== 'later-of-payment-or-expiry'
       || !policy.upgrade || policy.upgrade.fromPlanId !== 'basic' || policy.upgrade.toPlanId !== 'premium'
       || policy.upgrade.charge !== 'full-price-difference' || policy.upgrade.effective !== 'immediate'
-      || policy.upgrade.expiryBase !== 'payment-time' || policy.upgrade.unusedTime !== 'replaced') invalidResponse();
+      || policy.upgrade.expiryBase !== 'current-expiry' || policy.upgrade.unusedTime !== 'stacked') invalidResponse();
     return state;
   },
   async quota(): Promise<AiQuotaSummary> {

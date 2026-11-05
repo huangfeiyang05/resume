@@ -39,8 +39,8 @@ export interface MembershipPolicy {
     toPlanId: 'premium';
     charge: 'full-price-difference';
     effective: 'immediate';
-    expiryBase: 'payment-time';
-    unusedTime: 'replaced';
+    expiryBase: 'current-expiry';
+    unusedTime: 'stacked';
   };
 }
 

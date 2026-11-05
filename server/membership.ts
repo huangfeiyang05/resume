@@ -19,7 +19,7 @@ const plans: Plan[] = [
     features: {
       templates: '包含基础模板', optimization: '包含', companyJobs: '不包含',
       studyMaterials: '不包含', smartDelivery: '不包含',
-      aiQuota: '标准周额度 · 查看剩余百分比',
+      aiQuota: '标准 AI 工具周额度',
     },
   },
   {
@@ -28,7 +28,7 @@ const plans: Plan[] = [
     features: {
       templates: '包含基础模板', optimization: '包含初级全部优化权益', companyJobs: '分专业岗位筛选、收藏与官方招聘入口',
       studyMaterials: '分专业原创准备清单与复习提纲', smartDelivery: '精选投递计划与手动进度记录',
-      aiQuota: '更高周额度 · 查看剩余百分比',
+      aiQuota: '高级 AI 工具周额度',
     },
   },
 ];
@@ -38,7 +38,7 @@ const policy: MembershipPolicy = {
   activation: 'verified-payment', autoRenew: false, renewalBase: 'later-of-payment-or-expiry',
   upgrade: {
     fromPlanId: 'basic', toPlanId: 'premium', charge: 'full-price-difference',
-    effective: 'immediate', expiryBase: 'payment-time', unusedTime: 'replaced',
+    effective: 'immediate', expiryBase: 'current-expiry', unusedTime: 'stacked',
   },
 };
 
@@ -84,7 +84,8 @@ export function calculateMembershipPeriod(input: {
   }
   const kind = !active ? 'purchase' : current!.planId === input.planId ? 'renewal' : 'upgrade';
   const startsAt = kind === 'renewal' ? currentExpiry! : paidAt;
-  return { kind, planId: input.planId, startsAt: new Date(startsAt).toISOString(), expiresAt: nextCalendarMonth(startsAt) };
+  const expiryBase = kind === 'upgrade' ? currentExpiry! : startsAt;
+  return { kind, planId: input.planId, startsAt: new Date(startsAt).toISOString(), expiresAt: nextCalendarMonth(expiryBase) };
 }
 
 function parseInstant(value: string): number {

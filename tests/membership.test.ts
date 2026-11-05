@@ -54,8 +54,8 @@ test('membership is explicit preview state without fabricated AI balances or enf
   assert.equal(membership.policy.upgrade.fromPlanId, 'basic');
   assert.equal(membership.policy.upgrade.toPlanId, 'premium');
   assert.equal(membership.policy.upgrade.charge, 'full-price-difference');
-  assert.equal(membership.policy.upgrade.expiryBase, 'payment-time');
-  assert.equal(membership.policy.upgrade.unusedTime, 'replaced');
+  assert.equal(membership.policy.upgrade.expiryBase, 'current-expiry');
+  assert.equal(membership.policy.upgrade.unusedTime, 'stacked');
   assert.equal((await request('/membership', 'POST', {})).status, 405);
 });
 
@@ -136,14 +136,14 @@ test('checkout validates plan identity and leaves membership and persisted data 
   assert.equal((await request('/billing/checkout')).status, 405);
 });
 
-test('upgrade starts a new calendar month immediately instead of extending the old expiry', () => {
+test('upgrade keeps the remaining time and adds one calendar month to the current expiry', () => {
   const input = {
     planId: 'premium' as const, verifiedPaymentAt: '2026-10-25T15:42:03.456+08:00',
     current: { planId: 'basic' as const, expiresAt: '2026-11-10T12:00:00+08:00' },
   };
   const result = calculateMembershipPeriod(input);
   assert.deepEqual(result, {
-    kind: 'upgrade', planId: 'premium', startsAt: '2026-10-25T07:42:03.456Z', expiresAt: '2026-11-25T07:42:03.456Z',
+    kind: 'upgrade', planId: 'premium', startsAt: '2026-10-25T07:42:03.456Z', expiresAt: '2026-12-10T04:00:00.000Z',
   });
   assert.deepEqual(calculateMembershipPeriod(input), result, 'repeating a date calculation must be deterministic');
   assert.equal(input.current.expiresAt, '2026-11-10T12:00:00+08:00', 'a calculation cannot mutate existing membership state');
