@@ -59,16 +59,17 @@ test('membership is explicit preview state without fabricated AI balances or enf
   assert.equal((await request('/membership', 'POST', {})).status, 405);
 });
 
-test('three current tiers replace legacy products and leave paid prices unset', async (t) => {
+test('three current tiers expose configured prices and honest promotion labels', async (t) => {
   const { request } = await fixture(t);
   const result = await request('/plans');
   assert.equal(result.status, 200);
   const plans = result.body.data as Plan[];
-  assert.deepEqual(plans.map(({ id, priceCents, durationMonths }) => ({ id, priceCents, durationMonths })), [
-    { id: 'free', priceCents: 0, durationMonths: 0 },
-    { id: 'basic', priceCents: null, durationMonths: 1 },
-    { id: 'premium', priceCents: null, durationMonths: 1 },
+  assert.deepEqual(plans.map(({ id, priceCents, listPriceCents, durationMonths }) => ({ id, priceCents, listPriceCents, durationMonths })), [
+    { id: 'free', priceCents: 0, listPriceCents: undefined, durationMonths: 0 },
+    { id: 'basic', priceCents: 990, listPriceCents: undefined, durationMonths: 1 },
+    { id: 'premium', priceCents: 2490, listPriceCents: 2990, durationMonths: 1 },
   ]);
+  assert.equal(plans[2].promotionLabel, '限时优惠');
   const [free, basic, premium] = plans;
   assert.match(free.features.templates, /3/);
   assert.equal(free.features.optimization, '不包含');
@@ -120,11 +121,12 @@ test('checkout validates plan identity and leaves membership and persisted data 
     { planId: 'premium', verifiedPaymentAt: '2026-10-25T00:00:00Z' },
     { planId: 'premium', paid: true }, { planId: 'premium', userId: 'other-user' },
     { planId: 'premium', expiresAt: '2099-01-01T00:00:00Z' },
+    { planId: 'premium' }, { planId: 'premium', requestId: 'short' },
   ]) {
     assert.equal((await request('/billing/checkout', 'POST', input)).status, 400);
   }
   for (const planId of ['basic', 'premium', 'premium']) {
-    const result = await request('/billing/checkout', 'POST', { planId });
+    const result = await request('/billing/checkout', 'POST', { planId, requestId: `request-${planId}-${Math.random().toString(36).slice(2, 18)}` });
     assert.equal(result.status, 503);
     assert.equal(result.body.error.code, 'PAYMENT_NOT_CONFIGURED');
     assert.match(result.body.error.message, /未扣费/);

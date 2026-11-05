@@ -27,7 +27,7 @@ function fixture(t: TestContext, native = false) {
   return { requests, respond: (handler: typeof respond) => { respond = handler; } };
 }
 
-test('membership H5 requests use the shared cookie transport and accept unpriced paid tiers', async t => {
+test('membership H5 requests use the shared cookie transport and accept configured paid tiers', async t => {
   const { requests, respond } = fixture(t);
   setAuthToken('must-not-send-in-h5');
   const state = await membershipApi.current();
@@ -35,7 +35,9 @@ test('membership H5 requests use the shared cookie transport and accept unpriced
   respond(options => options.success({ statusCode: 200, data: { data: listPlans().reverse() } }));
   const plans = await membershipApi.plans();
   assert.deepEqual(plans.map(plan => plan.id), ['free', 'basic', 'premium']);
-  assert.equal(plans[1].priceCents, null);
+  assert.equal(plans[1].priceCents, 990);
+  assert.equal(plans[2].priceCents, 2490);
+  assert.equal(plans[2].listPriceCents, 2990);
   assert.ok(requests.every(item => item.withCredentials === true));
   assert.ok(requests.every(item => !('Authorization' in item.header) && !('X-Auth-Client' in item.header)));
 });
@@ -86,7 +88,7 @@ test('membership client rejects a fabricated paid state or incompatible upgrade 
   const { respond } = fixture(t);
   for (const mutate of [
     (state: any) => { state.currentPlanId = 'premium'; },
-    (state: any) => { state.paymentAvailable = true; },
+    (state: any) => { state.paymentAvailable = 'yes'; },
     (state: any) => { delete state.policy; },
     (state: any) => { state.policy.upgrade.expiryBase = 'current-expiry'; },
     (state: any) => { state.policy.upgrade.unusedTime = 'stacked'; },
@@ -100,17 +102,37 @@ test('membership client rejects a fabricated paid state or incompatible upgrade 
   }
 });
 
-test('checkout posts only the selected plan and cannot turn an unexpected success into membership', async t => {
+test('checkout sends a stable request id, accepts only a verified payment payload and surfaces configuration errors', async t => {
   const { requests, respond } = fixture(t);
-  const before = await membershipApi.current();
-  respond(options => options.success({ statusCode: 200, data: { data: { paid: true, planId: 'premium', expiresAt: '2099-01-01T00:00:00Z' } } }));
-  await assert.rejects(membershipApi.checkout('premium'), error => error instanceof MembershipApiError && error.code === 'UNEXPECTED_CHECKOUT_RESULT');
-  assert.deepEqual(requests.at(-1)?.data, { planId: 'premium' });
+  const order = { id: 'order-12345678', planId: 'premium' as const, amountCents: 2490, status: 'pending' as const, createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
+  const payment = { appId: 'wx7c30911964bf6fe7', timeStamp: '1762345678', nonceStr: 'nonce-value', package: 'prepay_id=wx1234567890abcdef', signType: 'RSA' as const, paySign: 'signature-value' };
+  respond(options => options.success({ statusCode: 201, data: { data: { order, payment } } }));
+  const result = await membershipApi.checkout('premium', 'request-id-123456');
+  assert.deepEqual(result, { order, payment });
+  assert.deepEqual(requests.at(-1)?.data, { planId: 'premium', requestId: 'request-id-123456' });
   assert.equal(requests.at(-1)?.method, 'POST');
-  respond(options => options.success({ statusCode: 200, data: { data: getMembership() } }));
-  assert.deepEqual(await membershipApi.current(), before);
-  respond(options => options.success({ statusCode: 503, data: { error: { code: 'PAYMENT_NOT_CONFIGURED', message: '支付暂未开放，本次未扣费。' } } }));
-  await assert.rejects(membershipApi.checkout('basic'), error => error instanceof ApiError && error.code === 'PAYMENT_NOT_CONFIGURED');
+  for (const invalid of [null, {}, { order, payment: { ...payment, signType: 'MD5' } }, { order: { ...order, amountCents: 0 }, payment }, { order, payment: { ...payment, package: 'wrong' } }]) {
+    respond(options => options.success({ statusCode: 201, data: { data: invalid } }));
+    await assert.rejects(membershipApi.checkout('premium', 'request-id-123456'), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+  }
+  respond(options => options.success({ statusCode: 503, data: { error: { code: 'PAYMENT_NOT_CONFIGURED', message: '支付尚未配置完成，本次未扣费。' } } }));
+  await assert.rejects(membershipApi.checkout('basic', 'request-id-123456'), error => error instanceof ApiError && error.code === 'PAYMENT_NOT_CONFIGURED');
+});
+
+test('payment quote and order responses are strictly validated', async t => {
+  const { respond } = fixture(t);
+  const quote = { planId: 'premium', amountCents: 2490, listPriceCents: 2990, promotionLabel: '限时优惠', kind: 'purchase', currentPlanId: 'free' };
+  respond(options => options.success({ statusCode: 200, data: { data: quote } }));
+  assert.deepEqual(await membershipApi.quote('premium'), quote);
+  for (const invalid of [{ ...quote, amountCents: '2490' }, { ...quote, kind: 'upgrade' , currentPlanId: 'free' }, { ...quote, listPriceCents: 2000 }, { ...quote, promotionLabel: 1 }]) {
+    respond(options => options.success({ statusCode: 200, data: { data: invalid } }));
+    await assert.rejects(membershipApi.quote('premium'), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+  }
+  const order = { id: 'order-12345678', planId: 'basic', amountCents: 990, status: 'paid', createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z', paidAt: '2026-11-05T02:01:00.000Z' };
+  respond(options => options.success({ statusCode: 200, data: { data: order } }));
+  assert.deepEqual(await membershipApi.order(order.id), order);
+  respond(options => options.success({ statusCode: 200, data: { data: { ...order, status: 'refunded' } } }));
+  await assert.rejects(membershipApi.order(order.id), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
 });
 
 test('membership accepts trusted paid states and exposes percentage-only quota summaries', async t => {

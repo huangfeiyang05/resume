@@ -16,6 +16,7 @@ export interface ResumeExportFile extends ResumeExportInput {
   contentBase64: string;
 }
 export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput } from './membership.js';
+export type { PaymentOrder, PaymentOrderStatus, WechatPaymentParams, CheckoutResult, MembershipQuote, WechatBindResult } from './payment.js';
 export type { AiQuotaSummary } from './quota.js';
 export type { ApplicationStatus, CareerJob, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
 export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, WechatLoginInput, PhoneLoginInput } from './auth.js';

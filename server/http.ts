@@ -3,7 +3,9 @@ import { HttpError } from './errors.js';
 import { JsonStore } from './store.js';
 import { ResumeService } from './service.js';
 import { limits, validateVersionRevision } from './validation.js';
-import { checkout, membershipState, listPlans } from './membership.js';
+import { PaymentService } from './payments.js';
+import type { WechatPayGateway } from './wechat-pay.js';
+import type { BillingPricing } from './payment-config.js';
 import { AnalysisJobs } from './jobs.js';
 import { AuthService } from './auth.js';
 import { isIP } from 'node:net';
@@ -20,7 +22,7 @@ function json(response: ServerResponse, status: number, value: unknown) {
   response.end(JSON.stringify(value));
 }
 
-async function body(request: IncomingMessage, allowEmpty = false): Promise<unknown> {
+async function rawBody(request: IncomingMessage, allowEmpty = false): Promise<string> {
   const type = request.headers['content-type']?.split(';')[0].trim().toLowerCase();
   if (type && type !== 'application/json') throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
   const declared = request.headers['content-length'];
@@ -34,7 +36,13 @@ async function body(request: IncomingMessage, allowEmpty = false): Promise<unkno
     chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString('utf8');
-  if (!text.trim() && allowEmpty) return {};
+  if (!text.trim() && allowEmpty) return '';
+  return text;
+}
+
+async function body(request: IncomingMessage, allowEmpty = false): Promise<unknown> {
+  const text = await rawBody(request, allowEmpty);
+  if (!text.trim()) return {};
   try { return JSON.parse(text); }
   catch { throw new HttpError(400, 'INVALID_JSON', '请求体不是有效的 JSON。'); }
 }
@@ -46,6 +54,11 @@ export interface ApiServerOptions {
   trustProxy?: boolean;
   careerCatalogPath?: string;
   companyCatalogPath?: string;
+  paymentGateway?: WechatPayGateway;
+  pricing?: BillingPricing;
+  paymentAppid?: string;
+  paymentMchid?: string;
+  paymentNotifyUrl?: string;
 }
 const cookieName = 'youfang_session';
 function sessionToken(request: IncomingMessage) {
@@ -60,6 +73,13 @@ function sessionToken(request: IncomingMessage) {
 export function createApiServer(baseService = new ResumeService(new JsonStore()), options: ApiServerOptions = {}) {
   const auth = options.auth ?? new AuthService(baseService.store);
   const jobs = new AnalysisJobs(baseService);
+  const payments = new PaymentService({
+    store: baseService.store, quota: jobs.quota, ...(options.pricing ? { pricing: options.pricing } : {}),
+    ...(options.paymentGateway ? { gateway: options.paymentGateway } : {}),
+    ...(options.paymentAppid ? { appid: options.paymentAppid } : {}),
+    ...(options.paymentMchid ? { mchid: options.paymentMchid } : {}),
+    ...(options.paymentNotifyUrl ? { notifyUrl: options.paymentNotifyUrl } : {}),
+  });
   // Shared company reference data is available to authenticated users during testing.
   // Future paid access belongs here on the server, never in a client-supplied tier.
   const companies = new CompanyCatalogRepository(options.companyCatalogPath ?? join(dirname(baseService.store.path), 'company-catalog.json'));
@@ -92,6 +112,11 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       const path = url.pathname.replace(/\/$/, '');
       const method = request.method ?? 'GET';
       assertWriteOrigin(request);
+      if (path === '/api/v1/billing/wechat/notify') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const raw = await rawBody(request);
+        json(response, 200, await payments.applyNotification(request.headers, raw)); return;
+      }
       if (path === '/api/v1/auth/providers') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: auth.capabilities() }); return;
@@ -136,6 +161,11 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         throw new HttpError(501, path.endsWith('/wechat') ? 'WECHAT_LOGIN_NOT_CONFIGURED' : 'PHONE_LOGIN_NOT_CONFIGURED', path.endsWith('/wechat') ? '微信小程序免登尚未接入，请先使用邮箱登录。' : '手机号验证登录尚未接入，请先使用邮箱登录。');
       }
+      if (path === '/api/v1/auth/wechat/bind') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const session = await auth.authenticate(sessionToken(request));
+        json(response, 200, { data: await auth.bindWechat(session.user.id, await body(request), clientAddress(request)) }); return;
+      }
       const publicRoute = path === '/api/v1/health' || path === '/api/v1/plans';
       const service = publicRoute ? baseService : baseService.forUser((await auth.authenticate(sessionToken(request))).user.id);
       const career = new CareerService(service.store, service.userId, options.careerCatalogPath);
@@ -145,18 +175,24 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         json(response, 200, { data: { status: 'ok', analysisEngine: service.provider.name, aiConfigured: service.provider.name === 'bailian', ...(service.provider.model ? { model: service.provider.model } : {}), persistence: 'local-json' } });
       } else if (path === '/api/v1/membership') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        const quota = await jobs.quota.current(service.userId);
-        const membership = await jobs.quota.getMembershipRecord(service.userId);
-        json(response, 200, { data: membershipState(quota, membership?.planId) });
+        json(response, 200, { data: await payments.membership(service.userId) });
       } else if (path === '/api/v1/membership/quota') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await jobs.quota.current(service.userId) });
       } else if (path === '/api/v1/plans') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        json(response, 200, { data: listPlans() });
+        json(response, 200, { data: payments.plans() });
       } else if (path === '/api/v1/billing/checkout') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        checkout(await body(request));
+        json(response, 201, { data: await payments.checkout(service.userId, await body(request)) });
+      } else if (path === '/api/v1/billing/quote') {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const planId = url.searchParams.get('planId');
+        if (!planId || [...url.searchParams.keys()].some(key => key !== 'planId')) throw new HttpError(400, 'VALIDATION_ERROR', '请提供有效的方案标识。');
+        json(response, 200, { data: await payments.quote(service.userId, planId as never) });
+      } else if ((match = path.match(/^\/api\/v1\/billing\/orders\/([^/]+)$/))) {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        json(response, 200, { data: await payments.getOrder(service.userId, decodeURIComponent(match[1])) });
       } else if (path === '/api/v1/career') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await career.workspace() });

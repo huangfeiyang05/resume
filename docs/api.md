@@ -58,10 +58,14 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 方法 | 路径（前缀 `/api/v1`） | 请求 / 返回 |
 | --- | --- | --- |
 | GET | `/health` | 返回 `status: ok`、`analysisEngine: rules / bailian`、`aiConfigured`（本地配置是否启用，非可用性检测）、可选 `model`、`persistence: local-json` |
-| GET | `/membership` | 返回 `MembershipState`：无可信会员时为免费 `preview`，有效可信会员为 `active`；包含当前方案、固定关闭的支付状态、`policy` 和仅百分比的 `quota` |
+| GET | `/membership` | 返回 `MembershipState`：无可信会员时为免费 `preview`，有效可信会员为 `active`；包含当前方案、由服务器支付配置决定的 `paymentAvailable`、`policy` 和仅百分比的 `quota` |
 | GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
-| GET | `/plans` | 返回 `free / basic / premium` 三档规划权益；免费价格为 `0`，两档付费价格为 `null`（待定价），类型由 `shared/types.ts` 导出 |
-| POST | `/billing/checkout` | `{planId}`，有效付费方案明确返回 503 `PAYMENT_NOT_CONFIGURED`；不创建订单、不扣费、不发放权益 |
+| GET | `/plans` | 返回 `free / basic / premium` 三档权益与服务器价格（分）；未配置支付时 `paymentAvailable` 为 false，价格仍返回当前服务端配置 |
+| GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade`、当前方案；升级补差价由服务端计算 |
+| POST | `/billing/checkout` | `{planId,requestId}` → 201 创建或复用 `pending` 订单，返回 `CheckoutResult`（订单摘要 + `wx.requestPayment` 参数）；未配置支付返回 503 `PAYMENT_NOT_CONFIGURED`；未绑定微信返回 409 `WECHAT_NOT_BOUND` |
+| GET | `/billing/orders/:id` | 返回当前会话本人的订单摘要（不含 prepayId 或其他用户订单）；不存在按 404 |
+| POST | `/billing/wechat/notify` | 微信支付 v3 异步通知入口，公开但必须通过平台公钥验签；处理成功返回 `{code:'SUCCESS'}`，失败返回错误且不发放会员 |
+| POST | `/auth/wechat/bind` | `{code}` → `{bound:true,openidMasked}`；服务端用小程序 code 换 openid 并绑定当前账号，绑定其他账号返回 409 |
 | GET | `/resumes` | 返回本人简历数组，按更新时间倒序 |
 | POST | `/resumes` | `{title, targetRole?, text}` → 201 + 归属当前会话用户的简历 |
 | GET | `/resumes/:id` | 返回本人简历 |

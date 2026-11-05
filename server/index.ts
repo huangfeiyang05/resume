@@ -7,6 +7,9 @@ import { JsonStore } from './store.js';
 import { AuthService } from './auth.js';
 import { EmailCodeService } from './email-codes.js';
 import { loadMailConfig, SmtpMailSender } from './mail.js';
+import { loadBillingPricing, loadPaymentConfig } from './payment-config.js';
+import { WechatPayClient } from './wechat-pay.js';
+import { WechatCodeExchange } from './wechat-identity.js';
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
@@ -21,15 +24,21 @@ for (const origin of trustedOrigins) {
   if (url.origin !== origin || !['http:', 'https:'].includes(url.protocol) || (process.env.NODE_ENV === 'production' && url.protocol !== 'https:')) throw new Error('AUTH_TRUSTED_ORIGINS contains an invalid origin.');
 }
 const store = new JsonStore();
+const pricing = loadBillingPricing();
+const paymentConfig = loadPaymentConfig();
+const gateway = paymentConfig ? new WechatPayClient(paymentConfig) : undefined;
 const mailConfig = loadMailConfig();
 const mailer = new SmtpMailSender(mailConfig);
 const auth = new AuthService(store, {
   ...(mailConfig.enabled ? { emailCodes: new EmailCodeService(store, mailer, { secret: mailConfig.codeSecret }) } : {}),
   requireEmailVerification: process.env.NODE_ENV === 'production',
+  ...(paymentConfig ? { wechat: new WechatCodeExchange(paymentConfig.appid, paymentConfig.appSecret) } : {}),
 });
 const server = createApiServer(new ResumeService(store, provider), {
   auth,
   secureCookies: secureFlag === 'true', trustedOrigins, trustProxy: process.env.NODE_ENV === 'production',
+  pricing,
+  ...(paymentConfig && gateway ? { paymentGateway: gateway, paymentAppid: paymentConfig.appid, paymentMchid: paymentConfig.mchid, paymentNotifyUrl: paymentConfig.notifyUrl } : {}),
 });
 server.listen(port, '127.0.0.1', () => {
   console.log(`Resume API: http://127.0.0.1:${port} · ${config.enabled ? `百炼 ${config.model}（待请求验证）` : '本地规则诊断'}`);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { MembershipState, Plan, PlanId } from '../../shared/types';
+import type { MembershipQuote, MembershipState, Plan, PlanId } from '../../shared/types';
 import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
@@ -13,8 +13,20 @@ const quotaLoading = ref(false);
 const quotaError = ref('');
 const purchaseOpen = ref(false);
 const selectedPlanId = ref<PlanId>('basic');
+const quote = ref<MembershipQuote>();
+const quoteLoading = ref(false);
+const quoteError = ref('');
+const paying = ref(false);
+const paymentError = ref('');
+let miniProgram = false;
+// #ifdef MP-WEIXIN
+miniProgram = true;
+// #endif
+const iosDevice = (() => { try { return miniProgram && uni.getSystemInfoSync().platform === 'ios'; } catch { return false; } })();
 const paidPlans = computed(() => plans.value.filter((plan) => plan.id !== 'free'));
 const selectedPlan = computed(() => paidPlans.value.find((plan) => plan.id === selectedPlanId.value));
+const selectedAmount = computed(() => quote.value?.amountCents ?? selectedPlan.value?.priceCents ?? null);
+const canPay = computed(() => membership.value?.paymentAvailable === true && miniProgram && !iosDevice);
 const rows: Array<{ key: keyof Plan['features']; label: string }> = [
   { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '简历优化' },
   { key: 'aiQuota', label: 'AI 额度' },
@@ -62,13 +74,72 @@ async function load() {
     error.value = cause instanceof Error ? cause.message : '权益信息暂时不可用，请重试。';
   } finally { loading.value = false; }
 }
-function openPurchase(id: PlanId = 'basic') {
+async function openPurchase(id: PlanId = 'basic') {
   if (!membership.value || !paidPlans.value.length) return;
   selectedPlanId.value = id === 'free' ? 'basic' : id;
   purchaseOpen.value = true;
+  paymentError.value = '';
+  await loadQuote();
 }
 function selectPlan(id: PlanId) {
   selectedPlanId.value = id;
+  paymentError.value = '';
+  void loadQuote();
+}
+async function loadQuote() {
+  if (!membership.value?.paymentAvailable || selectedPlanId.value === 'free') { quote.value = undefined; return; }
+  quoteLoading.value = true;
+  quoteError.value = '';
+  try { quote.value = await membershipApi.quote(selectedPlanId.value); }
+  catch (cause) { quoteError.value = cause instanceof Error ? cause.message : '价格暂时无法确认，请稍后重试。'; }
+  finally { quoteLoading.value = false; }
+}
+function requestId() {
+  const random = () => Math.random().toString(36).slice(2).padEnd(8, '0');
+  return `pay_${Date.now().toString(36)}_${random()}${random()}`.slice(0, 32);
+}
+function loginCode(): Promise<string> {
+  return new Promise((resolve, reject) => uni.login({
+    provider: 'weixin',
+    success: (result) => result.code ? resolve(result.code) : reject(new Error('微信登录未返回有效凭证。')),
+    fail: () => reject(new Error('微信登录失败，请稍后重试。')),
+  }));
+}
+function requestPayment(payment: { timeStamp: string; nonceStr: string; package: string; signType: 'RSA'; paySign: string }): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const options = { provider: 'wxpay', ...payment, success: () => resolve(), fail: (error: unknown) => reject(new Error((error as { errMsg?: string })?.errMsg || '支付未完成。')) };
+    uni.requestPayment(options as unknown as UniApp.RequestPaymentOptions);
+  });
+}
+async function waitForPayment(orderId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try { if ((await membershipApi.order(orderId)).status === 'paid') return true; } catch { /* keep polling while the callback lands */ }
+  }
+  return false;
+}
+async function pay() {
+  if (!membership.value?.paymentAvailable || !selectedPlan.value || paying.value) return;
+  if (!miniProgram) { paymentError.value = '请在微信小程序内完成支付。'; return; }
+  if (iosDevice) { paymentError.value = 'iOS 端暂不支持购买虚拟会员，请使用 Android 或后续开放的方式。'; return; }
+  paying.value = true;
+  paymentError.value = '';
+  try {
+    const code = await loginCode();
+    await membershipApi.bindWechat(code);
+    const result = await membershipApi.checkout(selectedPlanId.value, requestId());
+    await requestPayment(result.payment);
+    const confirmed = await waitForPayment(result.order.id);
+    await load();
+    if (confirmed) {
+      purchaseOpen.value = false;
+      uni.showToast({ title: '支付成功', icon: 'success' });
+    } else {
+      paymentError.value = '支付已完成，权益正在确认中，请稍后刷新查看。';
+    }
+  } catch (cause) {
+    paymentError.value = cause instanceof Error ? cause.message : '支付未完成，请稍后重试。';
+  } finally { paying.value = false; }
 }
 onMounted(load);
 </script>
@@ -103,6 +174,7 @@ onMounted(load);
         <view v-for="plan in plans" :key="plan.id" class="glass-panel benefit-plan" :class="{ current: plan.id === membership.currentPlanId }">
           <view class="benefit-plan-top"><text class="benefit-plan-name">{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="benefit-badge current">当前方案</text></view>
           <view class="benefit-price"><text class="benefit-price-number">{{ price(plan.priceCents) }}</text><text v-if="plan.durationMonths" class="benefit-period">/ {{ plan.periodLabel }}</text></view>
+          <text v-if="plan.promotionLabel && plan.listPriceCents" class="benefit-promo">{{ plan.promotionLabel }} · 原价 {{ price(plan.listPriceCents) }}</text>
           <view class="benefit-card-list benefit-card-list-full"><view v-for="feature in cardFeatures(plan)" :key="feature"><AppIcon name="check" :size="13" /><text>{{ feature }}</text></view></view>
           <view class="benefit-card-list benefit-card-list-compact"><view v-for="feature in compactFeatures[plan.id]" :key="feature"><AppIcon name="check" :size="13" /><text>{{ feature }}</text></view></view>
           <button v-if="plan.id === membership.currentPlanId" class="button secondary benefit-plan-button current" :aria-label="`当前权益：${plan.name}`" disabled role="button"><text class="benefit-action-full">当前权益</text><text class="benefit-action-compact">当前</text></button>
@@ -122,11 +194,15 @@ onMounted(load);
       </view></scroll-view>
     </template>
 
-    <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" subtitle="价格待定，支付未开放" @close="purchaseOpen = false">
+    <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? '微信支付 · 一个自然月 · 手动续费' : '当前为方案预览，支付暂未开放'" @close="purchaseOpen = false">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">一个自然月 · 手动续费</text></view><text class="benefits-summary-price">{{ price(selectedPlan.priceCents) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
+      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付后重算一个自然月' : '一个自然月 · 手动续费') }}</text></view><text class="benefits-summary-price">{{ price(selectedAmount) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
-      <view class="benefits-checkout-footer"><text>支付未开放，不会扣费或开通会员。</text><button class="button secondary" disabled role="button">支付暂未开放</button></view>
+      <text v-if="paymentError" class="benefits-checkout-error" role="alert">{{ paymentError }}</text>
+      <view class="benefits-checkout-footer"><text>{{ !membership?.paymentAvailable ? '支付未开放，不会扣费或开通会员。' : iosDevice ? 'iOS 端暂不支持购买虚拟会员。' : !miniProgram ? '请在微信小程序内完成支付。' : '支付由微信安全处理，权益到账后立即生效。' }}</text>
+        <button v-if="canPay" class="button primary" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : `微信支付 ${price(selectedAmount)}` }}</button>
+        <button v-else class="button secondary" disabled role="button">{{ !membership?.paymentAvailable ? '支付暂未开放' : iosDevice ? 'iOS 暂不支持' : '请在小程序内支付' }}</button>
+      </view>
     </AppModal>
   </view>
 </template>
@@ -162,6 +238,7 @@ onMounted(load);
 .benefit-plan-name { font-size: 17px; font-weight: 650; color: #1f2937; line-height: 1.7; }
 .benefit-badge { color: #2458c5; border: 1px solid #d4dff4; background: #edf2fb; border-radius: 6px; font-size: 12px; padding: 3px 7px; white-space: nowrap; }
 .benefit-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; margin: 22px 0 24px; color: #1f2937; }
+.benefit-promo { display: block; margin-top: -14px; margin-bottom: 18px; color: #b45309; font-size: 12px; line-height: 1.7; }
 .benefit-price-number { font-size: 30px; font-weight: 650; line-height: 1.3; }
 .benefit-period { color: #536174; font-size: 13px; }
 .benefit-card-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; flex: 1; }
@@ -197,6 +274,7 @@ onMounted(load);
 .benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; font-size: 14px; padding: 10px 0; line-height: 1.8; color: #38465a; }
 .benefits-checkout-feature > text:first-child { color: #536174; flex-shrink: 0; }
 .benefits-checkout-feature-value { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.benefits-checkout-error { display: block; margin-top: 12px; color: #a23636; font-size: 13px; line-height: 1.8; }
 .benefits-checkout-message { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; margin-top: 18px; background: #f4f6f9; border: 1px solid #d8dfe8; border-radius: 10px; font-size: 14px; color: #536174; line-height: 1.8; }
 .benefits-checkout-message .app-icon { margin-top: 4px; flex-shrink: 0; }
 .benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }

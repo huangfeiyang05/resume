@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import type { AuthCapabilities, AuthSession, AuthUser, EmailCodePurpose, EmailPasswordInput } from '../shared/auth.js';
+import type { WechatBindResult } from '../shared/payment.js';
+import type { WechatIdentityProvider } from './wechat-identity.js';
 import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../shared/auth.js';
 import { HttpError, invalid } from './errors.js';
 import { JsonStore, type Database, type StoredUser } from './store.js';
@@ -37,7 +39,7 @@ export function validateCredentials(body: unknown, allowProof = false, passwordP
   return { email, password: passwordText };
 }
 
-export interface AuthOptions { now?: () => number; sessionTtlMs?: number; emailCodes?: EmailCodeService; requireEmailVerification?: boolean }
+export interface AuthOptions { now?: () => number; sessionTtlMs?: number; emailCodes?: EmailCodeService; requireEmailVerification?: boolean; wechat?: WechatIdentityProvider }
 export class AuthService {
   private hashing = 0;
   private attempts = new Map<string, { count: number; until: number }>();
@@ -45,11 +47,13 @@ export class AuthService {
   readonly sessionTtlMs: number;
   readonly emailCodes?: EmailCodeService;
   private requireEmailVerification: boolean;
+  private wechat?: WechatIdentityProvider;
   constructor(readonly store: JsonStore, options: AuthOptions = {}) {
     this.now = options.now ?? Date.now;
     this.emailCodes = options.emailCodes;
     this.requireEmailVerification = options.requireEmailVerification ?? options.emailCodes?.enabled ?? false;
     this.sessionTtlMs = options.sessionTtlMs ?? ttl;
+    this.wechat = options.wechat;
     if (!Number.isSafeInteger(this.sessionTtlMs) || this.sessionTtlMs < 1) throw new Error('Invalid session lifetime.');
   }
 
@@ -200,6 +204,28 @@ export class AuthService {
       if (!current) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');
       return this.newSession(database, current);
     });
+  }
+
+  /** Binds a mini-program openid to an already-authenticated account. Never accepts a client openid. */
+  async bindWechat(userId: string, body: unknown, client = 'local'): Promise<WechatBindResult> {
+    if (!this.wechat) throw new HttpError(503, 'WECHAT_NOT_CONFIGURED', '微信绑定暂未开放，请稍后再试。');
+    const input = object(body, ['code']);
+    if (typeof input.code !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.code)) invalid('微信登录凭证无效。');
+    this.checkRateLimit(client);
+    const identity = await this.wechat.exchange(input.code);
+    const masked = `${identity.openid.slice(0, 6)}***${identity.openid.slice(-4)}`;
+    const result = await this.store.mutate(database => {
+      const current = database.users.find(user => user.id === userId);
+      if (!current) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
+      const owner = database.users.find(user => user.id !== userId && user.wechatOpenid === identity.openid);
+      if (owner) throw new HttpError(409, 'WECHAT_ALREADY_BOUND', '该微信已绑定其他账号。');
+      if (current.wechatOpenid && current.wechatOpenid !== identity.openid) {
+        throw new HttpError(409, 'WECHAT_ALREADY_BOUND', '当前账号已绑定其他微信。');
+      }
+      current.wechatOpenid = identity.openid;
+      return { bound: true as const, openidMasked: masked };
+    });
+    return result;
   }
 
   async authenticate(token: string | undefined): Promise<AuthSession> {

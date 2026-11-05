@@ -1,5 +1,6 @@
 import type { MembershipPolicy, MembershipPreview, MembershipState, AiQuotaSummary, PaidPlanId, Plan } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
+import { defaultPricing, type BillingPricing } from './payment-config.js';
 
 /** Current product design. Paid benefits are neither sold nor enforced in preview mode. */
 const plans: Plan[] = [
@@ -41,24 +42,28 @@ const policy: MembershipPolicy = {
   },
 };
 
-export function listPlans(): Plan[] {
-  return structuredClone(plans);
+export function listPlans(pricing: BillingPricing = defaultPricing): Plan[] {
+  return structuredClone(plans).map((plan) => plan.id === 'free' ? plan : {
+    ...plan, priceCents: pricing[plan.id].priceCents,
+    ...(pricing[plan.id].listPriceCents !== undefined ? { listPriceCents: pricing[plan.id].listPriceCents } : {}),
+    ...(pricing[plan.id].promotionLabel !== undefined ? { promotionLabel: pricing[plan.id].promotionLabel } : {}),
+  });
 }
 
-export function getMembership(): MembershipPreview {
+export function getMembership(paymentAvailable = false): MembershipPreview {
   return {
     mode: 'preview', currentPlanId: 'free', currentPlanName: '免费体验',
-    paymentAvailable: false, limitsEnforced: false, policy: structuredClone(policy),
+    paymentAvailable, limitsEnforced: false, policy: structuredClone(policy),
     quota: { status: 'preview', remainingPercent: null, resetsAt: null, expiresAt: null, pending: false },
   };
 }
 
 /** The caller resolves this from a trusted account record, never from a request body. */
-export function membershipState(quota: AiQuotaSummary, planId?: PaidPlanId): MembershipState {
-  if (quota.status !== 'active' || !planId) return { ...getMembership(), quota };
+export function membershipState(quota: AiQuotaSummary, planId?: PaidPlanId, paymentAvailable = false): MembershipState {
+  if (quota.status !== 'active' || !planId) return { ...getMembership(paymentAvailable), quota };
   return {
     mode: 'active', currentPlanId: planId, currentPlanName: planId === 'basic' ? '初级会员' : '高级会员',
-    paymentAvailable: false, limitsEnforced: true, policy: structuredClone(policy), quota,
+    paymentAvailable, limitsEnforced: true, policy: structuredClone(policy), quota,
   };
 }
 

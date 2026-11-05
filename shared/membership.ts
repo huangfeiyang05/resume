@@ -8,6 +8,10 @@ export interface Plan {
   name: string;
   /** null means the monthly price has not been set; it never means free. */
   priceCents: number | null;
+  /** Undiscounted monthly price in cents; omitted when the current price is not a promotion. */
+  listPriceCents?: number;
+  /** Honest promotion wording, e.g. "限时优惠"; never a fabricated scarcity count. */
+  promotionLabel?: string;
   durationMonths: 0 | 1;
   periodLabel: string;
   highlight?: string;
@@ -44,7 +48,7 @@ export interface MembershipPreview {
   mode: 'preview';
   currentPlanId: 'free';
   currentPlanName: '免费体验';
-  paymentAvailable: false;
+  paymentAvailable: boolean;
   limitsEnforced: false;
   policy: MembershipPolicy;
   quota: AiQuotaSummary;
@@ -55,7 +59,7 @@ export interface MembershipActive {
   mode: 'active';
   currentPlanId: PaidPlanId;
   currentPlanName: string;
-  paymentAvailable: false;
+  paymentAvailable: boolean;
   limitsEnforced: true;
   policy: MembershipPolicy;
   quota: AiQuotaSummary;
@@ -63,4 +67,8 @@ export interface MembershipActive {
 
 export type MembershipState = MembershipPreview | MembershipActive;
 
-export interface CheckoutInput { planId: PlanId }
+export interface CheckoutInput {
+  planId: PlanId;
+  /** Client-generated idempotency key: repeating it must return the same order or be rejected. */
+  requestId?: string;
+}

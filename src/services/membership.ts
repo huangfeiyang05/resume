@@ -1,4 +1,4 @@
-import type { AiQuotaSummary, MembershipState, Plan, PlanId } from '../../shared/types';
+import type { AiQuotaSummary, CheckoutResult, MembershipQuote, MembershipState, PaymentOrder, Plan, PlanId, WechatPaymentParams } from '../../shared/types';
 import { request } from './api';
 
 export class MembershipApiError extends Error {
@@ -38,7 +38,7 @@ export function validateQuota(value: unknown): AiQuotaSummary {
 export const membershipApi = {
   async current(): Promise<MembershipState> {
     const state = await request<MembershipState>('/membership');
-    if (!state || typeof state !== 'object' || Array.isArray(state) || state.paymentAvailable !== false) invalidResponse();
+    if (!state || typeof state !== 'object' || Array.isArray(state) || typeof state.paymentAvailable !== 'boolean') invalidResponse();
     const quota = validateQuota(state.quota);
     if (state.mode === 'preview') {
       if (state.currentPlanId !== 'free' || state.currentPlanName !== '免费体验' || state.limitsEnforced !== false || quota.status === 'active') invalidResponse();
@@ -63,6 +63,8 @@ export const membershipApi = {
     const features: Array<keyof Plan['features']> = ['templates', 'optimization', 'aiQuota', 'companyJobs', 'studyMaterials', 'smartDelivery'];
     if (!Array.isArray(plans) || plans.length !== 3 || new Set(plans.map((plan) => plan?.id)).size !== 3 || !plans.every((plan) =>
       plan && ids.includes(plan.id) && (plan.priceCents === null || (Number.isSafeInteger(plan.priceCents) && plan.priceCents >= 0))
+      && (plan.listPriceCents === undefined || (Number.isSafeInteger(plan.listPriceCents) && plan.listPriceCents >= 0 && plan.priceCents !== null && plan.listPriceCents >= plan.priceCents))
+      && (plan.promotionLabel === undefined || (typeof plan.promotionLabel === 'string' && plan.promotionLabel.length > 0 && plan.promotionLabel.length <= 20))
       && (plan.id === 'free' ? plan.priceCents === 0 && plan.durationMonths === 0 : plan.priceCents !== 0 && plan.durationMonths === 1)
       && typeof plan.name === 'string' && typeof plan.periodLabel === 'string' && typeof plan.description === 'string'
       && (plan.highlight === undefined || typeof plan.highlight === 'string')
@@ -70,9 +72,48 @@ export const membershipApi = {
     )) invalidResponse();
     return ids.map((id) => plans.find((plan) => plan.id === id)!);
   },
-  async checkout(planId: PlanId): Promise<never> {
-    await request<unknown>('/billing/checkout', 'POST', { planId });
-    // This prototype cannot grant membership even if an incompatible service returns HTTP 200.
-    throw new MembershipApiError('开通结果暂时无法确认，请稍后查看权益。', 'UNEXPECTED_CHECKOUT_RESULT', 200);
+  async quote(planId: PlanId): Promise<MembershipQuote> {
+    const quote = await request<MembershipQuote>(`/billing/quote?planId=${encodeURIComponent(planId)}`);
+    if (!quote || typeof quote !== 'object' || Array.isArray(quote)
+      || !['basic', 'premium'].includes(quote.planId) || !Number.isSafeInteger(quote.amountCents) || quote.amountCents <= 0
+      || !['purchase', 'renewal', 'upgrade'].includes(quote.kind) || !['free', 'basic', 'premium'].includes(quote.currentPlanId)
+      || (quote.kind === 'purchase' && quote.currentPlanId !== 'free')
+      || (quote.kind === 'upgrade' && quote.currentPlanId !== 'basic')
+      || (quote.listPriceCents !== undefined && (!Number.isSafeInteger(quote.listPriceCents) || quote.listPriceCents < quote.amountCents))
+      || (quote.promotionLabel !== undefined && (typeof quote.promotionLabel !== 'string' || !quote.promotionLabel))) invalidResponse();
+    return quote;
+  },
+  async bindWechat(code: string): Promise<{ bound: true; openidMasked: string }> {
+    const result = await request<{ bound: true; openidMasked: string }>('/auth/wechat/bind', 'POST', { code });
+    if (!result || result.bound !== true || typeof result.openidMasked !== 'string') invalidResponse();
+    return result;
+  },
+  async checkout(planId: PlanId, requestId: string): Promise<CheckoutResult> {
+    const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId });
+    if (!result || typeof result !== 'object' || Array.isArray(result)) invalidResponse();
+    const order = validateOrder(result.order);
+    const payment = result.payment as WechatPaymentParams;
+    if (!payment || typeof payment !== 'object' || Array.isArray(payment)
+      || typeof payment.appId !== 'string' || !/^wx[a-f0-9]{16}$/i.test(payment.appId)
+      || typeof payment.timeStamp !== 'string' || !/^\d{10,13}$/.test(payment.timeStamp)
+      || typeof payment.nonceStr !== 'string' || !payment.nonceStr || payment.nonceStr.length > 64
+      || typeof payment.package !== 'string' || !/^prepay_id=[A-Za-z0-9_-]{10,128}$/.test(payment.package)
+      || payment.signType !== 'RSA' || typeof payment.paySign !== 'string' || !payment.paySign) invalidResponse();
+    return { order, payment };
+  },
+  async order(orderId: string): Promise<PaymentOrder> {
+    return validateOrder(await request<PaymentOrder>(`/billing/orders/${encodeURIComponent(orderId)}`));
   },
 };
+
+function validateOrder(value: unknown): PaymentOrder {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalidResponse();
+  const order = value as PaymentOrder;
+  if (typeof order.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(order.id)
+    || !['basic', 'premium'].includes(order.planId) || !Number.isSafeInteger(order.amountCents) || order.amountCents <= 0
+    || !['pending', 'paid', 'closed', 'failed'].includes(order.status)
+    || !isInstant(order.createdAt) || !isInstant(order.expiresAt)
+    || (order.paidAt !== undefined && !isInstant(order.paidAt))
+    || Object.keys(order).some(key => !['id', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'paidAt'].includes(key))) invalidResponse();
+  return order;
+}
