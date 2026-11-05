@@ -7,6 +7,8 @@ export interface AuthUser {
   hasPassword?: boolean;
   createdAt: string;
   emailVerified: boolean;
+  /** A mini-program account signed in silently through a server-verified WeChat openid. */
+  wechat?: boolean;
 }
 
 export interface EmailPasswordInput { email: string; password: string; code?: string; challengeId?: string }

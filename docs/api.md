@@ -22,7 +22,7 @@
 
 | 方法 | 路径（前缀 `/api/v1`） | 请求 / 返回 |
 | --- | --- | --- |
-| GET | `/auth/providers` | `{emailPassword:true,wechat,phone,emailVerification,passwordReset}`；`phone` 与邮件能力字段由实际服务端配置决定，微信绑定能力与微信免登入口分开 |
+| GET | `/auth/providers` | `{emailPassword:true,wechat,phone,emailVerification,passwordReset}`；`phone` 与邮件能力字段由实际服务端配置决定；`wechat` 为 `true` 时可使用微信静默免登与微信绑定 |
 | POST | `/auth/register` | `{email,password,challengeId?,code?}` → 201 + 会话；邮件启用时必须通过注册验证码，成功后自动登录 |
 | POST | `/auth/login` | `{email,password}` → 200 + 会话 |
 | GET | `/auth/me` | 返回当前会话的 `{user,expiresAt}`；无有效会话时 401 |
@@ -30,7 +30,7 @@
 | POST | `/auth/email/code` | `{email,purpose}`，用途为 `register / reset-password / verify-email / bind-email` → 202 + `{challengeId,expiresAt,resendAfterSeconds,message}`；验证本人邮箱与绑定新邮箱需当前会话 |
 | POST | `/auth/email/verify` | `{challengeId,code}`，要求有效会话，验证成功返回更新后的 `AuthUser` |
 | POST | `/auth/password/reset` | `{email,password,challengeId,code}` → `{passwordReset:true}`；仅支持已验证邮箱账号，不自动登录，并撤销全部旧会话 |
-| POST | `/auth/wechat` | 预留微信免登适配位置，当前返回 501 `WECHAT_LOGIN_NOT_CONFIGURED` |
+| POST | `/auth/wechat` | 小程序静默免登：`{code}` → 按 openid 查找/创建账号并返回会话；未配置微信凭据时 501 `WECHAT_LOGIN_NOT_CONFIGURED` |
 | POST | `/auth/phone/code` | `{phone,purpose}` → 202 + 挑战；用途为 `login / bind-phone / verify-account`，后两者需会话 |
 | POST | `/auth/phone` | `{phone,challengeId,code}` → 200 + 会话；号码未绑定则在验证码验证后创建独立手机号账号 |
 | POST | `/auth/phone/bind` | `{phone,challengeId,code,currentPassword?}` 或当前手机证明 `currentCode/currentChallengeId`；需会话，返回本人 `AuthUser` |
@@ -44,7 +44,7 @@ H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环
 
 H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 `AUTH_TRUSTED_ORIGINS` 配置精确来源列表，不把客户端传入的 Host 或转发头视为授权；小程序 Bearer 通道不依赖浏览器 Cookie。`AUTH_SECURE_COOKIES` 控制 Cookie 的 Secure 属性，默认随 `NODE_ENV=production` 启用，公网 HTTPS 不应关闭。
 
-`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信免登和微信授权手机号仍未接入。短信验证码登录、注册和绑定已接入代码，是否可用由 `phone` 能力字段与真实配置决定，关闭时返回 `SMS_NOT_CONFIGURED`，不返回假验证码或登录成功。
+`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信小程序静默免登按 openid 建立账号，已有邮箱/手机账号不会自动合并；微信授权手机号仍未接入。短信验证码登录、注册和绑定已接入代码，是否可用由 `phone` 能力字段与真实配置决定，关闭时返回 `SMS_NOT_CONFIGURED`，不返回假验证码或登录成功。
 
 ## 手机号验证码与绑定
 
@@ -153,7 +153,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 429 | `AI_QUOTA_EXHAUSTED` | 本周余额不足以覆盖模型预占，不再派发 |
 | 429 | `QUOTA_TASK_PENDING` | 本人已有调用处理中或用量待核对，暂不能派发新调用 |
 | 500 | `INTERNAL_ERROR` | 本地存储或内部服务失败，详细信息仅服务日志可见 |
-| 501 | `WECHAT_LOGIN_NOT_CONFIGURED` | 微信免登适配器尚未接入 |
+| 501 | `WECHAT_LOGIN_NOT_CONFIGURED` | 服务端未配置微信登录凭据 |
 | 502 | `EXPORT_RENDER_FAILED` | 文件渲染失败或生成结果无效 |
 | 503 | `MAIL_NOT_CONFIGURED` / `MAIL_DELIVERY_FAILED` | 邮件服务未配置或发送未成功，不能视为验证码已发送 |
 | 503 | `SMS_NOT_CONFIGURED` / `SMS_DELIVERY_FAILED` | 短信未启用或提交未获确认，不能视为已送达或验证码可用 |

@@ -109,9 +109,10 @@ export function validAuthUser(value: unknown): value is AuthUser {
     || (user.email !== undefined && (typeof user.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)))
     || (user.phone !== undefined && (typeof user.phone !== 'string' || !/^1[3-9]\d{9}$/.test(user.phone)))
     || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
+    || (user.wechat !== undefined && typeof user.wechat !== 'boolean')
     || (user.hasPassword !== undefined && typeof user.hasPassword !== 'boolean')) return false;
   if ((!user.email && user.emailVerified) || (!user.phone && user.phoneVerified === true)) return false;
-  return !!user.email || (!!user.phone && user.phoneVerified === true);
+  return !!user.email || (!!user.phone && user.phoneVerified === true) || user.wechat === true;
 }
 
 /** SMS proof remains in memory, keyed by normalized phone and purpose. */
@@ -162,6 +163,19 @@ export function usePhoneChallenge(options: { autoTick?: boolean; now?: () => num
   return { phone, purpose, code, challenge, busy, error, message, remaining, setTarget, send, proof, clearProof, tick, dispose };
 }
 
+function requestWechatLoginCode(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    uni.login({
+      provider: 'weixin',
+      success: result => {
+        if (typeof result.code === 'string' && result.code) resolve(result.code);
+        else reject(new Error('微信登录凭证为空。'));
+      },
+      fail: () => reject(new Error('微信登录未完成。')),
+    });
+  });
+}
+
 /** H5 uses the HttpOnly cookie. Only the native mini-program keeps an opaque bearer token. */
 export function useAuth(options: { autoRestore?: boolean } = {}) {
   const user = ref<AuthUser>();
@@ -205,6 +219,25 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     error.value = ''; notice.value = '';
   }
 
+  async function silentWechatLogin(current: number) {
+    const providers = await loadCapabilities();
+    if (disposed || current !== generation || !providers?.wechat) {
+      if (!disposed && current === generation) { clearSession(); status.value = 'anonymous'; }
+      return;
+    }
+    try {
+      const code = await requestWechatLoginCode();
+      const session = await authApi.wechat({ code });
+      if (disposed || current !== generation) return;
+      acceptSession(session);
+    } catch {
+      if (!disposed && current === generation) {
+        user.value = undefined;
+        status.value = 'anonymous';
+        error.value = '';
+      }
+    }
+  }
   async function restore() {
     const current = ++generation;
     status.value = 'checking'; error.value = '';
@@ -213,7 +246,7 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
       if (!saved || typeof saved.token !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(saved.token)
         || typeof saved.expiresAt !== 'string' || !(Date.parse(saved.expiresAt) > Date.now())) {
         clearSession();
-        void loadCapabilities();
+        await silentWechatLogin(generation);
         return;
       }
       activeToken = saved.token;
@@ -238,6 +271,7 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
       const result = await authApi.providers();
       if (!result || result.emailPassword !== true || !['wechat', 'phone', 'emailVerification', 'passwordReset'].every(key => typeof result[key as keyof AuthCapabilities] === 'boolean')) return;
       if (!disposed) capabilities.value = result;
+      return result;
     }
     catch { /* A real login request can still show a recoverable service error. */ }
   }

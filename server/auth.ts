@@ -15,7 +15,8 @@ const dummySalt = Buffer.from('youfang-dummy-password-check');
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 function publicUser(user: StoredUser): AuthUser {
   return { id: user.id, ...(user.email ? { email: user.email } : {}), ...(user.phone ? { phone: user.phone } : {}),
-    createdAt: user.createdAt, emailVerified: user.emailVerified === true, phoneVerified: user.phoneVerified === true, hasPassword: !!user.passwordHash };
+    createdAt: user.createdAt, emailVerified: user.emailVerified === true, phoneVerified: user.phoneVerified === true,
+    hasPassword: !!user.passwordHash, ...(user.wechatOpenid ? { wechat: true } : {}) };
 }
 
 function object(body: unknown, allowed: string[]): Record<string, unknown> {
@@ -354,6 +355,23 @@ export class AuthService {
     });
     if (codeError) throw codeError;
     return result!;
+  }
+
+  /** Silent mini-program sign-in: the server exchanges a one-time code and keys the account by openid. */
+  async wechatLogin(body: unknown, client = 'local') {
+    if (!this.wechat) throw new HttpError(501, 'WECHAT_LOGIN_NOT_CONFIGURED', '微信小程序免登尚未接入，请先使用邮箱登录。');
+    const input = object(body, ['code']);
+    if (typeof input.code !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.code)) invalid('微信登录凭证无效。');
+    this.checkRateLimit(client);
+    const identity = await this.wechat.exchange(input.code);
+    return this.store.mutate(database => {
+      let user = database.users.find(candidate => candidate.wechatOpenid === identity.openid);
+      if (!user) {
+        user = { id: randomUUID(), wechatOpenid: identity.openid, emailVerified: false, createdAt: new Date(this.now()).toISOString() };
+        database.users.push(user);
+      }
+      return this.newSession(database, user);
+    });
   }
 
   /** Binds a mini-program openid to an already-authenticated account. Never accepts a client openid. */

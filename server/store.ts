@@ -90,7 +90,8 @@ export class JsonStore {
           || (user.email !== undefined && (typeof user.email !== 'string' || !user.email))
           || (user.passwordHash !== undefined && typeof user.passwordHash !== 'string')
           || (user.phone !== undefined && (typeof user.phone !== 'string' || !/^1[3-9]\d{9}$/.test(user.phone) || user.phoneVerified !== true))
-          || (!user.email && !user.phone) || (!user.phone && !user.passwordHash)
+          || (user.wechatOpenid !== undefined && (typeof user.wechatOpenid !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(user.wechatOpenid)))
+          || (!user.email && !user.phone && !user.wechatOpenid) || (!user.phone && !user.passwordHash && !user.wechatOpenid)
           || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
           || (user.emailVerified === true && !user.email))
         || parsed.sessions.some((session: StoredSession) => !session || typeof session.tokenHash !== 'string' || typeof session.userId !== 'string' || !Number.isFinite(Date.parse(session.expiresAt)))
@@ -127,6 +128,7 @@ export class JsonStore {
       }
       if (new Set(parsed.users.flatMap((user: StoredUser) => user.email ? [user.email] : [])).size !== parsed.users.filter((user: StoredUser) => user.email).length
         || new Set(parsed.users.flatMap((user: StoredUser) => user.phone ? [user.phone] : [])).size !== parsed.users.filter((user: StoredUser) => user.phone).length
+        || new Set(parsed.users.flatMap((user: StoredUser) => user.wechatOpenid ? [user.wechatOpenid] : [])).size !== parsed.users.filter((user: StoredUser) => user.wechatOpenid).length
         || new Set(parsed.users.map((user: StoredUser) => user.id)).size !== parsed.users.length
         || new Set(phoneChallenges.map((challenge: StoredPhoneChallenge) => challenge.id)).size !== phoneChallenges.length) throw new Error('Duplicate account identifiers.');
       return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed) };

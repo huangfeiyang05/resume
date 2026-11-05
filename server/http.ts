@@ -224,7 +224,10 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       }
       if (path === '/api/v1/auth/wechat') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        throw new HttpError(501, 'WECHAT_LOGIN_NOT_CONFIGURED', '微信小程序免登尚未接入，请先使用邮箱登录。');
+        const result = await auth.wechatLogin(await body(request), clientAddress(request));
+        const miniProgram = request.headers['x-auth-client'] === 'mp-weixin';
+        if (!miniProgram) response.setHeader('Set-Cookie', cookie(result.token, Math.floor(auth.sessionTtlMs / 1000)));
+        json(response, 200, { data: { ...result.session, ...(miniProgram ? { token: result.token } : {}) } }); return;
       }
       if (path === '/api/v1/auth/wechat/bind') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
