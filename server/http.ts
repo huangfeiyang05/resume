@@ -124,9 +124,26 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       if (path === '/api/v1/auth/email/code') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const input = await body(request);
-        const verification = input && typeof input === 'object' && !Array.isArray(input) && (input as Record<string, unknown>).purpose === 'verify-email';
+        const verification = input && typeof input === 'object' && !Array.isArray(input) && ['verify-email', 'bind-email'].includes((input as Record<string, unknown>).purpose as string);
         const userId = verification ? (await auth.authenticate(sessionToken(request))).user.id : undefined;
         json(response, 202, { data: await auth.requestEmailCode(input, clientAddress(request), userId) }); return;
+      }
+      if (path === '/api/v1/auth/phone/code') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const input = await body(request);
+        const needsSession = input && typeof input === 'object' && !Array.isArray(input)
+          && ['bind-phone', 'verify-account'].includes((input as Record<string, unknown>).purpose as string);
+        const userId = needsSession ? (await auth.authenticate(sessionToken(request))).user.id : undefined;
+        json(response, 202, { data: await auth.requestPhoneCode(input, clientAddress(request), userId) }); return;
+      }
+      if (path === '/api/v1/auth/phone/bind' || path === '/api/v1/auth/email/bind') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const session = await auth.authenticate(sessionToken(request));
+        const input = await body(request);
+        const result = path.endsWith('/phone/bind')
+          ? await auth.bindPhone(session.user.id, input, clientAddress(request))
+          : await auth.bindEmail(session.user.id, input, clientAddress(request));
+        json(response, 200, { data: result }); return;
       }
       if (path === '/api/v1/auth/password/reset') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
@@ -157,9 +174,16 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         response.setHeader('Set-Cookie', cookie('', 0));
         json(response, 200, { data: result }); return;
       }
-      if (path === '/api/v1/auth/wechat' || path === '/api/v1/auth/phone') {
+      if (path === '/api/v1/auth/phone') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        throw new HttpError(501, path.endsWith('/wechat') ? 'WECHAT_LOGIN_NOT_CONFIGURED' : 'PHONE_LOGIN_NOT_CONFIGURED', path.endsWith('/wechat') ? '微信小程序免登尚未接入，请先使用邮箱登录。' : '手机号验证登录尚未接入，请先使用邮箱登录。');
+        const result = await auth.phoneLogin(await body(request), clientAddress(request));
+        const miniProgram = request.headers['x-auth-client'] === 'mp-weixin';
+        if (!miniProgram) response.setHeader('Set-Cookie', cookie(result.token, Math.floor(auth.sessionTtlMs / 1000)));
+        json(response, 200, { data: { ...result.session, ...(miniProgram ? { token: result.token } : {}) } }); return;
+      }
+      if (path === '/api/v1/auth/wechat') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        throw new HttpError(501, 'WECHAT_LOGIN_NOT_CONFIGURED', '微信小程序免登尚未接入，请先使用邮箱登录。');
       }
       if (path === '/api/v1/auth/wechat/bind') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');

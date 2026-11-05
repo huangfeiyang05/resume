@@ -22,18 +22,21 @@
 
 | 方法 | 路径（前缀 `/api/v1`） | 请求 / 返回 |
 | --- | --- | --- |
-| GET | `/auth/providers` | `{emailPassword:true,wechat:false,phone:false,emailVerification,passwordReset}`，邮件能力字段由服务端配置确定 |
+| GET | `/auth/providers` | `{emailPassword:true,wechat,phone,emailVerification,passwordReset}`；`phone` 与邮件能力字段由实际服务端配置决定，微信绑定能力与微信免登入口分开 |
 | POST | `/auth/register` | `{email,password,challengeId?,code?}` → 201 + 会话；邮件启用时必须通过注册验证码，成功后自动登录 |
 | POST | `/auth/login` | `{email,password}` → 200 + 会话 |
 | GET | `/auth/me` | 返回当前会话的 `{user,expiresAt}`；无有效会话时 401 |
 | POST | `/auth/logout` | 撤销当前会话并清除 Cookie，返回 `{signedOut:true}` |
-| POST | `/auth/email/code` | `{email,purpose}`，用途为 `register / reset-password / verify-email` → 202 + `{challengeId,expiresAt,resendAfterSeconds,message}`；验证本人邮箱需当前会话 |
+| POST | `/auth/email/code` | `{email,purpose}`，用途为 `register / reset-password / verify-email / bind-email` → 202 + `{challengeId,expiresAt,resendAfterSeconds,message}`；验证本人邮箱与绑定新邮箱需当前会话 |
 | POST | `/auth/email/verify` | `{challengeId,code}`，要求有效会话，验证成功返回更新后的 `AuthUser` |
 | POST | `/auth/password/reset` | `{email,password,challengeId,code}` → `{passwordReset:true}`；仅支持已验证邮箱账号，不自动登录，并撤销全部旧会话 |
 | POST | `/auth/wechat` | 预留微信免登适配位置，当前返回 501 `WECHAT_LOGIN_NOT_CONFIGURED` |
-| POST | `/auth/phone` | 预留手机号验证登录适配位置，当前返回 501 `PHONE_LOGIN_NOT_CONFIGURED` |
+| POST | `/auth/phone/code` | `{phone,purpose}` → 202 + 挑战；用途为 `login / bind-phone / verify-account`，后两者需会话 |
+| POST | `/auth/phone` | `{phone,challengeId,code}` → 200 + 会话；号码未绑定则在验证码验证后创建独立手机号账号 |
+| POST | `/auth/phone/bind` | `{phone,challengeId,code,currentPassword?}` 或当前手机证明 `currentCode/currentChallengeId`；需会话，返回本人 `AuthUser` |
+| POST | `/auth/email/bind` | `{email,challengeId,code,currentPassword?}` 或当前手机证明；无密码账号另需新 `password`；需会话 |
 
-`user` 只包含公开账号字段 `{id,email,emailVerified,createdAt}`，不包含密码哈希或会话哈希。邮箱会去除两端空白并转小写，最多 254 字符；新密码为 6–16 位，只能使用字母、数字和符号，不能包含空格、中文或控制字符。登录仍接受 6–128 位不含控制字符的旧密码，密码不自动去除空白。请求须经过服务端字段白名单、类型及长度校验，不能仅凭客户端类型信任输入；注册与登录有频率和密码计算并发限制。
+`user` 只包含公开账号字段 `{id,email?,phone?,emailVerified,phoneVerified?,hasPassword?,createdAt}`，不包含密码哈希或会话哈希。邮箱会去除两端空白并转小写，最多 254 字符；新密码为 6–16 位，只能使用字母、数字和符号，不能包含空格、中文或控制字符。登录仍接受 6–128 位不含控制字符的旧密码，密码不自动去除空白。请求须经过服务端字段白名单、类型及长度校验，不能仅凭客户端类型信任输入；注册与登录有频率和密码计算并发限制。
 
 H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环境启用 Secure；H5 注册和登录响应不返回原始令牌。小程序在注册或登录请求中声明 `X-Auth-Client: mp-weixin`，服务端才在会话响应中附加 `token`；后续发送 `Authorization: Bearer <token>`。此请求头只选择会话传输方式，不授予微信身份、会员或额外权限。会话绝对有效期为 7 天，退出后撤销，重启服务后仍以持久化会话状态验证。服务端只保存随机令牌的 SHA-256 哈希。
 
@@ -41,11 +44,21 @@ H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环
 
 H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 `AUTH_TRUSTED_ORIGINS` 配置精确来源列表，不把客户端传入的 Host 或转发头视为授权；小程序 Bearer 通道不依赖浏览器 Cookie。`AUTH_SECURE_COOKIES` 控制 Cookie 的 Secure 属性，默认随 `NODE_ENV=production` 启用，公网 HTTPS 不应关闭。
 
-`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信 code 交换、微信授权手机号和短信服务仍未接入，预留接口不返回假登录成功。
+`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信免登和微信授权手机号仍未接入。短信验证码登录、注册和绑定已接入代码，是否可用由 `phone` 能力字段与真实配置决定，关闭时返回 `SMS_NOT_CONFIGURED`，不返回假验证码或登录成功。
+
+## 手机号验证码与绑定
+
+当前短信提供方为腾讯云，默认关闭；尚无已确认的短信应用 SDKAppID、审核通过签名名和模板 ID。本轮代码发布不写入真实短信配置、不使用聊天密钥、不发真实短信。`phone:true` 仅表示服务端已启用并通过配置校验，不等于供应商权限、余额或最终收件已验证。配置、请求及费用边界见 [手机号与短信](phone-auth.md)。
+
+手机号登录只接受号码、随机挑战 ID 和六位验证码，不信任客户端传入的 `userId`、验证状态或会员身份。已绑定号码登录原账号；未绑定号码验证后原子创建 phone-only 账号，不生成假邮箱或默认密码。新绑定只增加当前账号登录标识，保持原账号 ID、简历、会员与会话范围；目标标识属于其他账号时拒绝，不自动合并。
+
+绑定要求有效会话、目标 `bind-phone / bind-email` 验证码和当前身份证明：已有密码使用 `currentPassword`，phone-only 使用当前已绑定手机号的 `verify-account` 验证码 `currentCode/currentChallengeId`；无密码账号绑定邮箱还须设置合规新密码。用途、目标、挑战 ID 与用户均须匹配，登录码不能作绑定码。现有邮箱不直接替换，当前没有改绑或解绑接口。
+
+短信验证码有效 5 分钟、60 秒冷却、最多 5 次错误。发送先持久化预占，供应商确认提交后才有效；失败也计入发送限额，不自动重试。默认单号 5 条/小时、10 条/24 小时，单 IP 标签 10 条/小时、30 条/24 小时，全服务 100 次/24 小时、2 并发。验证码只保存 HMAC，不进入响应或日志。供应商接受不证明最终送达，本地超时也不证明没有计费。
 
 ## 邮箱验证码与密码找回
 
-验证码为 6 位随机数字，有效期 10 分钟，重发间隔 60 秒，最多允许 5 次错误。挑战绑定邮箱、用途与随机 `challengeId`；注册、重置密码和已有账号验证不能相互使用。服务端仅保存 HMAC 哈希，密钥来自独立的 `MAIL_CODE_SECRET`；明文验证码只传给发信器，不能出现在 API 响应或日志中。
+验证码为 6 位随机数字，有效期 10 分钟，重发间隔 60 秒，最多允许 5 次错误。挑战绑定邮箱、用途与随机 `challengeId`；注册、重置密码、已有账号验证和新邮箱绑定不能相互使用；`bind-email` 另绑定当前用户。服务端仅保存 HMAC 哈希，密钥来自独立的 `MAIL_CODE_SECRET`；明文验证码只传给发信器，不能出现在 API 响应或日志中。
 
 发码先持久化 `pending` 预占记录，SMTP 接受后才可标记为可用；发送失败保留失败状态并返回明确错误，不能拿未成功发送的挑战注册或重置密码。新的同用途验证码成功发送后，旧的未消费验证码失效；新邮件发送失败不将旧的有效验证码误消耗。冷却、邮箱与客户端发送频率限制受服务端控制，不依赖前端倒计时，客户端来源只保存不可逆标签。
 
@@ -124,6 +137,8 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 404 | `NOT_FOUND` | 接口、简历、报告或建议不存在，或不属于当前用户 |
 | 405 | `METHOD_NOT_ALLOWED` | 请求方法不支持 |
 | 409 | `EMAIL_ALREADY_REGISTERED` | 邮箱已注册 |
+| 409 | `PHONE_ALREADY_BOUND` / `EMAIL_ALREADY_BOUND` | 标识已属于其他账号，拒绝直接绑定或自动合并 |
+| 401 | `CURRENT_IDENTITY_REQUIRED` / `CURRENT_IDENTITY_INVALID` | 绑定所需当前身份证明缺失或不正确；不等于登录会话已过期 |
 | 409 | `REVISION_CONFLICT` / `SOURCE_CONFLICT` | 版本已变化 |
 | 409 | `SOURCE_MISMATCH` / `AMBIGUOUS_SOURCE` / `ALREADY_APPLIED` | 原文冲突或重复请求不一致 |
 | 409 | `IDEMPOTENCY_CONFLICT` | 同一历史恢复或诊断请求标识携带了不同输入 |
@@ -136,12 +151,14 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 429 | `AI_QUOTA_EXHAUSTED` | 本周余额不足以覆盖模型预占，不再派发 |
 | 429 | `QUOTA_TASK_PENDING` | 本人已有调用处理中或用量待核对，暂不能派发新调用 |
 | 500 | `INTERNAL_ERROR` | 本地存储或内部服务失败，详细信息仅服务日志可见 |
-| 501 | `WECHAT_LOGIN_NOT_CONFIGURED` / `PHONE_LOGIN_NOT_CONFIGURED` | 登录适配器尚未接入 |
+| 501 | `WECHAT_LOGIN_NOT_CONFIGURED` | 微信免登适配器尚未接入 |
 | 502 | `EXPORT_RENDER_FAILED` | 文件渲染失败或生成结果无效 |
 | 503 | `MAIL_NOT_CONFIGURED` / `MAIL_DELIVERY_FAILED` | 邮件服务未配置或发送未成功，不能视为验证码已发送 |
+| 503 | `SMS_NOT_CONFIGURED` / `SMS_DELIVERY_FAILED` | 短信未启用或提交未获确认，不能视为已送达或验证码可用 |
+| 429 | `SMS_RATE_LIMITED` / `SMS_BUSY` / `CODE_RESEND_TOO_SOON` | 短信发送限额、在途并发或冷却限制 |
 | 504 | `EXPORT_TIMEOUT` | 导出超过 20 秒未完成 |
 
-账号、会话、简历、报告、邮件挑战、诊断任务、可信会员事件与模型用量账本落盘到 `.data/resumes.json` 的版本 3 格式，采用临时文件 + rename 原子提交，写入权限为当前用户可读写；密码使用 scrypt 哈希，不保存明文密码。兼容迁移保留版本 1 的旧无主简历与报告隔离，不自动分配给第一位注册账号；版本 2 的账号、会话及业务归属继续保留，旧邮箱验证状态不会被擅自提升。此存储仅支持单进程，不是生产数据库；文件解析文本和账号邮箱可能包含个人信息，请按真实业务需要配置保留与删除策略，备份不得提交 Git。
+账号、会话、简历、报告、邮件和短信挑战、诊断任务、可信会员事件与模型用量账本落盘到 `.data/resumes.json` 的版本 3 格式，采用临时文件 + rename 原子提交，写入权限为当前用户可读写；密码使用 scrypt 哈希，不保存明文密码。兼容迁移保留版本 1 的旧无主简历与报告隔离，不自动分配给第一位注册账号；版本 2 的账号、会话及业务归属继续保留，旧邮箱验证状态不会被擅自提升。此存储仅支持单进程，不是生产数据库；文件解析文本和账号邮箱可能包含个人信息，请按真实业务需要配置保留与删除策略，备份不得提交 Git。
 
 ## 权益与充值预览
 

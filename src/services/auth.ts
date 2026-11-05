@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
-import type { AuthCapabilities, AuthSession, AuthUser, EmailPasswordInput, WechatLoginInput, PhoneLoginInput, EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput } from '../../shared/auth';
+import type { AuthCapabilities, AuthSession, AuthUser, EmailPasswordInput, WechatLoginInput, PhoneLoginInput, EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput, PhoneCodePurpose, PhoneCodeChallenge, SendPhoneCodeInput, BindPhoneInput, BindEmailInput } from '../../shared/auth';
 import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../../shared/auth';
 import { ApiError, isMiniProgramClient, onUnauthorized, request, setAuthToken } from './api';
 
@@ -11,10 +11,13 @@ export const authApi = {
   login: (input: EmailPasswordInput) => request<AuthSession>('/auth/login', 'POST', input, { notifyUnauthorized: false }),
   register: (input: EmailPasswordInput) => request<AuthSession>('/auth/register', 'POST', input, { notifyUnauthorized: false }),
   logout: () => request<{ signedOut: true }>('/auth/logout', 'POST'),
-  sendEmailCode: (input: SendEmailCodeInput) => request<EmailCodeChallenge>('/auth/email/code', 'POST', input, { notifyUnauthorized: input.purpose === 'verify-email' }),
+  sendEmailCode: (input: SendEmailCodeInput) => request<EmailCodeChallenge>('/auth/email/code', 'POST', input, { notifyUnauthorized: ['verify-email', 'bind-email'].includes(input.purpose) }),
   resetPassword: (input: ResetPasswordInput) => request<{ passwordReset: true }>('/auth/password/reset', 'POST', input, { notifyUnauthorized: false }),
   verifyEmail: (input: VerifyEmailInput) => request<AuthUser>('/auth/email/verify', 'POST', input),
-  // Server adapters return explicit not-configured errors until those providers are actually enabled.
+  sendPhoneCode: (input: SendPhoneCodeInput) => request<PhoneCodeChallenge>('/auth/phone/code', 'POST', input, { notifyUnauthorized: input.purpose !== 'login' }),
+  bindPhone: (input: BindPhoneInput) => request<AuthUser>('/auth/phone/bind', 'POST', input, { notifyUnauthorized: false }),
+  bindEmail: (input: BindEmailInput) => request<AuthUser>('/auth/email/bind', 'POST', input, { notifyUnauthorized: false }),
+  // Capabilities and server responses determine whether a provider is available.
   wechat: (input: WechatLoginInput) => request<AuthSession>('/auth/wechat', 'POST', input, { notifyUnauthorized: false }),
   phone: (input: PhoneLoginInput) => request<AuthSession>('/auth/phone', 'POST', input, { notifyUnauthorized: false }),
 };
@@ -47,7 +50,7 @@ export function useEmailChallenge(options: { autoTick?: boolean; now?: () => num
   const key = () => `${purpose.value}\n${email.value}`;
   const remaining = computed(() => Math.max(0, Math.ceil(((cooldowns.get(key()) ?? 0) - clock.value) / 1000)));
   function tick() { clock.value = now(); }
-  function clearProof() { challenge.value = undefined; code.value = ''; error.value = ''; message.value = ''; }
+  function clearProof() { ++generation; busy.value = false; challenge.value = undefined; code.value = ''; error.value = ''; message.value = ''; }
   function setTarget(nextEmail: string, nextPurpose: EmailCodePurpose) {
     const normalized = nextEmail.trim().toLowerCase();
     if (email.value === normalized && purpose.value === nextPurpose) return;
@@ -94,12 +97,77 @@ export function useEmailChallenge(options: { autoTick?: boolean; now?: () => num
   return { email, purpose, code, challenge, busy, error, message, remaining, setTarget, send, proof, clearProof, tick, dispose };
 }
 
+
+export function normalizedPhone(value: string): string {
+  return value.trim().replace(/^\+86[ -]?/, '').replace(/[ -]/g, '');
+}
+export function validAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const user = value as AuthUser;
+  if (typeof user.id !== 'string' || !user.id || typeof user.createdAt !== 'string' || !Number.isFinite(Date.parse(user.createdAt))
+    || typeof user.emailVerified !== 'boolean'
+    || (user.email !== undefined && (typeof user.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)))
+    || (user.phone !== undefined && (typeof user.phone !== 'string' || !/^1[3-9]\d{9}$/.test(user.phone)))
+    || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
+    || (user.hasPassword !== undefined && typeof user.hasPassword !== 'boolean')) return false;
+  if ((!user.email && user.emailVerified) || (!user.phone && user.phoneVerified === true)) return false;
+  return !!user.email || (!!user.phone && user.phoneVerified === true);
+}
+
+/** SMS proof remains in memory, keyed by normalized phone and purpose. */
+export function usePhoneChallenge(options: { autoTick?: boolean; now?: () => number } = {}) {
+  const now = options.now ?? Date.now;
+  const phone = ref(''), purpose = ref<PhoneCodePurpose>('login'), code = ref('');
+  const challenge = ref<PhoneCodeChallenge>();
+  const busy = ref(false), error = ref(''), message = ref(''), clock = ref(now());
+  const cooldowns = reactive(new Map<string, number>());
+  let generation = 0, disposed = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const key = () => `${purpose.value}\n${phone.value}`;
+  const remaining = computed(() => Math.max(0, Math.ceil(((cooldowns.get(key()) ?? 0) - clock.value) / 1000)));
+  function tick() { clock.value = now(); }
+  function clearProof() { ++generation; busy.value = false; challenge.value = undefined; code.value = ''; error.value = ''; message.value = ''; }
+  function setTarget(nextPhone: string, nextPurpose: PhoneCodePurpose) {
+    const normalized = normalizedPhone(nextPhone);
+    if (phone.value === normalized && purpose.value === nextPurpose) return;
+    ++generation; busy.value = false;
+    phone.value = normalized; purpose.value = nextPurpose; clearProof(); tick();
+  }
+  async function send() {
+    tick();
+    if (busy.value || remaining.value > 0 || disposed) return false;
+    if (!/^1[3-9]\d{9}$/.test(phone.value)) { error.value = '请填写有效的中国大陆手机号。'; return false; }
+    const current = ++generation, sentKey = key();
+    busy.value = true; error.value = ''; message.value = '';
+    try {
+      const result = await authApi.sendPhoneCode({ phone: phone.value, purpose: purpose.value });
+      if (disposed) return false;
+      if (!result.challengeId || !(Date.parse(result.expiresAt) > now()) || !Number.isFinite(result.resendAfterSeconds) || result.resendAfterSeconds < 0) throw new Error('验证码发送状态返回异常，请稍后重试。');
+      cooldowns.set(sentKey, now() + result.resendAfterSeconds * 1000); tick();
+      if (current !== generation || sentKey !== key()) return false;
+      challenge.value = result; code.value = ''; message.value = result.message; return true;
+    } catch (reason) {
+      if (!disposed && current === generation) error.value = reason instanceof Error ? reason.message : '短信验证码未能发送，请稍后重试。';
+      return false;
+    } finally { if (!disposed && current === generation) busy.value = false; }
+  }
+  function proof(): VerifyEmailInput | undefined {
+    tick(); error.value = '';
+    if (!challenge.value || !(Date.parse(challenge.value.expiresAt) > now())) { error.value = '请先获取当前手机号的验证码。'; return; }
+    if (!/^\d{6}$/.test(code.value)) { error.value = '请输入短信中的 6 位数字验证码。'; return; }
+    return { challengeId: challenge.value.challengeId, code: code.value };
+  }
+  function dispose() { disposed = true; ++generation; if (timer) clearInterval(timer); cooldowns.clear(); clearProof(); }
+  if (options.autoTick !== false) { onMounted(() => { timer = setInterval(tick, 1000); }); onUnmounted(dispose); }
+  return { phone, purpose, code, challenge, busy, error, message, remaining, setTarget, send, proof, clearProof, tick, dispose };
+}
+
 /** H5 uses the HttpOnly cookie. Only the native mini-program keeps an opaque bearer token. */
 export function useAuth(options: { autoRestore?: boolean } = {}) {
   const user = ref<AuthUser>();
   const status = ref<'checking' | 'authenticated' | 'anonymous' | 'unavailable'>('checking');
   const busy = ref(false);
-  const operation = ref<'authenticate' | 'logout' | 'reset' | 'verify'>();
+  const operation = ref<'authenticate' | 'logout' | 'reset' | 'verify' | 'bind'>();
   const error = ref('');
   const notice = ref('');
   const capabilities = ref<AuthCapabilities>();
@@ -120,7 +188,7 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
   const stopListening = onUnauthorized(() => clearSession('登录已过期，请重新登录。'));
 
   function acceptSession(session: AuthSession, token = session.token) {
-    if (!session.user?.id || !session.user.email || !(Date.parse(session.expiresAt) > Date.now())) {
+    if (!validAuthUser(session.user) || !(Date.parse(session.expiresAt) > Date.now())) {
       throw new Error('登录状态返回异常，请重新登录。');
     }
     if (isMiniProgramClient()) {
@@ -166,7 +234,11 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     }
   }
   async function loadCapabilities() {
-    try { const result = await authApi.providers(); if (!disposed) capabilities.value = result; }
+    try {
+      const result = await authApi.providers();
+      if (!result || result.emailPassword !== true || !['wechat', 'phone', 'emailVerification', 'passwordReset'].every(key => typeof result[key as keyof AuthCapabilities] === 'boolean')) return;
+      if (!disposed) capabilities.value = result;
+    }
     catch { /* A real login request can still show a recoverable service error. */ }
   }
   async function authenticate(mode: 'login' | 'register', input: EmailPasswordInput) {
@@ -188,6 +260,52 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
       return false;
     } finally { if (!disposed) { busy.value = false; operation.value = undefined; } }
   }
+  async function authenticatePhone(input: PhoneLoginInput) {
+    if (busy.value) return false;
+    const phone = normalizedPhone(input.phone);
+    if (!capabilities.value?.phone) { error.value = '短信登录暂未开放，请使用邮箱登录。'; return false; }
+    if (!/^1[3-9]\d{9}$/.test(phone) || !/^\d{6}$/.test(input.code) || !input.challengeId) {
+      error.value = '请填写手机号并获取有效的短信验证码。'; return false;
+    }
+    const current = ++generation;
+    busy.value = true; operation.value = 'authenticate'; error.value = ''; notice.value = '';
+    try {
+      const session = await authApi.phone({ phone, code: input.code, challengeId: input.challengeId });
+      if (disposed || current !== generation) return false;
+      acceptSession(session); return true;
+    } catch (reason) {
+      if (!disposed && current === generation) error.value = reason instanceof Error ? reason.message : '手机登录未完成，请重试。';
+      return false;
+    } finally { if (!disposed) { busy.value = false; operation.value = undefined; } }
+  }
+  async function bindIdentity(kind: 'phone', input: BindPhoneInput): Promise<boolean>;
+  async function bindIdentity(kind: 'email', input: BindEmailInput): Promise<boolean>;
+  async function bindIdentity(kind: 'phone' | 'email', input: BindPhoneInput | BindEmailInput): Promise<boolean> {
+    if (busy.value || !user.value) return false;
+    if (kind === 'phone' ? !capabilities.value?.phone : !capabilities.value?.emailVerification) {
+      error.value = kind === 'phone' ? '短信绑定暂未开放。' : '邮箱绑定暂未开放。'; return false;
+    }
+    const current = ++generation, expectedUser = user.value;
+    busy.value = true; operation.value = 'bind'; error.value = ''; notice.value = '';
+    try {
+      const result = kind === 'phone' ? await authApi.bindPhone(input as BindPhoneInput) : await authApi.bindEmail(input as BindEmailInput);
+      if (disposed || current !== generation || user.value?.id !== expectedUser.id) return false;
+      const targetMatches = kind === 'phone'
+        ? result.phone === normalizedPhone((input as BindPhoneInput).phone) && result.phoneVerified === true && result.email === expectedUser.email
+        : result.email === (input as BindEmailInput).email.trim().toLowerCase() && result.emailVerified === true && result.phone === expectedUser.phone;
+      if (!validAuthUser(result) || result.id !== expectedUser.id || !targetMatches) throw new Error('绑定结果尚未确认，请重新读取账号信息。');
+      user.value = result; notice.value = kind === 'phone' ? '手机号已绑定，可用短信验证码登录同一账号。' : '邮箱已绑定，可用邮箱和密码登录同一账号。';
+      return true;
+    } catch (reason) {
+      if (!disposed && current === generation) {
+        if (reason instanceof ApiError && reason.code === 'AUTH_REQUIRED') clearSession('登录已失效，请重新登录。');
+        else error.value = reason instanceof Error ? reason.message : '绑定未完成，请重试。';
+      }
+      return false;
+    } finally { if (!disposed) { busy.value = false; operation.value = undefined; } }
+  }
+  const bindPhone = (input: BindPhoneInput) => bindIdentity('phone', input);
+  const bindEmail = (input: BindEmailInput) => bindIdentity('email', input);
   async function resetPassword(input: ResetPasswordInput) {
     if (busy.value) return false;
     const validation = validateAuthForm('reset', input.email, input.password, input.password);
@@ -243,5 +361,5 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     onMounted(restore);
     onUnmounted(dispose);
   }
-  return { user, signedIn, status, busy, operation, error, notice, capabilities, restore, authenticate, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
+  return { user, signedIn, status, busy, operation, error, notice, capabilities, restore, authenticate, authenticatePhone, bindPhone, bindEmail, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
 }

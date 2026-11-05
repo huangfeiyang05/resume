@@ -34,7 +34,7 @@ export function loadMailConfig(env = process.env): MailConfig {
   return config;
 }
 
-const purposeNames: Record<EmailCodePurpose, string> = { register: '注册账号', 'reset-password': '找回密码', 'verify-email': '验证邮箱' };
+const purposeNames: Record<EmailCodePurpose, string> = { register: '注册账号', 'reset-password': '找回密码', 'verify-email': '验证邮箱', 'bind-email': '绑定邮箱' };
 type MailTransport = Pick<Transporter, 'sendMail' | 'verify' | 'close'>;
 
 export class SmtpMailSender implements MailSender {

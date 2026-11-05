@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AuthCapabilities, EmailPasswordInput, ResetPasswordInput } from '../../shared/auth';
+import type { AuthCapabilities, EmailPasswordInput, ResetPasswordInput, PhoneLoginInput } from '../../shared/auth';
 import { PASSWORD_MAX_LENGTH } from '../../shared/auth';
-import { useEmailChallenge, validateAuthForm, type AuthMode } from '../services/auth';
+import { useEmailChallenge, usePhoneChallenge, normalizedPhone, validateAuthForm, type AuthMode } from '../services/auth';
 import AppIcon from './AppIcon.vue';
 import SiteFooter from './SiteFooter.vue';
 
@@ -10,10 +10,31 @@ const props = defineProps<{ busy: boolean; error: string; notice?: string; capab
 const emit = defineEmits<{
   submit: [mode: 'login' | 'register', input: EmailPasswordInput];
   reset: [input: ResetPasswordInput];
+  phone: [input: PhoneLoginInput];
   retry: [];
   clearError: [];
 }>();
 const mode = ref<AuthMode>('login');
+const method = ref<'email' | 'phone'>('email');
+const phone = ref('');
+const sms = usePhoneChallenge();
+const { code: smsCode, busy: smsBusy, error: smsError, message: smsMessage, remaining: smsRemaining } = sms;
+watch(phone, value => sms.setTarget(value, 'login'));
+function changeMethod(next: 'email' | 'phone') {
+  if (props.busy || smsBusy.value || codeBusy.value) return;
+  method.value = next; password.value = ''; confirmation.value = ''; formError.value = '';
+  sms.clearProof(); challenge.clearProof(); emit('clearError');
+}
+async function sendSms() {
+  if (!props.capabilities?.phone || props.busy) return;
+  sms.setTarget(phone.value, 'login'); emit('clearError'); await sms.send();
+}
+function submitPhone() {
+  if (!props.capabilities?.phone || props.busy || smsBusy.value) return;
+  sms.setTarget(phone.value, 'login');
+  const proof = sms.proof();
+  if (proof) emit('phone', { phone: normalizedPhone(phone.value), ...proof });
+}
 const email = ref('');
 const password = ref('');
 const confirmation = ref('');
@@ -86,6 +107,8 @@ function submit() {
         <text class="auth-intro-description">整理简历、查找企业、记录投递。</text>
       </view>
       <view class="glass-panel auth-card">
+        <view class="auth-mode-switch" role="tablist" aria-label="选择登录方式"><button :class="{ active: method === 'email' }" :aria-selected="method === 'email'" :disabled="busy || smsBusy || codeBusy" role="tab" @click="changeMethod('email')">邮箱</button><button :class="{ active: method === 'phone' }" :aria-selected="method === 'phone'" :disabled="busy || smsBusy || codeBusy" role="tab" @click="changeMethod('phone')">手机验证码</button></view>
+        <template v-if="method === 'email'">
         <view v-if="mode !== 'reset'" class="auth-mode-switch" role="tablist" aria-label="选择登录或注册"><button :class="{ active: mode === 'login' }" :aria-selected="mode === 'login'" :disabled="submitting" role="tab" tabindex="0" @click="changeMode('login')">登录</button><button :class="{ active: mode === 'register' }" :aria-selected="mode === 'register'" :disabled="submitting" role="tab" tabindex="0" @click="changeMode('register')">注册</button></view>
         <button v-else class="text-button auth-back" :disabled="submitting" role="button" tabindex="0" @click="changeMode('login')">返回登录</button>
         <text class="auth-title">{{ title }}</text>
@@ -101,6 +124,20 @@ function submit() {
           <button class="button primary full-width auth-submit" :disabled="submitting || (mode === 'register' && !capabilities)" role="button" tabindex="0" @click="submit"><view v-if="busy" class="spinner" /><text>{{ busy ? '正在提交…' : submitLabel }}</text><AppIcon v-if="!busy" name="arrow" :size="17" /></button>
           <button v-if="restoreFailed" class="text-button auth-retry" :disabled="submitting" role="button" tabindex="0" @click="emit('retry')">重新检查登录状态</button>
         </view>
+        </template>
+        <template v-else>
+          <text class="auth-title">手机验证码登录</text>
+          <text class="auth-description">未注册的手机号验证后将创建账号。已有邮箱账号请先用邮箱登录，再绑定手机号以保留原有资料。</text>
+          <view class="auth-form">
+            <text class="field-label">中国大陆手机号</text>
+            <input v-model="phone" class="text-input auth-input" type="text" inputmode="tel" autocomplete="tel" placeholder="输入手机号" :maxlength="20" :disabled="busy || smsBusy" aria-label="手机号" />
+            <view class="auth-field"><text class="field-label">短信验证码</text><view class="auth-code-row"><input v-model="smsCode" class="text-input auth-input" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字验证码" :maxlength="6" :disabled="busy || smsBusy || !capabilities?.phone" aria-label="短信验证码" @confirm="submitPhone" /><button class="button secondary auth-code-send" :disabled="busy || smsBusy || smsRemaining > 0 || !capabilities?.phone" @click="sendSms" role="button">{{ smsBusy ? '正在发送…' : smsRemaining > 0 ? `${smsRemaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="smsMessage" class="auth-code-message" role="status">{{ smsMessage }}</text></view>
+            <text v-if="!capabilities?.phone" class="auth-reset-note">短信登录暂未开放，请使用邮箱登录。</text>
+            <view v-if="smsError || error" class="auth-error" role="alert"><AppIcon name="info" :size="16" /><text>{{ smsError || error }}</text></view>
+            <button class="button primary full-width auth-submit" :disabled="busy || smsBusy || !capabilities?.phone" @click="submitPhone" role="button"><view v-if="busy" class="spinner" /><text>{{ busy ? '正在登录…' : '验证并登录' }}</text></button>
+            <button v-if="restoreFailed" class="text-button auth-retry" :disabled="busy" @click="emit('retry')" role="button">重新检查登录状态</button>
+          </view>
+        </template>
       </view>
     </view>
     <SiteFooter />

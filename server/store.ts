@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Analysis, Resume } from '../shared/types.js';
 import type { AuthUser } from '../shared/auth.js';
-import type { EmailCodePurpose } from '../shared/auth.js';
+import type { EmailCodePurpose, PhoneCodePurpose } from '../shared/auth.js';
 import { normalizeCareerStorage, type CareerStorage } from './career-validation.js';
 import { normalizeResumeHistory, type StoredResumeVersion, type StoredResumeRestore } from './resume-history.js';
 import { normalizeAnalysisTasks, type AnalysisTaskStorage } from './job-storage.js';
@@ -11,7 +11,7 @@ import { normalizeQuotaStorage, type QuotaStorage } from './quota-storage.js';
 import { normalizePaymentStorage, type PaymentStorage } from './payment-storage.js';
 
 export const legacyWorkspaceId = 'legacy-local-workspace';
-export interface StoredUser extends AuthUser { passwordHash: string; wechatOpenid?: string }
+export interface StoredUser extends AuthUser { passwordHash?: string; wechatOpenid?: string }
 export interface StoredSession { tokenHash: string; userId: string; createdAt: string; expiresAt: string }
 export interface StoredResume extends Resume { userId: string }
 export interface StoredAnalysis extends Analysis { userId: string }
@@ -28,12 +28,17 @@ export interface StoredEmailChallenge {
   status: 'pending' | 'sent' | 'failed' | 'consumed' | 'expired' | 'locked' | 'superseded';
   consumedAt?: string;
 }
+export interface StoredPhoneChallenge extends Omit<StoredEmailChallenge, 'email' | 'purpose'> {
+  phone: string;
+  purpose: PhoneCodePurpose;
+}
 
 export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStorage, PaymentStorage {
   version: 3;
   users: StoredUser[];
   sessions: StoredSession[];
   emailChallenges: StoredEmailChallenge[];
+  phoneChallenges: StoredPhoneChallenge[];
   resumes: StoredResume[];
   analyses: StoredAnalysis[];
   resumeVersions: StoredResumeVersion[];
@@ -72,7 +77,7 @@ export class JsonStore {
       if (parsed.version === 1) {
         const resumes = parsed.resumes.map((resume: Resume) => ({ ...resume, userId: legacyWorkspaceId }));
         return {
-        version: 3, users: [], sessions: [], emailChallenges: [],
+        version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [],
         ...normalizeCareerStorage({}),
         ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}),
         ...normalizeResumeHistory({}, resumes),
@@ -81,19 +86,26 @@ export class JsonStore {
         };
       }
       if (!Array.isArray(parsed.users) || !Array.isArray(parsed.sessions)
-        || parsed.users.some((user: StoredUser) => !user || typeof user.id !== 'string' || typeof user.email !== 'string' || typeof user.passwordHash !== 'string')
+        || parsed.users.some((user: StoredUser) => !user || typeof user.id !== 'string'
+          || (user.email !== undefined && (typeof user.email !== 'string' || !user.email))
+          || (user.passwordHash !== undefined && typeof user.passwordHash !== 'string')
+          || (user.phone !== undefined && (typeof user.phone !== 'string' || !/^1[3-9]\d{9}$/.test(user.phone) || user.phoneVerified !== true))
+          || (!user.email && !user.phone) || (!user.phone && !user.passwordHash)
+          || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
+          || (user.emailVerified === true && !user.email))
         || parsed.sessions.some((session: StoredSession) => !session || typeof session.tokenHash !== 'string' || typeof session.userId !== 'string' || !Number.isFinite(Date.parse(session.expiresAt)))
         || [...parsed.resumes, ...parsed.analyses].some((record: { userId?: string }) => !record || typeof record.userId !== 'string')) {
         throw new Error('Unsupported or malformed account database.');
       }
       if (parsed.version === 2) {
-        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [] };
+        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [] };
       }
       if (!Array.isArray(parsed.emailChallenges)
         || parsed.users.some((user: StoredUser) => typeof user.emailVerified !== 'boolean')
         || parsed.emailChallenges.some((challenge: StoredEmailChallenge) => !challenge
           || typeof challenge.id !== 'string' || typeof challenge.email !== 'string'
-          || !['register', 'reset-password', 'verify-email'].includes(challenge.purpose)
+          || !['register', 'reset-password', 'verify-email', 'bind-email'].includes(challenge.purpose)
+          || (['verify-email', 'bind-email'].includes(challenge.purpose) && typeof challenge.userId !== 'string')
           || (challenge.userId !== undefined && typeof challenge.userId !== 'string')
           || typeof challenge.clientHash !== 'string' || typeof challenge.codeHash !== 'string'
           || !Number.isFinite(Date.parse(challenge.createdAt)) || !Number.isFinite(Date.parse(challenge.expiresAt))
@@ -101,10 +113,26 @@ export class JsonStore {
           || !['pending', 'sent', 'failed', 'consumed', 'expired', 'locked', 'superseded'].includes(challenge.status))) {
         throw new Error('Unsupported or malformed email challenge database.');
       }
-      return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed) };
+      const phoneChallenges = parsed.phoneChallenges === undefined ? [] : parsed.phoneChallenges;
+      if (!Array.isArray(phoneChallenges) || phoneChallenges.some((challenge: StoredPhoneChallenge) => !challenge
+        || typeof challenge.id !== 'string' || !/^1[3-9]\d{9}$/.test(challenge.phone)
+        || !['login', 'bind-phone', 'verify-account'].includes(challenge.purpose)
+        || (challenge.purpose !== 'login' && typeof challenge.userId !== 'string')
+        || (challenge.userId !== undefined && typeof challenge.userId !== 'string')
+        || typeof challenge.clientHash !== 'string' || typeof challenge.codeHash !== 'string'
+        || !Number.isFinite(Date.parse(challenge.createdAt)) || !Number.isFinite(Date.parse(challenge.expiresAt))
+        || !Number.isInteger(challenge.attempts) || challenge.attempts < 0
+        || !['pending', 'sent', 'failed', 'consumed', 'expired', 'locked', 'superseded'].includes(challenge.status))) {
+        throw new Error('Unsupported or malformed phone challenge database.');
+      }
+      if (new Set(parsed.users.flatMap((user: StoredUser) => user.email ? [user.email] : [])).size !== parsed.users.filter((user: StoredUser) => user.email).length
+        || new Set(parsed.users.flatMap((user: StoredUser) => user.phone ? [user.phone] : [])).size !== parsed.users.filter((user: StoredUser) => user.phone).length
+        || new Set(parsed.users.map((user: StoredUser) => user.id)).size !== parsed.users.length
+        || new Set(phoneChallenges.map((challenge: StoredPhoneChallenge) => challenge.id)).size !== phoneChallenges.length) throw new Error('Duplicate account identifiers.');
+      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return { version: 3, users: [], sessions: [], emailChallenges: [], resumes: [], analyses: [], ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
+      return { version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [], ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
     }
   }
 

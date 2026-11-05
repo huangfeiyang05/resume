@@ -7,6 +7,8 @@ import { JsonStore } from './store.js';
 import { AuthService } from './auth.js';
 import { EmailCodeService } from './email-codes.js';
 import { loadMailConfig, SmtpMailSender } from './mail.js';
+import { loadSmsConfig, createSmsSender } from './sms.js';
+import { PhoneCodeService } from './phone-codes.js';
 import { loadBillingPricing, loadPaymentConfig } from './payment-config.js';
 import { WechatPayClient } from './wechat-pay.js';
 import { WechatCodeExchange } from './wechat-identity.js';
@@ -29,9 +31,12 @@ const paymentConfig = loadPaymentConfig();
 const gateway = paymentConfig ? new WechatPayClient(paymentConfig) : undefined;
 const mailConfig = loadMailConfig();
 const mailer = new SmtpMailSender(mailConfig);
+const smsConfig = loadSmsConfig();
+const smsDailyLimit = Number(process.env.SMS_DAILY_LIMIT ?? 100);
 const auth = new AuthService(store, {
   ...(mailConfig.enabled ? { emailCodes: new EmailCodeService(store, mailer, { secret: mailConfig.codeSecret }) } : {}),
   requireEmailVerification: process.env.NODE_ENV === 'production',
+  ...(smsConfig.enabled ? { phoneCodes: new PhoneCodeService(store, createSmsSender(smsConfig), { secret: smsConfig.codeSecret, dailyLimit: smsDailyLimit }) } : {}),
   ...(paymentConfig ? { wechat: new WechatCodeExchange(paymentConfig.appid, paymentConfig.appSecret) } : {}),
 });
 const server = createApiServer(new ResumeService(store, provider), {

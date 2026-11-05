@@ -174,7 +174,7 @@ test('unknown and old unverified accounts cannot be recovered merely by proving 
   assert.equal(old.session.user.emailVerified, false);
   const beforeHash = (await f.store.read()).users[0].passwordHash;
   const unknown = await f.request('unknown@example.test', 'reset-password');
-  const unverified = await f.request(old.session.user.email, 'reset-password');
+  const unverified = await f.request(old.session.user.email!, 'reset-password');
   assert.deepEqual(Object.keys(unknown.challenge), Object.keys(unverified.challenge));
   for (const proof of [unknown, unverified]) await assert.rejects(() => f.auth.resetPassword({ email: proof.email, password: replacementPassword, code: proof.code, challengeId: proof.challengeId }), hasCode('CODE_INVALID_OR_EXPIRED'));
   assert.equal((await f.store.read()).users[0].passwordHash, beforeHash);
@@ -189,14 +189,14 @@ test('existing accounts verify only their own address in an authenticated scope 
   const bob = await legacy.register({ email: 'legacy-bob@example.test', password });
   await assert.rejects(() => f.auth.requestEmailCode({ email: alice.session.user.email, purpose: 'verify-email' }), hasCode('AUTH_REQUIRED'));
   await assert.rejects(() => f.auth.requestEmailCode({ email: alice.session.user.email, purpose: 'verify-email' }, 'bob', bob.session.user.id), hasCode('EMAIL_MISMATCH'));
-  const proof = await f.request(alice.session.user.email, 'verify-email', alice.session.user.id);
+  const proof = await f.request(alice.session.user.email!, 'verify-email', alice.session.user.id);
   await assert.rejects(() => f.auth.verifyEmail(bob.session.user.id, { code: proof.code, challengeId: proof.challengeId }), hasCode('CODE_INVALID_OR_EXPIRED'));
   const verified = await f.auth.verifyEmail(alice.session.user.id, { code: proof.code, challengeId: proof.challengeId });
   assert.equal(verified.emailVerified, true);
   assert.equal((await f.auth.authenticate(alice.token)).user.emailVerified, true);
   assert.equal((await f.auth.authenticate(bob.token)).user.emailVerified, false);
   f.advance(60_001);
-  const reset = await f.request(alice.session.user.email, 'reset-password');
+  const reset = await f.request(alice.session.user.email!, 'reset-password');
   await f.auth.resetPassword({ email: reset.email, password: replacementPassword, code: reset.code, challengeId: reset.challengeId });
   await assert.rejects(() => f.auth.authenticate(alice.token), hasCode('AUTH_REQUIRED'));
   assert.equal((await f.auth.authenticate(bob.token)).user.id, bob.session.user.id);

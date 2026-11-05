@@ -1,13 +1,16 @@
 /** Client-safe account contracts. Password and session hashes are server-only. */
 export interface AuthUser {
   id: string;
-  email: string;
+  email?: string;
+  phone?: string;
+  phoneVerified?: boolean;
+  hasPassword?: boolean;
   createdAt: string;
   emailVerified: boolean;
 }
 
 export interface EmailPasswordInput { email: string; password: string; code?: string; challengeId?: string }
-export type EmailCodePurpose = 'register' | 'reset-password' | 'verify-email';
+export type EmailCodePurpose = 'register' | 'reset-password' | 'verify-email' | 'bind-email';
 export interface SendEmailCodeInput { email: string; purpose: EmailCodePurpose }
 export interface EmailCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
 export interface ResetPasswordInput { email: string; password: string; code: string; challengeId: string }
@@ -19,12 +22,18 @@ export interface AuthSession {
   token?: string;
 }
 export interface AuthCapabilities {
-  emailPassword: true; wechat: boolean; phone: false;
+  emailPassword: true; wechat: boolean; phone: boolean;
   emailVerification: boolean; passwordReset: boolean;
 }
 /** Future server-side exchange, never a client-provided openId or phone as proof. */
 export interface WechatLoginInput { code: string }
-export interface PhoneLoginInput { phone: string; code: string }
+export type PhoneCodePurpose = 'login' | 'bind-phone' | 'verify-account';
+export interface SendPhoneCodeInput { phone: string; purpose: PhoneCodePurpose }
+export interface PhoneCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
+export interface PhoneLoginInput { phone: string; code: string; challengeId: string }
+export interface CurrentIdentityProof { currentPassword?: string; currentCode?: string; currentChallengeId?: string }
+export interface BindPhoneInput extends PhoneLoginInput, CurrentIdentityProof {}
+export interface BindEmailInput extends CurrentIdentityProof { email: string; code: string; challengeId: string; password?: string }
 
 /** New passwords use 6-16 visible ASCII characters: letters, digits and symbols only. */
 export const PASSWORD_PATTERN = /^[\x21-\x7e]{6,16}$/;

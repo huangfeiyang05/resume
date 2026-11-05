@@ -1,5 +1,5 @@
 // Command-line checks against compiled artifacts and an isolated temporary database.
-// No real accounts, SMTP, model calls, production writes, browser or visual checks.
+// No real accounts, SMTP, SMS, model calls, production writes, browser or visual checks.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,11 +9,15 @@ import { randomUUID } from 'node:crypto';
 
 const releaseRoot = resolve(process.argv[2] ?? resolve(import.meta.dirname, '..'));
 const load = file => import(pathToFileURL(join(releaseRoot, 'api/server', file)).href);
-const [{ createApiServer }, { ResumeService }, { JsonStore }, { QuotaService }] = await Promise.all([load('http.js'), load('service.js'), load('store.js'), load('quota.js')]);
+const [{ createApiServer }, { ResumeService }, { JsonStore }, { QuotaService }, { AuthService }, { PhoneCodeService }] = await Promise.all([load('http.js'), load('service.js'), load('store.js'), load('quota.js'), load('auth.js'), load('phone-codes.js')]);
 const catalog = JSON.parse(await readFile(join(releaseRoot, 'api/server/assets/career/catalog.json'), 'utf8'));
 const directory = await mkdtemp(join(tmpdir(), 'youfang-release-check-'));
 const store = new JsonStore(join(directory, 'isolated.json'));
-const server = createApiServer(new ResumeService(store), { secureCookies: false });
+let fixtureTime = Date.now();
+const smsMessages = [];
+const phoneCodes = new PhoneCodeService(store, { enabled: true, async sendCode(input) { smsMessages.push(input); } }, { secret: 'release-fixture-sms-secret-more-than-32-bytes', now: () => fixtureTime });
+const auth = new AuthService(store, { phoneCodes, now: () => fixtureTime, requireEmailVerification: false });
+const server = createApiServer(new ResumeService(store), { secureCookies: false, auth });
 const checks = [];
 try {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -106,11 +110,26 @@ try {
   assert.equal((await request('/membership/quota', 'GET', undefined, owner)).body.data.remainingPercent, 80);
   assert.equal((await new QuotaService(new JsonStore(store.path)).current(userId)).remainingPercent, 80);
   checks.push('percentage-only-private-quota-actual-token-ledger-reload-and-free-rules');
+  const phoneChallenge = await request('/auth/phone/code', 'POST', { phone: '13900000001', purpose: 'bind-phone' }, owner);
+  assert.equal(phoneChallenge.status, 202);
+  const phoneBound = await request('/auth/phone/bind', 'POST', { phone: '13900000001', code: smsMessages[0].code, challengeId: phoneChallenge.body.data.challengeId, currentPassword: 'Smoke26!Pass' }, owner);
+  assert.equal(phoneBound.status, 200); assert.equal(phoneBound.body.data.id, userId);
+  fixtureTime += 61000;
+  const loginChallenge = await request('/auth/phone/code', 'POST', { phone: '13900000001', purpose: 'login' });
+  const phoneLogin = await request('/auth/phone', 'POST', { phone: '13900000001', code: smsMessages[1].code, challengeId: loginChallenge.body.data.challengeId });
+  assert.equal(phoneLogin.status, 200); assert.equal(phoneLogin.body.data.user.id, userId); assert.equal(phoneLogin.body.data.token, undefined);
+  const phoneCookie = phoneLogin.headers.get('set-cookie').split(';')[0];
+  assert.equal((await request(path, 'GET', undefined, phoneCookie)).body.data.id, original.id);
+  const newPhoneChallenge = await request('/auth/phone/code', 'POST', { phone: '13900000002', purpose: 'login' });
+  const phoneOnly = await request('/auth/phone', 'POST', { phone: '13900000002', code: smsMessages[2].code, challengeId: newPhoneChallenge.body.data.challengeId });
+  assert.equal(phoneOnly.status, 200); assert.equal(phoneOnly.body.data.user.email, undefined); assert.equal(phoneOnly.body.data.user.phoneVerified, true);
+  assert.ok((await new JsonStore(store.path).read()).users.some(user => user.id === phoneOnly.body.data.user.id && !user.email));
+  checks.push('synthetic-sms-phone-registration-binding-same-account-and-phone-only-storage');
   assert.equal((await request(path, 'DELETE', undefined, owner)).status, 200);
   assert.equal((await request(`${path}/versions`, 'GET', undefined, owner)).status, 404);
   for (const cookie of [owner, other]) assert.equal((await request('/auth/logout', 'POST', {}, cookie)).status, 200);
   checks.push('deletion-cleans-history-and-sessions-can-logout');
-  console.log(JSON.stringify({ passed: true, checks, isolatedDatabase: true, realEmailsSent: 0, modelCalls: 0, visualVerification: false, weixinDeviceVerification: false }));
+  console.log(JSON.stringify({ passed: true, checks, isolatedDatabase: true, realEmailsSent: 0, realSmsSent: 0, modelCalls: 0, visualVerification: false, weixinDeviceVerification: false }));
 } finally {
   server.closeAllConnections();
   if (server.listening) await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

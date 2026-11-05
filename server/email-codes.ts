@@ -51,8 +51,8 @@ export class EmailCodeService {
   async request(emailInput: string, purpose: EmailCodePurpose, client: string, userId?: string): Promise<EmailCodeChallenge> {
     this.assertEnabled();
     const email = validateEmail(emailInput);
-    if (!['register', 'reset-password', 'verify-email'].includes(purpose)) invalid('验证码用途无效。');
-    if (purpose === 'verify-email' && !userId) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录后验证邮箱。');
+    if (!['register', 'reset-password', 'verify-email', 'bind-email'].includes(purpose)) invalid('验证码用途无效。');
+    if (['verify-email', 'bind-email'].includes(purpose) && !userId) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录后验证邮箱。');
     if (this.active >= 2) throw new HttpError(429, 'MAIL_BUSY', '邮件服务正忙，请稍后重试。');
     this.active++;
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
@@ -93,7 +93,8 @@ export class EmailCodeService {
           return false;
         }
         for (const older of database.emailChallenges) {
-          if (older.id !== current.id && older.email === current.email && older.purpose === current.purpose && older.status === 'sent') {
+          if (older.id !== current.id && older.email === current.email && older.purpose === current.purpose
+            && (older.userId ?? '') === (current.userId ?? '') && older.status === 'sent') {
             older.status = 'superseded'; older.codeHash = '';
           }
         }

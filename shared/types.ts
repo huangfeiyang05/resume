@@ -21,6 +21,7 @@ export type { AiQuotaSummary } from './quota.js';
 export type { ApplicationStatus, CareerJob, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
 export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, WechatLoginInput, PhoneLoginInput } from './auth.js';
 export type { EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput } from './auth.js';
+export type { PhoneCodePurpose, SendPhoneCodeInput, PhoneCodeChallenge, CurrentIdentityProof, BindPhoneInput, BindEmailInput } from './auth.js';
 export type IssueCategory = 'impact' | 'structure' | 'keywords' | 'clarity';
 
 export interface Resume {

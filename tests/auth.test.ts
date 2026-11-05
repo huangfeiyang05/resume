@@ -95,7 +95,8 @@ test('email registration signs in with a secure cookie and persists only passwor
   assert.equal(current.status, 200);
   assert.deepEqual(current.body.data.user, registration.body.data.user);
   assert.equal(current.body.data.token, undefined);
-  assert.equal(/password|hash/i.test(JSON.stringify(current.body)), false, 'public auth data must omit credential material');
+  assert.equal(/"(?:password|passwordHash|tokenHash)"|scrypt\$/i.test(JSON.stringify(current.body)), false, 'public auth data must omit credential material');
+  assert.equal(current.body.data.user.hasPassword, true, 'only the availability flag is public');
 
   const serialized = await readFile(f.path, 'utf8');
   assert.equal(serialized.includes(password), false, 'plaintext passwords must never be persisted');
@@ -195,12 +196,16 @@ test('expired sessions fail closed and bearer transport does not activate unfini
   assert.ok(token.length >= 32);
   assert.equal((await f.request('/auth/me', 'GET', undefined, { token })).status, 200);
   assert.equal((await f.request('/resumes', 'GET', undefined, { token: `${token}invalid` })).status, 401);
-  for (const [route, code] of [['/auth/wechat', 'WECHAT_LOGIN_NOT_CONFIGURED'], ['/auth/phone', 'PHONE_LOGIN_NOT_CONFIGURED']]) {
+  for (const [route, code] of [['/auth/wechat', 'WECHAT_LOGIN_NOT_CONFIGURED']]) {
     const response = await f.request(route, 'POST', {});
     assert.equal(response.status, 501);
     assert.equal(response.body.error.code, code);
     assert.equal(response.headers.get('set-cookie'), null, 'placeholder providers never create a successful session');
   }
+  const phone = await f.request('/auth/phone', 'POST', { phone: '13800000001', code: '123456', challengeId: '00000000-0000-4000-8000-000000000000' });
+  assert.equal(phone.status, 503);
+  assert.equal(phone.body.error.code, 'SMS_NOT_CONFIGURED');
+  assert.equal(phone.headers.get('set-cookie'), null, 'disabled SMS cannot create a session');
   await f.store.mutate(database => {
     for (const session of database.sessions) session.expiresAt = '2000-01-01T00:00:00.000Z';
   });
