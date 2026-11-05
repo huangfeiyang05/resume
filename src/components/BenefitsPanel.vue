@@ -35,6 +35,8 @@ const rows: Array<{ key: keyof Plan['features']; label: string }> = [
   { key: 'smartDelivery', label: '智能投递' },
 ];
 const price = (cents: number | null) => cents === null ? '待定价' : cents === 0 ? '免费' : `¥${(cents / 100).toFixed(2)}`;
+const compareAtPrice = (plan: Plan | undefined) => plan && plan.priceCents !== null && plan.listPriceCents && plan.listPriceCents > plan.priceCents ? plan.listPriceCents : null;
+const selectedListPrice = computed(() => { const plan = selectedPlan.value; if (!plan || selectedAmount.value !== plan.priceCents) return null; return compareAtPrice(plan); });
 const upgradeCopy = computed(() => membership.value?.policy.upgrade.expiryBase === 'payment-time'
   ? '初级有效期内升高级补月价差额，支付成功后重算一个自然月；原剩余天数不叠加。'
   : '升级规则暂时不可用。');
@@ -202,8 +204,8 @@ onMounted(load);
       <view class="benefits-plans">
         <view v-for="plan in plans" :key="plan.id" class="glass-panel benefit-plan" :class="{ current: plan.id === membership.currentPlanId }">
           <view class="benefit-plan-top"><text class="benefit-plan-name">{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="benefit-badge current">当前方案</text></view>
-          <view class="benefit-price"><text class="benefit-price-number">{{ price(plan.priceCents) }}</text><text v-if="plan.durationMonths" class="benefit-period">/ {{ plan.periodLabel }}</text></view>
-          <text v-if="plan.promotionLabel && plan.listPriceCents" class="benefit-promo">{{ plan.promotionLabel }} · 原价 {{ price(plan.listPriceCents) }}</text>
+          <view class="benefit-price"><text class="benefit-price-number">{{ price(plan.priceCents) }}</text><text v-if="plan.durationMonths" class="benefit-period">/ {{ plan.periodLabel }}</text><text v-if="compareAtPrice(plan)" class="benefit-price-list">{{ price(compareAtPrice(plan)) }}</text></view>
+          <text v-if="plan.promotionLabel" class="benefit-promo">{{ plan.promotionLabel }}</text>
           <view class="benefit-card-list benefit-card-list-full"><view v-for="feature in cardFeatures(plan)" :key="feature"><AppIcon name="check" :size="13" /><text>{{ feature }}</text></view></view>
           <view class="benefit-card-list benefit-card-list-compact"><view v-for="feature in compactFeatures[plan.id]" :key="feature"><AppIcon name="check" :size="13" /><text>{{ feature }}</text></view></view>
           <button v-if="plan.id === membership.currentPlanId" class="button secondary benefit-plan-button current" :aria-label="`当前权益：${plan.name}`" disabled role="button"><text class="benefit-action-full">当前权益</text><text class="benefit-action-compact">当前</text></button>
@@ -224,8 +226,8 @@ onMounted(load);
     </template>
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? (miniProgram ? '微信支付 · 一个自然月 · 手动续费' : '微信扫码支付 · 一个自然月 · 手动续费') : '当前为方案预览，支付暂未开放'" @close="closePurchase">
-      <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付后重算一个自然月' : '一个自然月 · 手动续费') }}</text></view><text class="benefits-summary-price">{{ price(selectedAmount) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
+      <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text v-if="compareAtPrice(plan)" class="benefits-checkout-option-list">{{ price(compareAtPrice(plan)) }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
+      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付后重算一个自然月' : '一个自然月 · 手动续费') }}</text></view><view class="benefits-summary-prices"><text class="benefits-summary-price">{{ price(selectedAmount) }}</text><text v-if="selectedListPrice" class="benefits-summary-list">{{ price(selectedListPrice) }}</text></view></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
       <view v-if="nativePayment" class="benefits-native-payment">
         <image class="benefits-native-qr" :src="nativePayment.qrCodeDataUrl" mode="aspectFit" aria-label="微信支付二维码" />
@@ -274,6 +276,7 @@ onMounted(load);
 .benefit-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; margin: 22px 0 24px; color: #1f2937; }
 .benefit-promo { display: block; margin-top: -14px; margin-bottom: 18px; color: #b45309; font-size: 12px; line-height: 1.7; }
 .benefit-price-number { font-size: 30px; font-weight: 650; line-height: 1.3; }
+.benefit-price-list { color: #8a96a6; font-size: 14px; text-decoration: line-through; text-decoration-thickness: 1px; }
 .benefit-period { color: #536174; font-size: 13px; }
 .benefit-card-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 28px; flex: 1; }
 .benefit-card-list > view { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; color: #38465a; line-height: 1.8; }
@@ -298,13 +301,16 @@ onMounted(load);
 .benefits-checkout-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin-bottom: 20px; }
 .benefits-checkout-option { width: 100%; border: 1px solid #d8dfe8; border-radius: 10px; background: #fff; padding: 16px 12px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: #38465a; font-size: 15px; }
 .benefits-checkout-option > text:last-child { font-size: 19px; font-weight: 600; }
+.benefits-checkout-option-list { color: #8a96a6; font-size: 13px; text-decoration: line-through; text-decoration-thickness: 1px; }
 .benefits-checkout-option.selected { background: #f0f4fc; border-color: #2458c5; color: #2458c5; }
 .benefits-checkout-summary { padding: 22px; background: #f4f6f9; border: 1px solid #d8dfe8; border-radius: 14px; }
 .benefits-checkout-summary-heading { display: flex; justify-content: space-between; gap: 14px; align-items: center; padding-bottom: 18px; margin-bottom: 7px; border-bottom: 1px solid #d8dfe8; }
 .benefits-summary-name,.benefits-summary-period { display: block; }
 .benefits-summary-name { font-size: 18px; font-weight: 600; color: #1f2937; }
 .benefits-summary-period { font-size: 13px; color: #536174; margin-top: 7px; line-height: 1.7; }
+.benefits-summary-prices { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
 .benefits-summary-price { font-size: 27px; font-weight: 600; color: #1f2937; white-space: nowrap; }
+.benefits-summary-list { color: #8a96a6; font-size: 14px; text-decoration: line-through; text-decoration-thickness: 1px; }
 .benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; font-size: 14px; padding: 10px 0; line-height: 1.8; color: #38465a; }
 .benefits-checkout-feature > text:first-child { color: #536174; flex-shrink: 0; }
 .benefits-checkout-feature-value { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
@@ -328,6 +334,7 @@ onMounted(load);
   .benefit-badge { padding: 2px 5px; font-size: 12px; }
   .benefit-price { flex-direction: column; align-items: flex-start; gap: 4px; min-height: 54px; margin: 10px 0 14px; }
   .benefit-price-number { font-size: 20px; line-height: 1.4; }
+  .benefit-price-list { font-size: 12px; }
   .benefit-period { font-size: 12px; line-height: 1.6; }
   .benefit-card-list-full,.benefit-action-full { display: none; }
   .benefit-card-list-compact { display: flex; gap: 8px; margin-bottom: 16px; }
