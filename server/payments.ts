@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { CheckoutResult, MembershipQuote, PaymentOrder } from '../shared/payment.js';
+import type { CheckoutResult, MembershipQuote, NativePaymentParams, PaymentChannel, PaymentOrder, WechatPaymentParams } from '../shared/payment.js';
 import type { PaidPlanId, PlanId } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 import type { JsonStore } from './store.js';
 import type { QuotaService } from './quota.js';
 import { defaultPricing, planPricing, type BillingPricing } from './payment-config.js';
 import { newOutTradeNo, orderTtlMilliseconds, type StoredPaymentOrder } from './payment-storage.js';
-import { WechatPayError, type JsapiOrder, type NotifyPayload, type WechatPayGateway } from './wechat-pay.js';
+import { WechatPayError, type NativeOrder, type NotifyPayload, type WechatPayGateway } from './wechat-pay.js';
+import qrcode from 'qrcode-generator';
 import { listPlans, membershipState } from './membership.js';
 
 export interface PaymentServiceOptions {
@@ -26,13 +27,20 @@ function paid(planId: unknown): PaidPlanId {
 }
 function publicOrder(order: StoredPaymentOrder): PaymentOrder {
   return {
-    id: order.id, planId: order.planId, amountCents: order.amountCents, status: order.status,
+    id: order.id, planId: order.planId, amountCents: order.amountCents, status: order.status, channel: order.channel,
     createdAt: order.createdAt, expiresAt: order.expiresAt, ...(order.paidAt ? { paidAt: order.paidAt } : {}),
   };
 }
 function mapGatewayError(error: unknown): never {
   if (error instanceof WechatPayError) throw new HttpError(error.status, error.code, error.message);
   throw error;
+}
+async function nativeParams(order: StoredPaymentOrder, codeUrl: string): Promise<NativePaymentParams> {
+  const qr = qrcode(0, 'M');
+  qr.addData(codeUrl);
+  qr.make();
+  const svg = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  return { codeUrl, qrCodeDataUrl: `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`, expiresAt: order.expiresAt };
 }
 
 export class PaymentService {
@@ -93,40 +101,56 @@ export class PaymentService {
   async checkout(userId: string, body: unknown): Promise<CheckoutResult> {
     if (!body || typeof body !== 'object' || Array.isArray(body)) invalid('请求体必须是 JSON 对象。');
     const input = body as Record<string, unknown>;
-    if (Object.keys(input).some(key => !['planId', 'requestId'].includes(key))) invalid('请求体只支持 planId 和 requestId。');
+    if (Object.keys(input).some(key => !['planId', 'requestId', 'channel'].includes(key))) invalid('请求体只支持 planId、requestId 和 channel。');
     const planId = paid(input.planId);
     if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(input.requestId)) invalid('缺少有效的支付请求标识。');
     const requestId = input.requestId;
+    const channelValue = input.channel === undefined ? 'jsapi' : input.channel;
+    if (channelValue !== 'jsapi' && channelValue !== 'native') invalid('支付方式不正确。');
+    const channel: PaymentChannel = channelValue;
     if (!this.gateway || !this.notifyUrl) throw new HttpError(503, 'PAYMENT_NOT_CONFIGURED', '支付尚未配置完成，本次未扣费。');
     const quote = await this.quote(userId, planId);
     const snapshot = await this.store.read();
     const existing = snapshot.orders.find(order => order.userId === userId && order.requestId === requestId);
-    if (existing) return this.reuse(userId, existing, quote);
+    if (existing) return this.reuse(userId, existing, quote, channel);
     const user = snapshot.users.find(candidate => candidate.id === userId);
     if (!user) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
-    if (!user.wechatOpenid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '请先在小程序内绑定微信后再支付。');
+    if (channel === 'jsapi' && !user.wechatOpenid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '请先在小程序内绑定微信后再支付。');
     const now = this.now();
     const order: StoredPaymentOrder = {
       id: randomUUID(), userId, planId, amountCents: quote.amountCents, status: 'pending',
       createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + orderTtlMilliseconds).toISOString(),
-      outTradeNo: newOutTradeNo(now.getTime()), requestId,
+      outTradeNo: newOutTradeNo(now.getTime()), requestId, channel,
       description: `简历有方·${planId === 'basic' ? '初级' : '高级'}会员`,
     };
     const created = await this.store.mutate(database => {
       const currentUser = database.users.find(candidate => candidate.id === userId);
-      if (!currentUser?.wechatOpenid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '请先在小程序内绑定微信后再支付。');
+      if (!currentUser) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
+      if (channel === 'jsapi' && !currentUser.wechatOpenid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '请先在小程序内绑定微信后再支付。');
       const duplicate = database.orders.find(candidate => candidate.userId === userId && candidate.requestId === requestId);
       if (duplicate) return { order: duplicate, created: false };
       database.orders.push(order);
       return { order, created: true };
     });
-    if (!created.created) return this.reuse(userId, created.order, quote);
-    let result: JsapiOrder;
+    if (!created.created) return this.reuse(userId, created.order, quote, channel);
+    let prepayId: string | undefined;
+    let payment: WechatPaymentParams | undefined;
+    let codeUrl: string | undefined;
     try {
-      result = await this.gateway.createJsapiOrder({
-        outTradeNo: order.outTradeNo, description: order.description, amountCents: order.amountCents,
-        openid: user.wechatOpenid, notifyUrl: this.notifyUrl, expiresAt: order.expiresAt,
-      });
+      if (channel === 'native') {
+        const result: NativeOrder = await this.gateway.createNativeOrder({
+          outTradeNo: order.outTradeNo, description: order.description, amountCents: order.amountCents,
+          notifyUrl: this.notifyUrl, expiresAt: order.expiresAt,
+        });
+        codeUrl = result.codeUrl;
+      } else {
+        const result = await this.gateway.createJsapiOrder({
+          outTradeNo: order.outTradeNo, description: order.description, amountCents: order.amountCents,
+          openid: user.wechatOpenid!, notifyUrl: this.notifyUrl, expiresAt: order.expiresAt,
+        });
+        prepayId = result.prepayId;
+        payment = result.payment;
+      }
     } catch (error) {
       await this.store.mutate(database => {
         const stored = database.orders.find(candidate => candidate.id === order.id);
@@ -137,19 +161,31 @@ export class PaymentService {
     const updated = await this.store.mutate(database => {
       const stored = database.orders.find(candidate => candidate.id === order.id);
       if (!stored) throw new Error('Payment order disappeared.');
-      if (stored.status === 'pending') stored.prepayId = result!.prepayId;
+      if (stored.status === 'pending') {
+        if (prepayId) stored.prepayId = prepayId;
+        if (codeUrl) stored.codeUrl = codeUrl;
+      }
       return stored;
     });
-    return { order: publicOrder(updated), payment: result.payment };
+    if (channel === 'native') {
+      if (!codeUrl) throw new HttpError(502, 'WECHAT_RESPONSE_INVALID', '微信支付未返回扫码链接，请稍后重试。');
+      return { order: publicOrder(updated), native: await nativeParams(order, codeUrl) };
+    }
+    if (!payment) throw new HttpError(502, 'WECHAT_RESPONSE_INVALID', '微信支付未返回支付参数，请稍后重试。');
+    return { order: publicOrder(updated), payment };
   }
 
-  private async reuse(userId: string, order: StoredPaymentOrder, quote: MembershipQuote): Promise<CheckoutResult> {
-    if (order.planId !== quote.planId || order.amountCents !== quote.amountCents) {
-      throw new HttpError(409, 'IDEMPOTENCY_KEY_CONFLICT', '相同支付请求标识不能用于不同的方案或金额。');
+  private async reuse(userId: string, order: StoredPaymentOrder, quote: MembershipQuote, channel: PaymentChannel): Promise<CheckoutResult> {
+    if (order.planId !== quote.planId || order.amountCents !== quote.amountCents || order.channel !== channel) {
+      throw new HttpError(409, 'IDEMPOTENCY_KEY_CONFLICT', '相同支付请求标识不能用于不同的方案、金额或支付方式。');
     }
     if (order.status === 'paid') throw new HttpError(409, 'ORDER_ALREADY_PAID', '该订单已支付，请勿重复支付。');
     if (order.status !== 'pending') throw new HttpError(409, 'ORDER_CLOSED', '该订单已关闭，请重新下单。');
     if (Date.parse(order.expiresAt) <= this.now().getTime()) throw new HttpError(409, 'ORDER_EXPIRED', '订单已过期，请重新下单。');
+    if (channel === 'native') {
+      if (!order.codeUrl) throw new HttpError(409, 'ORDER_PENDING', '订单正在创建中，请稍后重试。');
+      return { order: publicOrder(order), native: await nativeParams(order, order.codeUrl) };
+    }
     if (!order.prepayId || !this.gateway) throw new HttpError(409, 'ORDER_PENDING', '订单正在创建中，请稍后重试。');
     return { order: publicOrder(order), payment: this.gateway.paymentParams(order.prepayId) };
   }
@@ -183,7 +219,9 @@ export class PaymentService {
     if (order.status !== 'pending' && order.status !== 'paid') throw new HttpError(409, 'ORDER_NOT_PAYABLE', '订单状态不允许入账。');
     const user = (await this.store.read()).users.find(candidate => candidate.id === order.userId);
     if (!user) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单用户不存在。');
-    if (transaction.openid && user.wechatOpenid && transaction.openid !== user.wechatOpenid) throw new HttpError(409, 'PAYMENT_PAYER_MISMATCH', '支付人与绑定微信不一致。');
+    if (order.channel === 'jsapi' && transaction.openid && user.wechatOpenid && transaction.openid !== user.wechatOpenid) {
+      throw new HttpError(409, 'PAYMENT_PAYER_MISMATCH', '支付人与绑定微信不一致。');
+    }
     // Activation is idempotent and happens before the order flip, so a retry repairs a crash in either direction.
     await this.quota.activateMembership({
       userId: order.userId, planId: order.planId, verifiedPaymentAt: successAt.toISOString(),

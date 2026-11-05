@@ -1,4 +1,4 @@
-import type { PaymentOrder, PaymentOrderStatus } from '../shared/payment.js';
+import type { PaymentChannel, PaymentOrder, PaymentOrderStatus } from '../shared/payment.js';
 import type { PaidPlanId } from '../shared/membership.js';
 import { randomBytes } from 'node:crypto';
 
@@ -10,6 +10,7 @@ export interface StoredPaymentOrder extends PaymentOrder {
   outTradeNo: string;
   description: string;
   prepayId?: string;
+  codeUrl?: string;
   requestId?: string;
   transactionId?: string;
   paymentEventId?: string;
@@ -42,7 +43,9 @@ function optionalString(value: unknown, pattern: RegExp): boolean {
 function normalizeOrder(value: unknown): StoredPaymentOrder {
   const item = object(value,
     ['id', 'userId', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'outTradeNo', 'description'],
-    ['paidAt', 'prepayId', 'requestId', 'transactionId', 'paymentEventId']);
+    ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'transactionId', 'paymentEventId', 'channel']);
+  const channel = item.channel === undefined ? 'jsapi' : item.channel;
+  if (channel !== 'jsapi' && channel !== 'native') return malformed();
   if (!identifier(item.id) || !identifier(item.userId) || !plans.includes(item.planId as PaidPlanId)
     || !Number.isSafeInteger(item.amountCents) || (item.amountCents as number) <= 0
     || !statuses.includes(item.status as PaymentOrderStatus)
@@ -52,12 +55,13 @@ function normalizeOrder(value: unknown): StoredPaymentOrder {
     || typeof item.description !== 'string' || !item.description.trim() || item.description.length > 120
     || (item.paidAt !== undefined && !instant(item.paidAt))
     || !optionalString(item.prepayId, /^[A-Za-z0-9_-]{10,128}$/)
+    || !optionalString(item.codeUrl, /^weixin:\/\/[^\s]{10,512}$/)
     || !optionalString(item.requestId, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/)
     || !optionalString(item.transactionId, /^[A-Za-z0-9_-]{6,64}$/)
     || !optionalString(item.paymentEventId, /^[A-Za-z0-9_-]{6,128}$/)) return malformed();
   const status = item.status as PaymentOrderStatus;
   if ((status === 'paid') !== (item.paidAt !== undefined) || (status === 'paid') !== (item.transactionId !== undefined) || (status === 'paid') !== (item.paymentEventId !== undefined)) return malformed();
-  return structuredClone(item) as unknown as StoredPaymentOrder;
+  return { ...(structuredClone(item) as unknown as StoredPaymentOrder), channel };
 }
 
 /** Missing fields are migrated to an empty list; malformed present fields refuse to load. */
@@ -72,6 +76,7 @@ export function normalizePaymentStorage(source: unknown): PaymentStorage {
     || new Set(orders.map(order => order.paymentEventId).filter(Boolean)).size !== orders.filter(order => order.paymentEventId).length) return malformed();
   for (const order of orders) {
     if (order.requestId !== undefined && orders.filter(other => other.userId === order.userId && other.requestId === order.requestId).length > 1) return malformed();
+    if (order.channel === 'native' && order.codeUrl === undefined && order.status === 'paid') return malformed();
   }
   return { orders };
 }

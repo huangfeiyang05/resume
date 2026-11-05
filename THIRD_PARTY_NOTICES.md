@@ -37,7 +37,7 @@ SOFTWARE.
 
 ## Node.js server export runtime packages
 
-The packaged Node server (`api/` in the release) bundles the following third-party packages so that Word (`.docx`) and PDF export works without an internet connection.
+The packaged Node server (`api/` in the release) bundles the following third-party packages so that Word (`.docx`)/PDF export and H5 WeChat scan-payment QR codes work without an internet connection.
 Packages under the MIT license use the MIT permission text reproduced above; the copyright notice for each package is listed in the table below.
 
 | Package | Version | License | Copyright notice |
@@ -64,6 +64,7 @@ Packages under the MIT license use the MIT permission text reproduced above; the
 | `pdfkit` | 0.20.2 | MIT | Devon Govett devongovett@gmail.com |
 | `png-js` | 2.0.0 | MIT | Devon Govett devongovett@gmail.com |
 | `process-nextick-args` | 2.0.1 | MIT | see package LICENSE file |
+| `qrcode-generator` | 2.0.4 | MIT | Kazuhiko Arase |
 | `readable-stream` | 2.3.8 | MIT | see package LICENSE file |
 | `restructure` | 3.0.2 | MIT | Devon Govett <devongovett@gmail.com> |
 | `safe-buffer` | 5.2.1 | MIT | Feross Aboukhadijeh feross@feross.org |

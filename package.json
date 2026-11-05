@@ -32,6 +32,7 @@
     "nodemailer": "10.2.1",
     "pdfjs-dist": "6.4.299",
     "pdfkit": "^0.20.2",
+    "qrcode-generator": "^2.0.4",
     "vue": "^3.4.21",
     "vue-i18n": "^9.1.9",
     "yaml": "^2.9.1"

@@ -104,12 +104,12 @@ test('membership client rejects a fabricated paid state or incompatible upgrade 
 
 test('checkout sends a stable request id, accepts only a verified payment payload and surfaces configuration errors', async t => {
   const { requests, respond } = fixture(t);
-  const order = { id: 'order-12345678', planId: 'premium' as const, amountCents: 2490, status: 'pending' as const, createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
+  const order = { id: 'order-12345678', planId: 'premium' as const, amountCents: 2490, status: 'pending' as const, channel: 'jsapi' as const, createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
   const payment = { appId: 'wx7c30911964bf6fe7', timeStamp: '1762345678', nonceStr: 'nonce-value', package: 'prepay_id=wx1234567890abcdef', signType: 'RSA' as const, paySign: 'signature-value' };
   respond(options => options.success({ statusCode: 201, data: { data: { order, payment } } }));
   const result = await membershipApi.checkout('premium', 'request-id-123456');
   assert.deepEqual(result, { order, payment });
-  assert.deepEqual(requests.at(-1)?.data, { planId: 'premium', requestId: 'request-id-123456' });
+  assert.deepEqual(requests.at(-1)?.data, { planId: 'premium', requestId: 'request-id-123456', channel: 'jsapi' });
   assert.equal(requests.at(-1)?.method, 'POST');
   for (const invalid of [null, {}, { order, payment: { ...payment, signType: 'MD5' } }, { order: { ...order, amountCents: 0 }, payment }, { order, payment: { ...payment, package: 'wrong' } }]) {
     respond(options => options.success({ statusCode: 201, data: { data: invalid } }));
@@ -117,6 +117,18 @@ test('checkout sends a stable request id, accepts only a verified payment payloa
   }
   respond(options => options.success({ statusCode: 503, data: { error: { code: 'PAYMENT_NOT_CONFIGURED', message: '支付尚未配置完成，本次未扣费。' } } }));
   await assert.rejects(membershipApi.checkout('basic', 'request-id-123456'), error => error instanceof ApiError && error.code === 'PAYMENT_NOT_CONFIGURED');
+});
+
+test('native checkout accepts a scan payload and rejects broken QR data', async t => {
+  const { respond } = fixture(t);
+  const order = { id: 'order-12345678', planId: 'basic' as const, amountCents: 990, status: 'pending' as const, channel: 'native' as const, createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
+  const native = { codeUrl: 'weixin://wxpay/bizpayurl?pr=1234567890abcdef', qrCodeDataUrl: 'data:image/svg+xml;base64,PHN2Zy8+', expiresAt: order.expiresAt };
+  respond(options => options.success({ statusCode: 201, data: { data: { order, native } } }));
+  assert.deepEqual(await membershipApi.checkout('basic', 'request-id-123456', 'native'), { order, native });
+  for (const invalid of [{ order, native: { ...native, codeUrl: 'https://example.test/' } }, { order, native: { ...native, qrCodeDataUrl: 'data:text/html;base64,PHN2Zy8+' } }, { order, native, payment: { appId: 'wx7c30911964bf6fe7', timeStamp: '1762345678', nonceStr: 'nonce-value', package: 'prepay_id=wx1234567890abcdef', signType: 'RSA', paySign: 'signature-value' } }]) {
+    respond(options => options.success({ statusCode: 201, data: { data: invalid } }));
+    await assert.rejects(membershipApi.checkout('basic', 'request-id-123456', 'native'), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
+  }
 });
 
 test('payment quote and order responses are strictly validated', async t => {
@@ -128,7 +140,7 @@ test('payment quote and order responses are strictly validated', async t => {
     respond(options => options.success({ statusCode: 200, data: { data: invalid } }));
     await assert.rejects(membershipApi.quote('premium'), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
   }
-  const order = { id: 'order-12345678', planId: 'basic', amountCents: 990, status: 'paid', createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z', paidAt: '2026-11-05T02:01:00.000Z' };
+  const order = { id: 'order-12345678', planId: 'basic', amountCents: 990, status: 'paid', channel: 'jsapi', createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z', paidAt: '2026-11-05T02:01:00.000Z' };
   respond(options => options.success({ statusCode: 200, data: { data: order } }));
   assert.deepEqual(await membershipApi.order(order.id), order);
   respond(options => options.success({ statusCode: 200, data: { data: { ...order, status: 'refunded' } } }));

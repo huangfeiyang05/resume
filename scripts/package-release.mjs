@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, '..');
 const destination = resolve(root, 'dist/release');
-const runtimeDependencies = ['yaml', 'nodemailer', 'pdfkit', 'jszip'];
+const runtimeDependencies = ['yaml', 'nodemailer', 'pdfkit', 'jszip', 'qrcode-generator'];
 const runtimePackages = new Map();
 /** Some packages block the package.json subpath, so locate the install directory from the entry point. */
 async function packageDirectory(name) {

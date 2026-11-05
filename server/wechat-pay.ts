@@ -16,6 +16,18 @@ export interface JsapiOrder {
   payment: WechatPaymentParams;
 }
 
+export interface NativeOrderInput {
+  outTradeNo: string;
+  description: string;
+  amountCents: number;
+  notifyUrl: string;
+  expiresAt: string;
+}
+
+export interface NativeOrder {
+  codeUrl: string;
+}
+
 export interface DecryptedTransaction {
   mchid: string;
   appid: string;
@@ -37,6 +49,7 @@ export interface NotifyPayload {
 
 export interface WechatPayGateway {
   createJsapiOrder(input: JsapiOrderInput): Promise<JsapiOrder>;
+  createNativeOrder(input: NativeOrderInput): Promise<NativeOrder>;
   /** Re-signs client payment parameters for an existing prepay_id. */
   paymentParams(prepayId: string): WechatPaymentParams;
   parseNotification(headers: Record<string, string | string[] | undefined>, rawBody: string): NotifyPayload;
@@ -115,6 +128,18 @@ export class WechatPayClient implements WechatPayGateway {
     try { prepayId = (JSON.parse(text) as Record<string, unknown>).prepay_id; } catch { throw new WechatPayError('WECHAT_RESPONSE_INVALID', '微信支付返回了无法解析的下单结果。'); }
     if (typeof prepayId !== 'string' || !/^[A-Za-z0-9_-]{10,128}$/.test(prepayId)) throw new WechatPayError('WECHAT_RESPONSE_INVALID', '微信支付未返回有效的预支付标识。');
     return { prepayId, payment: this.paymentParams(prepayId) };
+  }
+
+  async createNativeOrder(input: NativeOrderInput): Promise<NativeOrder> {
+    const text = await this.post('/v3/pay/transactions/native', {
+      appid: this.config.appid, mchid: this.config.mchid, description: input.description,
+      out_trade_no: input.outTradeNo, time_expire: input.expiresAt, notify_url: input.notifyUrl,
+      amount: { total: input.amountCents, currency: 'CNY' },
+    });
+    let codeUrl: unknown;
+    try { codeUrl = (JSON.parse(text) as Record<string, unknown>).code_url; } catch { throw new WechatPayError('WECHAT_RESPONSE_INVALID', '微信支付返回了无法解析的下单结果。'); }
+    if (typeof codeUrl !== 'string' || !/^weixin:\/\/[^\s]{10,512}$/.test(codeUrl)) throw new WechatPayError('WECHAT_RESPONSE_INVALID', '微信支付未返回有效的扫码链接。');
+    return { codeUrl };
   }
 
   paymentParams(prepayId: string): WechatPaymentParams {

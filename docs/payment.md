@@ -22,7 +22,7 @@
    - 只把 `openid` 绑定到当前登录账号，不自动创建微信账号，也不合并其他账号；
    - 同一 `openid` 已绑定其他账号时返回 409，不得静默转移。
 2. 前端请求 `/api/v1/billing/quote?planId=basic|premium` 获取服务端报价（新购、续费或升级补差价）。
-3. 前端生成至少 16 字符的幂等 `requestId`，调用 `/api/v1/billing/checkout`。服务端创建 `pending` 订单并调用微信支付 v3 JSAPI 下单，返回已签名的 `wx.requestPayment` 参数。
+3. 前端生成至少 16 字符的幂等 `requestId`，调用 `/api/v1/billing/checkout` 并带 `channel`。服务端创建 `pending` 订单：小程序传 `jsapi`，调用微信支付 v3 JSAPI 下单并返回已签名的 `wx.requestPayment` 参数；H5 传 `native`，调用 v3 Native 下单，返回 `code_url` 与服务器生成的二维码 SVG data URL，由消费者用微信扫码。
    - 同一账号、同一 `requestId` 的重复请求复用同一订单，不会重复扣款；
    - 未过期的 `pending` 订单不会重复下单；
    - 不同 `requestId` 会创建新订单，前端不得复用旧订单号。
@@ -45,7 +45,8 @@
 | `server/wechat-pay.ts` | 微信支付 v3 商户签名、平台公钥验签、JSAPI 下单、回调解密 |
 | `server/wechat-identity.ts` | 小程序 code 换 `openid`，app secret 只在服务端使用 |
 | `server/payments.ts` | 报价、下单、幂等、查单、回调入账 |
-| `server/http.ts` | `/billing/quote`、`/billing/checkout`、`/billing/orders/:id`、`/billing/wechat/notify`、`/auth/wechat/bind` |
+| `server/http.ts` | `/billing/quote`、`/billing/checkout`（`channel=jsapi/native`）、`/billing/orders/:id`、`/billing/wechat/notify`、`/auth/wechat/bind` |
+| `server/payments.ts` | JSAPI/Native 下单、扫码二维码生成、订单查询、回调验签入账与幂等 |
 | `tests/payment.test.ts` | 假网关的报价、下单、幂等、回调验签后入账与重复通知测试 |
 
 订单仍写入版本 3 的 JSON 数据，`orders` 字段缺失时按空数组迁移。这不是 MySQL 事务或多实例生产账本；并发下单、升级、退款和额度结算上线前仍须用数据库事务与幂等键重做。
@@ -77,7 +78,9 @@ WECHAT_PAY_NOTIFY_URL=https://www.youfangcv.site/api/v1/billing/wechat/notify
 
 - 微信支付没有公开的沙箱环境，代码测试使用注入的假网关；真实支付只能用小额订单验收，并在验收后按需退款。
 - iOS 小程序不允许用微信支付购买虚拟会员/虚拟服务。本项目在 iOS 端不展示可支付状态，提示用户使用 Android 或后续开放的方式；不能绕过平台规则。
-- H5 端未接入 JSAPI 网页支付，页面保持“支付暂未开放”预览；如后续接入需另行配置公众号 AppID、授权目录与回调。
+- H5 端使用 **Native 扫码支付**：电脑网页最合适；手机浏览器中自己扫自己体验较差，可截图后在微信内识别。未接公众号 JSAPI 网页支付，如后续接入需另行配置公众号 AppID、授权目录与回调。
+- iOS 小程序端继续屏蔽虚拟会员购买；H5 扫码不受小程序 iOS 限制，但仍需遵守微信支付及平台规则。
+- Native 支付需在商户平台开通产品；商户平台的“Native 支付回调链接”应填 `https://www.youfangcv.site/api/v1/billing/wechat/notify`，与 `WECHAT_PAY_NOTIFY_URL` 保持一致。
 - 退款、关单、账单下载、后台对账尚未实现；当前订单只有前端可查的 `pending/paid/closed/failed` 状态。正式运营前须补后台对账、退款与人工客服流程。
 - 当前为单进程 JSON 存储，不具备生产级并发/多实例一致性；真实支付前应按 AGENTS.md 的数据一致性要求迁移到持久化数据库并做事务与幂等验收。
 

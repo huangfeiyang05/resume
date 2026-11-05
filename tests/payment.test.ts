@@ -28,6 +28,9 @@ async function fixture(t: TestContext) {
         payment: { appId: appid, timeStamp: '1762345678', nonceStr: 'nonce-value', package: 'prepay_id=wx_prepay_1234567890', signType: 'RSA', paySign: 'signature-value' },
       };
     },
+    async createNativeOrder(_input) {
+      return { codeUrl: 'weixin://wxpay/bizpayurl?pr=1234567890abcdef' };
+    },
     paymentParams: (prepayId: string) => ({ appId: appid, timeStamp: '1762345678', nonceStr: 'nonce-value', package: `prepay_id=${prepayId}`, signType: 'RSA', paySign: 'signature-value' }),
     parseNotification: () => {
       if (!notification) throw new Error('notification fixture missing');
@@ -88,12 +91,33 @@ test('checkout binds WeChat, creates one pending order per request id and quotes
   const firstResult = first.body.data as CheckoutResult;
   assert.equal(firstResult.order.amountCents, 990);
   assert.equal(firstResult.order.status, 'pending');
+  assert.equal(firstResult.order.channel, 'jsapi');
+  assert.ok(firstResult.payment);
   assert.match(firstResult.payment.package, /^prepay_id=/);
   const repeated = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'request-id-123456' });
   assert.equal(repeated.status, 201);
   assert.equal(repeated.body.data.order.id, firstResult.order.id);
   assert.equal((await request('/billing/checkout', 'POST', { planId: 'premium', requestId: 'request-id-654321' })).body.data.order.amountCents, 2490);
   assert.equal((await service.store.read()).orders.length, 2);
+});
+
+test('native checkout creates a scan order without binding WeChat', async (t) => {
+  const { service, request } = await fixture(t);
+  const checkout = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'native-request-123456', channel: 'native' });
+  assert.equal(checkout.status, 201, JSON.stringify(checkout.body));
+  const result = checkout.body.data as CheckoutResult;
+  assert.equal(result.order.channel, 'native');
+  assert.equal(result.payment, undefined);
+  assert.match(result.native?.codeUrl ?? '', /^weixin:\/\//);
+  assert.match(result.native?.qrCodeDataUrl ?? '', /^data:image\/svg\+xml;base64,/);
+  assert.equal(result.native?.expiresAt, result.order.expiresAt);
+  const repeated = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'native-request-123456', channel: 'native' });
+  assert.equal(repeated.status, 201);
+  assert.equal(repeated.body.data.order.id, result.order.id);
+  assert.equal((await service.store.read()).orders.length, 1);
+  const mismatch = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'native-request-123456', channel: 'jsapi' });
+  assert.equal(mismatch.status, 409);
+  assert.equal(mismatch.body.error.code, 'IDEMPOTENCY_KEY_CONFLICT');
 });
 
 test('a verified payment notification grants the term once and never trusts or re-applies duplicates', async (t) => {

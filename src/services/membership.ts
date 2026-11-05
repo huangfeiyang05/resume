@@ -1,4 +1,4 @@
-import type { AiQuotaSummary, CheckoutResult, MembershipQuote, MembershipState, PaymentOrder, Plan, PlanId, WechatPaymentParams } from '../../shared/types';
+import type { AiQuotaSummary, CheckoutResult, MembershipQuote, MembershipState, NativePaymentParams, PaymentChannel, PaymentOrder, Plan, PlanId, WechatPaymentParams } from '../../shared/types';
 import { request } from './api';
 
 export class MembershipApiError extends Error {
@@ -88,12 +88,21 @@ export const membershipApi = {
     if (!result || result.bound !== true || typeof result.openidMasked !== 'string') invalidResponse();
     return result;
   },
-  async checkout(planId: PlanId, requestId: string): Promise<CheckoutResult> {
-    const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId });
+  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi'): Promise<CheckoutResult> {
+    const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId, channel });
     if (!result || typeof result !== 'object' || Array.isArray(result)) invalidResponse();
     const order = validateOrder(result.order);
+    if (order.channel === 'native') {
+      const native = result.native as NativePaymentParams;
+      if (!native || typeof native !== 'object' || Array.isArray(native)
+        || Object.keys(native).some(key => !['codeUrl', 'qrCodeDataUrl', 'expiresAt'].includes(key))
+        || typeof native.codeUrl !== 'string' || !/^weixin:\/\/[^\s]{10,512}$/.test(native.codeUrl)
+        || typeof native.qrCodeDataUrl !== 'string' || !native.qrCodeDataUrl.startsWith('data:image/svg+xml;base64,') || native.qrCodeDataUrl.length > 200_000
+        || native.expiresAt !== order.expiresAt || result.payment !== undefined) invalidResponse();
+      return { order, native };
+    }
     const payment = result.payment as WechatPaymentParams;
-    if (!payment || typeof payment !== 'object' || Array.isArray(payment)
+    if (!payment || typeof payment !== 'object' || Array.isArray(payment) || result.native !== undefined
       || typeof payment.appId !== 'string' || !/^wx[a-f0-9]{16}$/i.test(payment.appId)
       || typeof payment.timeStamp !== 'string' || !/^\d{10,13}$/.test(payment.timeStamp)
       || typeof payment.nonceStr !== 'string' || !payment.nonceStr || payment.nonceStr.length > 64
@@ -111,9 +120,9 @@ function validateOrder(value: unknown): PaymentOrder {
   const order = value as PaymentOrder;
   if (typeof order.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(order.id)
     || !['basic', 'premium'].includes(order.planId) || !Number.isSafeInteger(order.amountCents) || order.amountCents <= 0
-    || !['pending', 'paid', 'closed', 'failed'].includes(order.status)
+    || !['pending', 'paid', 'closed', 'failed'].includes(order.status) || !['jsapi', 'native'].includes(order.channel)
     || !isInstant(order.createdAt) || !isInstant(order.expiresAt)
     || (order.paidAt !== undefined && !isInstant(order.paidAt))
-    || Object.keys(order).some(key => !['id', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'paidAt'].includes(key))) invalidResponse();
+    || Object.keys(order).some(key => !['id', 'planId', 'amountCents', 'status', 'channel', 'createdAt', 'expiresAt', 'paidAt'].includes(key))) invalidResponse();
   return order;
 }

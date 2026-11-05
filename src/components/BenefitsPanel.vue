@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import type { MembershipQuote, MembershipState, Plan, PlanId } from '../../shared/types';
+import type { MembershipQuote, MembershipState, NativePaymentParams, Plan, PlanId } from '../../shared/types';
 import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
@@ -18,6 +18,7 @@ const quoteLoading = ref(false);
 const quoteError = ref('');
 const paying = ref(false);
 const paymentError = ref('');
+const nativePayment = ref<NativePaymentParams>();
 let miniProgram = false;
 // #ifdef MP-WEIXIN
 miniProgram = true;
@@ -26,7 +27,7 @@ const iosDevice = (() => { try { return miniProgram && uni.getSystemInfoSync().p
 const paidPlans = computed(() => plans.value.filter((plan) => plan.id !== 'free'));
 const selectedPlan = computed(() => paidPlans.value.find((plan) => plan.id === selectedPlanId.value));
 const selectedAmount = computed(() => quote.value?.amountCents ?? selectedPlan.value?.priceCents ?? null);
-const canPay = computed(() => membership.value?.paymentAvailable === true && miniProgram && !iosDevice);
+const canPay = computed(() => membership.value?.paymentAvailable === true && (!miniProgram || !iosDevice));
 const rows: Array<{ key: keyof Plan['features']; label: string }> = [
   { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '简历优化' },
   { key: 'aiQuota', label: 'AI 额度' },
@@ -79,11 +80,17 @@ async function openPurchase(id: PlanId = 'basic') {
   selectedPlanId.value = id === 'free' ? 'basic' : id;
   purchaseOpen.value = true;
   paymentError.value = '';
+  nativePayment.value = undefined;
   await loadQuote();
+}
+function closePurchase() {
+  purchaseOpen.value = false;
+  nativePayment.value = undefined;
 }
 function selectPlan(id: PlanId) {
   selectedPlanId.value = id;
   paymentError.value = '';
+  nativePayment.value = undefined;
   void loadQuote();
 }
 async function loadQuote() {
@@ -111,23 +118,45 @@ function requestPayment(payment: { timeStamp: string; nonceStr: string; package:
     uni.requestPayment(options as unknown as UniApp.RequestPaymentOptions);
   });
 }
-async function waitForPayment(orderId: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+async function waitForPayment(orderId: string, attempts = 10): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (!purchaseOpen.value) return false;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     try { if ((await membershipApi.order(orderId)).status === 'paid') return true; } catch { /* keep polling while the callback lands */ }
   }
   return false;
 }
+async function payNative() {
+  paymentError.value = '';
+  nativePayment.value = undefined;
+  try {
+    const result = await membershipApi.checkout(selectedPlanId.value, requestId(), 'native');
+    if (!result.native) throw new Error('扫码支付参数缺失，请稍后重试。');
+    nativePayment.value = result.native;
+    const confirmed = await waitForPayment(result.order.id, 120);
+    await load();
+    if (confirmed) {
+      purchaseOpen.value = false;
+      nativePayment.value = undefined;
+      uni.showToast({ title: '支付成功', icon: 'success' });
+    } else if (purchaseOpen.value) {
+      paymentError.value = '二维码已过期或尚未收到支付结果。若已付款请稍后刷新权益，否则请重新获取二维码。';
+    }
+  } catch (cause) {
+    paymentError.value = cause instanceof Error ? cause.message : '支付未完成，请稍后重试。';
+  }
+}
 async function pay() {
   if (!membership.value?.paymentAvailable || !selectedPlan.value || paying.value) return;
-  if (!miniProgram) { paymentError.value = '请在微信小程序内完成支付。'; return; }
-  if (iosDevice) { paymentError.value = 'iOS 端暂不支持购买虚拟会员，请使用 Android 或后续开放的方式。'; return; }
+  if (miniProgram && iosDevice) { paymentError.value = 'iOS 端暂不支持购买虚拟会员，请使用 Android 或后续开放的方式。'; return; }
   paying.value = true;
   paymentError.value = '';
   try {
+    if (!miniProgram) { await payNative(); return; }
     const code = await loginCode();
     await membershipApi.bindWechat(code);
     const result = await membershipApi.checkout(selectedPlanId.value, requestId());
+    if (!result.payment) throw new Error('支付参数缺失，请稍后重试。');
     await requestPayment(result.payment);
     const confirmed = await waitForPayment(result.order.id);
     await load();
@@ -146,7 +175,7 @@ onMounted(load);
 
 <template>
   <view class="benefits-panel">
-    <text class="benefits-preview-note">{{ membership?.mode === 'active' ? '支付暂未开放' : '方案预览 · 支付暂未开放' }}</text>
+    <text class="benefits-preview-note">{{ membership?.paymentAvailable ? '微信支付已开启 · 一个自然月 · 手动续费' : (membership?.mode === 'active' ? '支付暂未开放' : '方案预览 · 支付暂未开放') }}</text>
     <view v-if="loading" class="glass-panel benefits-state" role="status" aria-live="polite"><view class="benefits-loading" /><text>正在读取你的权益…</text></view>
     <view v-else-if="error" class="glass-panel benefits-state" role="alert"><AppIcon name="info" :size="24" /><text>{{ error }}</text><button class="button secondary" @click="load" role="button" tabindex="0">重新加载</button></view>
     <template v-else-if="membership">
@@ -194,14 +223,19 @@ onMounted(load);
       </view></scroll-view>
     </template>
 
-    <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? '微信支付 · 一个自然月 · 手动续费' : '当前为方案预览，支付暂未开放'" @close="purchaseOpen = false">
+    <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? (miniProgram ? '微信支付 · 一个自然月 · 手动续费' : '微信扫码支付 · 一个自然月 · 手动续费') : '当前为方案预览，支付暂未开放'" @close="closePurchase">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text>{{ price(plan.priceCents) }}</text></button></view>
       <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付后重算一个自然月' : '一个自然月 · 手动续费') }}</text></view><text class="benefits-summary-price">{{ price(selectedAmount) }}</text></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
       <view class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}已到期按新购计算，不自动续费。</text></view>
+      <view v-if="nativePayment" class="benefits-native-payment">
+        <image class="benefits-native-qr" :src="nativePayment.qrCodeDataUrl" mode="aspectFit" aria-label="微信支付二维码" />
+        <text class="benefits-native-title">请使用微信扫一扫支付 {{ price(selectedAmount) }}</text>
+        <text class="benefits-native-note">{{ paying ? '正在等待扫码支付结果…' : '二维码有效期 2 小时，支付成功后自动开通。' }}</text>
+      </view>
       <text v-if="paymentError" class="benefits-checkout-error" role="alert">{{ paymentError }}</text>
-      <view class="benefits-checkout-footer"><text>{{ !membership?.paymentAvailable ? '支付未开放，不会扣费或开通会员。' : iosDevice ? 'iOS 端暂不支持购买虚拟会员。' : !miniProgram ? '请在微信小程序内完成支付。' : '支付由微信安全处理，权益到账后立即生效。' }}</text>
-        <button v-if="canPay" class="button primary" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : `微信支付 ${price(selectedAmount)}` }}</button>
-        <button v-else class="button secondary" disabled role="button">{{ !membership?.paymentAvailable ? '支付暂未开放' : iosDevice ? 'iOS 暂不支持' : '请在小程序内支付' }}</button>
+      <view class="benefits-checkout-footer"><text>{{ !membership?.paymentAvailable ? '支付未开放，不会扣费或开通会员。' : miniProgram && iosDevice ? 'iOS 端暂不支持购买虚拟会员。' : !miniProgram ? '请使用微信扫描二维码完成支付，权益到账后立即生效。' : '支付由微信安全处理，权益到账后立即生效。' }}</text>
+        <button v-if="canPay" class="button primary" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : (miniProgram ? `微信支付 ${price(selectedAmount)}` : nativePayment ? '重新获取二维码' : `微信扫码支付 ${price(selectedAmount)}`) }}</button>
+        <button v-else class="button secondary" disabled role="button">{{ !membership?.paymentAvailable ? '支付暂未开放' : iosDevice ? 'iOS 暂不支持' : '暂不可支付' }}</button>
       </view>
     </AppModal>
   </view>
@@ -277,6 +311,10 @@ onMounted(load);
 .benefits-checkout-error { display: block; margin-top: 12px; color: #a23636; font-size: 13px; line-height: 1.8; }
 .benefits-checkout-message { display: flex; gap: 10px; align-items: flex-start; padding: 14px 16px; margin-top: 18px; background: #f4f6f9; border: 1px solid #d8dfe8; border-radius: 10px; font-size: 14px; color: #536174; line-height: 1.8; }
 .benefits-checkout-message .app-icon { margin-top: 4px; flex-shrink: 0; }
+.benefits-native-payment { margin-top: 20px; padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 10px; border: 1px solid #d8dfe8; border-radius: 12px; background: #fff; }
+.benefits-native-qr { width: 220px; height: 220px; display: block; }
+.benefits-native-title { font-size: 15px; color: #1f2937; line-height: 1.6; text-align: center; }
+.benefits-native-note { font-size: 13px; color: #536174; line-height: 1.6; text-align: center; }
 .benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .benefits-checkout-footer > text { font-size: 13px; color: #536174; line-height: 1.8; }
 @media (max-width: 850px) { .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); }.benefit-plan { padding: 24px; }.benefit-plan-top { align-items: center; }.benefit-price { margin: 18px 0 22px; }.benefit-card-list { margin-bottom: 24px; } }

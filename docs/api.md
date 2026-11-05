@@ -62,7 +62,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
 | GET | `/plans` | 返回 `free / basic / premium` 三档权益与服务器价格（分）；未配置支付时 `paymentAvailable` 为 false，价格仍返回当前服务端配置 |
 | GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade`、当前方案；升级补差价由服务端计算 |
-| POST | `/billing/checkout` | `{planId,requestId}` → 201 创建或复用 `pending` 订单，返回 `CheckoutResult`（订单摘要 + `wx.requestPayment` 参数）；未配置支付返回 503 `PAYMENT_NOT_CONFIGURED`；未绑定微信返回 409 `WECHAT_NOT_BOUND` |
+| POST | `/billing/checkout` | `{planId,requestId,channel?}`，`channel` 为 `jsapi`（默认，小程序）或 `native`（H5 扫码）→ 201 创建或复用 `pending` 订单；JSAPI 返回订单摘要 + `wx.requestPayment` 参数，Native 返回订单摘要 + `native.codeUrl/qrCodeDataUrl/expiresAt`；未配置支付返回 503 `PAYMENT_NOT_CONFIGURED`；JSAPI 未绑定微信返回 409 `WECHAT_NOT_BOUND`；同一 `requestId` 换方案/金额/支付方式返回 409 `IDEMPOTENCY_KEY_CONFLICT` |
 | GET | `/billing/orders/:id` | 返回当前会话本人的订单摘要（不含 prepayId 或其他用户订单）；不存在按 404 |
 | POST | `/billing/wechat/notify` | 微信支付 v3 异步通知入口，公开但必须通过平台公钥验签；处理成功返回 `{code:'SUCCESS'}`，失败返回错误且不发放会员 |
 | POST | `/auth/wechat/bind` | `{code}` → `{bound:true,openidMasked}`；服务端用小程序 code 换 openid 并绑定当前账号，绑定其他账号返回 409 |
