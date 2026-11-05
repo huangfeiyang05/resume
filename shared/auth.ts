@@ -19,7 +19,7 @@ export interface AuthSession {
   token?: string;
 }
 export interface AuthCapabilities {
-  emailPassword: true; wechat: false; phone: false;
+  emailPassword: true; wechat: boolean; phone: false;
   emailVerification: boolean; passwordReset: boolean;
 }
 /** Future server-side exchange, never a client-provided openId or phone as proof. */

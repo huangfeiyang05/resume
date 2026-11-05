@@ -59,7 +59,7 @@ export class AuthService {
 
   capabilities(): AuthCapabilities {
     const configured = this.emailCodes?.enabled === true;
-    return { emailPassword: true, wechat: false, phone: false, emailVerification: configured, passwordReset: configured };
+    return { emailPassword: true, wechat: this.wechat !== undefined, phone: false, emailVerification: configured, passwordReset: configured };
   }
 
   private configuredCodes(): EmailCodeService {

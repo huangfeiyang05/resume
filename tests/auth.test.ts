@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import type { AddressInfo } from 'node:net';
+import { AuthService } from '../server/auth.js';
 import { createApiServer } from '../server/http.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
@@ -166,6 +167,17 @@ test('anonymous requests are rejected and logout revokes the server session', as
   assert.equal((await f.request('/auth/me', 'GET', undefined, { cookie: registration.cookie })).status, 401);
   await f.restart();
   assert.equal((await f.request('/resumes', 'GET', undefined, { cookie: registration.cookie })).status, 401);
+});
+
+test('the wechat capability reflects whether a server identity provider is configured', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'youfang-wechat-cap-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new JsonStore(join(directory, 'database.json'));
+  const off = new AuthService(store, {});
+  assert.equal(off.capabilities().wechat, false);
+  const on = new AuthService(store, { wechat: { exchange: async () => ({ openid: 'openid-test' }) } });
+  assert.equal(on.capabilities().wechat, true);
+  assert.equal(on.capabilities().emailPassword, true);
 });
 
 test('expired sessions fail closed and bearer transport does not activate unfinished login providers', async t => {
