@@ -1,4 +1,9 @@
 {
-  "pages": [{ "path": "pages/index/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "简历有方", "enablePullDownRefresh": false } }],
+  "pages": [
+    { "path": "pages/index/index", "style": { "navigationStyle": "custom", "navigationBarTitleText": "简历有方", "enablePullDownRefresh": false } },
+    { "path": "pages/legal/privacy", "style": { "navigationStyle": "custom", "navigationBarTitleText": "隐私政策", "enablePullDownRefresh": false } },
+    { "path": "pages/legal/terms", "style": { "navigationStyle": "custom", "navigationBarTitleText": "用户协议", "enablePullDownRefresh": false } },
+    { "path": "pages/legal/contact", "style": { "navigationStyle": "custom", "navigationBarTitleText": "联系我们", "enablePullDownRefresh": false } }
+  ],
   "globalStyle": { "backgroundColor": "#f5f5f7", "navigationBarTextStyle": "black" }
 }

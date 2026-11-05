@@ -222,3 +222,30 @@ input::placeholder, textarea::placeholder { color: #68778b; opacity: 1; }
   .header-inner { padding: 0 14px; }
   .header-benefits { gap: 5px; }
 }
+
+/* 法律信息页面（隐私政策 / 用户协议 / 联系我们） */
+.legal-page { min-height: 100vh; background: var(--app-background); color: var(--ink); }
+.legal-topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; max-width: 960px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 14px; box-sizing: border-box; }
+.legal-back, .legal-brand { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; margin: 0; padding: 8px 12px; border: 1px solid var(--glass-line); border-radius: 12px; background: rgba(255,255,255,.62); color: var(--ink); font-size: 14px; line-height: 1.4; box-shadow: 0 4px 14px #31537310; }
+.legal-back { color: var(--muted); }
+.legal-brand { font-weight: 600; }
+.legal-brand-logo { width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0; }
+.legal-back:hover, .legal-brand:hover, .legal-back:focus-visible, .legal-brand:focus-visible { color: var(--blue); }
+.legal-shell { width: 100%; max-width: 900px; margin: 0 auto; padding: 6px 20px 40px; box-sizing: border-box; }
+.legal-document { padding: 36px 40px 30px; border-radius: 22px; box-sizing: border-box; }
+.legal-title { display: block; font-size: 26px; line-height: 1.4; font-weight: 650; letter-spacing: -.01em; color: var(--ink); }
+.legal-meta { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.legal-section { margin-top: 30px; }
+.legal-heading { display: block; margin-bottom: 10px; font-size: 16px; font-weight: 650; line-height: 1.6; color: var(--ink); }
+.legal-paragraph { display: block; margin-top: 8px; font-size: 14px; line-height: 1.95; color: var(--ink); overflow-wrap: anywhere; }
+.legal-item { display: block; margin-top: 7px; font-size: 14px; line-height: 1.95; color: var(--ink); overflow-wrap: anywhere; }
+.legal-pending { color: #9a5b00; background: #fff6e4; border: 1px solid #f1d49b; border-radius: 10px; padding: 10px 12px; }
+@media (max-width: 768px) {
+  .legal-topbar { padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px; }
+  .legal-back, .legal-brand { min-height: 36px; padding: 7px 10px; font-size: 13px; }
+  .legal-shell { padding: 2px 12px calc(28px + env(safe-area-inset-bottom, 0px)); }
+  .legal-document { padding: 24px 18px 20px; border-radius: 18px; }
+  .legal-title { font-size: 22px; }
+  .legal-section { margin-top: 24px; }
+  .legal-paragraph, .legal-item { font-size: 14px; line-height: 1.9; }
+}
