@@ -145,9 +145,9 @@ for path in \
   api/server/assets/career/catalog.json api/server/assets/fonts/SourceHanSansCN-Regular.otf \
   api/node_modules/yaml/package.json api/node_modules/nodemailer/package.json \
   api/node_modules/pdfkit/package.json api/node_modules/jszip/package.json \
-  www/static/resume-templates/classic-onyx.docx www/static/resume-templates/classic-onyx.png \
-  www/static/resume-templates/blue-azurill.docx www/static/resume-templates/blue-azurill.png \
-  www/static/resume-templates/navy-chikorita.docx www/static/resume-templates/navy-chikorita.png; do
+  www/static/resume-templates/classic-onyx.docx www/static/resume-templates/classic-onyx.jpg \
+  www/static/resume-templates/blue-azurill.docx www/static/resume-templates/blue-azurill.jpg \
+  www/static/resume-templates/navy-chikorita.docx www/static/resume-templates/navy-chikorita.jpg; do
   [[ -f "$RELEASE_DIR/$path" && ! -L "$RELEASE_DIR/$path" ]] || abort
 done
 "$NODE" --input-type=module - "$RELEASE_DIR" "$expected_commit" >/dev/null 2>&1 <<'NODE'
