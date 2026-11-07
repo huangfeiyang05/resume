@@ -1,5 +1,27 @@
 {
-  "name": "简历有方", "appid": "", "description": "把经历，写成竞争力", "versionName": "0.1.0", "versionCode": "100", "vueVersion": "3", "uniStatistics": { "enable": false },
-  "h5": { "title": "简历有方 · 把经历，写成竞争力", "router": { "mode": "hash" } },
-  "mp-weixin": { "appid": "wx7c30911964bf6fe7", "setting": { "urlCheck": true, "es6": true, "minified": true }, "usingComponents": true }
+  "name": "简历有方",
+  "appid": "",
+  "description": "把经历，写成竞争力",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "vueVersion": "3",
+  "uniStatistics": {
+    "enable": false
+  },
+  "h5": {
+    "title": "简历有方 · 把经历，写成竞争力",
+    "router": {
+      "mode": "hash"
+    }
+  },
+  "mp-weixin": {
+    "appid": "wx7c30911964bf6fe7",
+    "setting": {
+      "urlCheck": true,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "lazyCodeLoading": "requiredComponents"
+  }
 }

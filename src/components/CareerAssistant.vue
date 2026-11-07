@@ -142,7 +142,7 @@ function tailor(job: CareerJob) {
 <template>
   <view class="glass-panel career-assistant">
     <view class="assistant-head">
-      <view class="assistant-avatar assistant-avatar-head"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /></view>
+      <view class="assistant-avatar assistant-avatar-head"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" aria-label="求职助手" /></view>
       <view class="assistant-head-main">
         <view class="assistant-title-row"><text class="assistant-title">求职助手</text><text class="assistant-mode">规则检索</text></view>
       </view>
@@ -206,14 +206,14 @@ function tailor(job: CareerJob) {
       <scroll-view class="assistant-stream" scroll-y :scroll-into-view="scrollAnchor" :scroll-with-animation="true">
         <view class="assistant-stream-inner">
         <view v-if="!messages.length && !pendingMessage" id="msg-welcome" class="assistant-welcome">
-          <view class="assistant-welcome-avatar"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /></view>
+          <view class="assistant-welcome-avatar"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" aria-label="求职助手" /></view>
           <text class="assistant-welcome-title">你想找什么岗位？</text>
           <text class="assistant-welcome-text">选择简历，告诉我你的目标岗位和城市。</text>
           <view class="assistant-prompts"><button v-for="prompt in quickPrompts" :key="prompt" :disabled="loading || !!updatedResume" @click="quickAsk(prompt)" role="button" tabindex="0"><text>{{ prompt }}</text><AppIcon name="arrow" :size="12" /></button></view>
         </view>
 
         <view v-for="item in messages" :id="`msg-${item.id}`" :key="item.id" class="assistant-turn" :class="item.role">
-          <view class="assistant-avatar" :class="item.role"><image v-if="item.role === 'assistant'" class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /><AppIcon v-else name="user" :size="17" /></view>
+          <view class="assistant-avatar" :class="item.role"><image v-if="item.role === 'assistant'" class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" aria-label="求职助手" /><AppIcon v-else name="user" :size="17" /></view>
           <view class="assistant-turn-body">
             <text class="assistant-message-label">{{ item.role === 'user' ? '你' : '求职助手' }}</text>
             <view class="assistant-bubble"><text class="assistant-message-content" selectable>{{ item.content }}</text></view>
@@ -243,7 +243,7 @@ function tailor(job: CareerJob) {
           <view class="assistant-turn-body"><text class="assistant-message-label">你{{ loading ? '' : ' · 尚未完成' }}</text><view class="assistant-bubble"><text class="assistant-message-content" selectable>{{ pendingMessage }}</text></view></view>
         </view>
         <view v-if="loading" id="msg-typing" class="assistant-turn assistant">
-          <view class="assistant-avatar assistant"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" alt="求职助手" /></view>
+          <view class="assistant-avatar assistant"><image class="assistant-avatar-image" src="/static/brand/logo.png" mode="aspectFill" aria-label="求职助手" /></view>
           <view class="assistant-turn-body"><text class="assistant-message-label">求职助手</text><view class="assistant-bubble assistant-bubble-pending"><view class="assistant-typing"><view></view><view></view><view></view></view><text class="assistant-typing-text">{{ selectedResume ? '正在核对所选简历与资料…' : '正在检索企业资料…' }}</text></view></view>
         </view>
         </view>

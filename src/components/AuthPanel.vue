@@ -100,7 +100,7 @@ function submit() {
 
 <template>
   <view class="auth-page">
-    <view class="auth-brand"><image class="auth-logo" src="/static/brand/logo.png" mode="aspectFill" alt="简历有方 Logo" /><text>简历有方</text></view>
+    <view class="auth-brand"><image class="auth-logo" src="/static/brand/logo.png" mode="aspectFill" aria-label="简历有方 Logo" /><text>简历有方</text></view>
     <view class="auth-layout">
       <view class="auth-intro">
         <text class="auth-intro-title">{{ '简历与求职，\n一处管理。' }}</text>

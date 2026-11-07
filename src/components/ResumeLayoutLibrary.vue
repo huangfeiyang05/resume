@@ -32,7 +32,7 @@ function choosePreviewLayout() {
     <view class="layout-template-grid">
       <view v-for="item in resumeTemplates" :key="item.id" class="layout-template-card" :class="[`layout-${item.layout}`, { selected: selectedLayout === item.layout }]">
         <button class="layout-template-preview" :aria-label="`选择${item.name}布局`" :aria-pressed="selectedLayout === item.layout" @click="emit('select', item)" role="button" tabindex="0">
-          <image class="layout-template-image" :src="item.previewUrl" mode="widthFix" :alt="`${item.name}完整预览，展示个人信息、照片位和各简历栏目`" :aria-label="`${item.name}完整简历预览`" />
+          <image class="layout-template-image" :src="item.previewUrl" mode="widthFix" :aria-label="`${item.name}完整预览，展示个人信息、照片位和各简历栏目`" />
         </button>
 
         <button class="layout-template-choice" :aria-label="`选择${item.name}，${item.caption}`" :aria-pressed="selectedLayout === item.layout" @click="emit('select', item)" role="button" tabindex="0">
@@ -63,7 +63,7 @@ function choosePreviewLayout() {
       </view>
     </view>
     <view class="layout-modal-document">
-      <image class="layout-modal-image" :src="previewTemplate.previewUrl" mode="widthFix" :alt="`${previewTemplate.name}完整页面，包含个人信息、照片位、教育背景、技能、证书、经历与自我评价`" :aria-label="`${previewTemplate.name}完整页面预览`" />
+      <image class="layout-modal-image" :src="previewTemplate.previewUrl" mode="widthFix" :aria-label="`${previewTemplate.name}完整页面，包含个人信息、照片位、教育背景、技能、证书、经历与自我评价`" />
     </view>
   </AppModal>
 </template>

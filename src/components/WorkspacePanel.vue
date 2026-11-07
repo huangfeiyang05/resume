@@ -191,7 +191,7 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
 
 <template>
   <view class="app-shell liquid-app">
-    <view class="glass-header"><view class="header-inner"><button class="header-brand" @click="navigate('overview')" role="button" tabindex="0"><view class="brand-mark"><image class="brand-logo" src="/static/brand/logo.png" mode="aspectFill" alt="简历有方 Logo" /></view><text>简历有方</text></button><view class="desktop-tabs"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="navigate(tab.id)" role="button" tabindex="0">{{ tab.label }}</button></view><button class="header-benefits" @click="navigate('benefits')" role="button" tabindex="0"><AppIcon name="crown" :size="16" /><text>我的权益</text></button></view></view>
+    <view class="glass-header"><view class="header-inner"><button class="header-brand" @click="navigate('overview')" role="button" tabindex="0"><view class="brand-mark"><image class="brand-logo" src="/static/brand/logo.png" mode="aspectFill" aria-label="简历有方 Logo" /></view><text>简历有方</text></button><view class="desktop-tabs"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="navigate(tab.id)" role="button" tabindex="0">{{ tab.label }}</button></view><button class="header-benefits" @click="navigate('benefits')" role="button" tabindex="0"><AppIcon name="crown" :size="16" /><text>我的权益</text></button></view></view>
     <view class="content">
       <template v-if="page === 'overview'">
         <view class="home-intro"><view><text class="home-title">简历与岗位</text></view><button class="sample-link" :disabled="!!busy" @click="useExample()" role="button" tabindex="0">使用示例<AppIcon name="arrow" :size="15" /></button></view>

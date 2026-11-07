@@ -21,7 +21,7 @@ function goBack(): void {
   <view class="legal-page">
     <view class="legal-topbar">
       <button class="legal-back" type="button" role="button" tabindex="0" @click="goBack"><text aria-hidden="true">←</text><text>返回</text></button>
-      <button class="legal-brand" type="button" role="button" tabindex="0" @click="goHome"><image class="legal-brand-logo" src="/static/brand/logo.png" mode="aspectFill" alt="简历有方 Logo" /><text>简历有方</text></button>
+      <button class="legal-brand" type="button" role="button" tabindex="0" @click="goHome"><image class="legal-brand-logo" src="/static/brand/logo.png" mode="aspectFill" aria-label="简历有方 Logo" /><text>简历有方</text></button>
       <view class="legal-topbar-spacer" />
     </view>
     <view class="legal-shell">
