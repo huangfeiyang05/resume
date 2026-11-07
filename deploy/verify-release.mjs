@@ -1,7 +1,7 @@
 // Command-line checks against compiled artifacts and an isolated temporary database.
 // No real accounts, SMTP, SMS, model calls, production writes, browser or visual checks.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +20,15 @@ const auth = new AuthService(store, { phoneCodes, now: () => fixtureTime, requir
 const server = createApiServer(new ResumeService(store), { secureCookies: false, auth });
 const checks = [];
 try {
+  // The existing server serves .js as JavaScript; .mjs can be octet-stream and blocked by nosniff.
+  const assetNames = await readdir(join(releaseRoot, 'www/assets'));
+  const pdfWorkers = assetNames.filter(name => /^pdf\.worker.*\.js$/.test(name));
+  assert.equal(pdfWorkers.length, 1, 'PDF worker must be emitted as a JavaScript asset');
+  assert.equal(assetNames.some(name => /^pdf\.worker.*\.mjs$/.test(name)), false);
+  const scripts = await Promise.all(assetNames.filter(name => name.endsWith('.js') && !pdfWorkers.includes(name))
+    .map(name => readFile(join(releaseRoot, 'www/assets', name), 'utf8')));
+  assert.ok(scripts.some(script => script.includes(pdfWorkers[0])), 'PDF parser must reference the emitted worker');
+  checks.push('pdf-worker-module-has-javascript-extension-and-reference');
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const base = `http://127.0.0.1:${server.address().port}/api/v1`;
   async function request(route, method = 'GET', input, cookie) {
