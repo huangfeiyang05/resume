@@ -34,13 +34,38 @@ try {
     assert.equal(result.status, 201);
     return result.headers.get('set-cookie').split(';')[0];
   }
-  for (const path of ['/resumes', '/career', '/career/companies', '/membership', '/membership/quota']) assert.equal((await request(path)).status, 401);
+  for (const path of ['/resumes', '/career', '/career/companies', '/membership', '/membership/quota', '/membership/workbench']) assert.equal((await request(path)).status, 401);
   assert.equal((await request('/career/assistant', 'POST', { requirements: '', message: '查找企业' })).status, 401);
   checks.push('private-routes-require-session');
-  const owner = await account(), other = await account();
+  const owner = await account(), other = await account(), quotaAccount = await account();
   const preview = await request('/membership', 'GET', undefined, owner);
   assert.equal(preview.body.data.quota.status, 'preview');
   assert.equal(preview.body.data.quota.remainingPercent, null);
+  const freeAccess = await request('/membership/workbench', 'GET', undefined, owner);
+  assert.equal(freeAccess.body.data.planId, 'free');
+  assert.ok(Object.values(freeAccess.body.data.features).every(value => value === false));
+  const lockedWorkspace = await request('/career', 'GET', undefined, owner);
+  for (const key of ['jobs', 'materials', 'portals', 'favoriteJobIds', 'applications']) assert.deepEqual(lockedWorkspace.body.data[key], []);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).status, 403);
+  assert.equal((await request('/career/assistant', 'POST', { message: '查找企业', planId: 'premium' }, owner)).status, 403);
+  const userId = (await request('/auth/me', 'GET', undefined, owner)).body.data.user.id;
+  const quotaUserId = (await request('/auth/me', 'GET', undefined, quotaAccount)).body.data.user.id;
+  const quota = new QuotaService(store);
+  // Trusted synthetic events affect only this isolated database, never a provider or production account.
+  for (const cookie of [owner, other, quotaAccount]) {
+    const fixtureUserId = (await request('/auth/me', 'GET', undefined, cookie)).body.data.user.id;
+    await quota.activateMembership({ userId: fixtureUserId, planId: cookie === quotaAccount ? 'basic' : 'premium', verifiedPaymentAt: new Date().toISOString(), verifiedEventId: `fixture-${randomUUID()}`, idempotencyKey: `fixture-${randomUUID()}` });
+  }
+  const basicAccess = (await request('/membership/workbench', 'GET', undefined, quotaAccount)).body.data;
+  assert.equal(basicAccess.planId, 'basic');
+  assert.equal(basicAccess.features.resumeOptimization, true);
+  assert.equal(basicAccess.features.careerAssistant, false);
+  assert.equal((await request('/career/companies', 'GET', undefined, quotaAccount)).status, 403);
+  assert.deepEqual((await request('/career', 'GET', undefined, quotaAccount)).body.data.materials, []);
+  const premiumAccess = (await request('/membership/workbench', 'GET', undefined, owner)).body.data;
+  assert.equal(premiumAccess.planId, 'premium');
+  assert.ok(Object.values(premiumAccess.features).every(value => value === true));
+  checks.push('trusted-workbench-tiers-and-no-locked-content-leakage');
   const companies = await request('/career/companies', 'GET', undefined, owner);
   assert.equal(companies.status, 200);
   assert.equal(companies.body.data.access, 'authenticated-test');
@@ -49,7 +74,7 @@ try {
   assert.deepEqual(companies.body.data.items, []);
   assert.equal((await request('/career/companies?page=0', 'GET', undefined, owner)).status, 400);
   assert.equal((await request('/career/companies/missing-company', 'GET', undefined, owner)).status, 404);
-  checks.push('shared-company-test-access-honest-empty-state-and-query-validation');
+  checks.push('premium-company-access-honest-empty-state-and-query-validation');
   const workspace = await request('/career', 'GET', undefined, owner);
   assert.equal(workspace.status, 200);
   assert.equal(workspace.body.data.catalogState, 'ready');
@@ -96,19 +121,16 @@ try {
   assert.deepEqual((await request(`${path}/versions`, 'GET', undefined, owner)).body.data.map(item => item.revision), [3, 2, 1]);
   checks.push('revision-conflicts-private-history-and-idempotent-restoration');
   // Synthetic trusted events test compiled ledger behavior only; no real membership or provider request.
-  const userId = (await request('/auth/me', 'GET', undefined, owner)).body.data.user.id;
-  const quota = new QuotaService(store);
-  await quota.activateMembership({ userId, planId: 'basic', verifiedPaymentAt: new Date().toISOString(), verifiedEventId: `fixture-${randomUUID()}`, idempotencyKey: `fixture-${randomUUID()}` });
-  await quota.reserve(userId, 'release-quota-fixture', 'a'.repeat(64), 50000);
-  await quota.dispatch(userId, 'release-quota-fixture');
-  await quota.settle(userId, 'release-quota-fixture', { inputTokens: 30000, outputTokens: 10000, totalTokens: 40000 });
-  const summary = (await request('/membership/quota', 'GET', undefined, owner)).body.data;
+  await quota.reserve(quotaUserId, 'release-quota-fixture', 'a'.repeat(64), 50000);
+  await quota.dispatch(quotaUserId, 'release-quota-fixture');
+  await quota.settle(quotaUserId, 'release-quota-fixture', { inputTokens: 30000, outputTokens: 10000, totalTokens: 40000 });
+  const summary = (await request('/membership/quota', 'GET', undefined, quotaAccount)).body.data;
   assert.equal(summary.remainingPercent, 80);
   assert.deepEqual(Object.keys(summary).sort(), ['expiresAt', 'pending', 'remainingPercent', 'resetsAt', 'status']);
-  assert.equal((await request('/membership/quota', 'GET', undefined, other)).body.data.remainingPercent, null);
+  assert.equal((await request('/membership/quota', 'GET', undefined, other)).body.data.remainingPercent, 100);
   assert.equal((await request('/analyses', 'POST', { resumeId: original.id, resumeRevision: 3 }, owner)).status, 201);
-  assert.equal((await request('/membership/quota', 'GET', undefined, owner)).body.data.remainingPercent, 80);
-  assert.equal((await new QuotaService(new JsonStore(store.path)).current(userId)).remainingPercent, 80);
+  assert.equal((await request('/membership/quota', 'GET', undefined, owner)).body.data.remainingPercent, 100);
+  assert.equal((await new QuotaService(new JsonStore(store.path)).current(quotaUserId)).remainingPercent, 80);
   checks.push('percentage-only-private-quota-actual-token-ledger-reload-and-free-rules');
   const phoneChallenge = await request('/auth/phone/code', 'POST', { phone: '13900000001', purpose: 'bind-phone' }, owner);
   assert.equal(phoneChallenge.status, 202);
@@ -127,7 +149,7 @@ try {
   checks.push('synthetic-sms-phone-registration-binding-same-account-and-phone-only-storage');
   assert.equal((await request(path, 'DELETE', undefined, owner)).status, 200);
   assert.equal((await request(`${path}/versions`, 'GET', undefined, owner)).status, 404);
-  for (const cookie of [owner, other]) assert.equal((await request('/auth/logout', 'POST', {}, cookie)).status, 200);
+  for (const cookie of [owner, other, quotaAccount]) assert.equal((await request('/auth/logout', 'POST', {}, cookie)).status, 200);
   checks.push('deletion-cleans-history-and-sessions-can-logout');
   console.log(JSON.stringify({ passed: true, checks, isolatedDatabase: true, realEmailsSent: 0, realSmsSent: 0, modelCalls: 0, visualVerification: false, weixinDeviceVerification: false }));
 } finally {

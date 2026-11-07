@@ -12,6 +12,7 @@ import { companyCatalogLimits, validateCompanyCatalog, validateCompanyRecord, va
 import { createApiServer } from '../server/http.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
+import { QuotaService } from '../server/quota.js';
 
 const timestamp = '2026-10-30T00:00:00+08:00';
 function company(overrides: Partial<CompanyRecord> = {}): CompanyRecord {
@@ -37,7 +38,8 @@ async function directory(t: TestContext) {
 }
 async function fixture(t: TestContext) {
   const root = await directory(t), catalogPath = join(root, 'company-catalog.json');
-  const server = createApiServer(new ResumeService(new JsonStore(join(root, 'resumes.json'))));
+  const store = new JsonStore(join(root, 'resumes.json'));
+  const server = createApiServer(new ResumeService(store));
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); });
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1`;
@@ -51,6 +53,10 @@ async function fixture(t: TestContext) {
   async function account(label: string) {
     const result = await request('/auth/register', 'POST', { email: `${label}@example.test`, password: 'Synthetic26!' });
     assert.equal(result.status, 201);
+    await new QuotaService(store).activateMembership({
+      userId: result.body.data.user.id, planId: 'premium', verifiedPaymentAt: new Date().toISOString(),
+      verifiedEventId: `synthetic-event-${label}`, idempotencyKey: `synthetic-member-${label}`,
+    });
     const cookie = result.headers.get('set-cookie')!.split(';')[0];
     return (path: string, method = 'GET', input?: unknown) => request(path, method, input, cookie);
   }
@@ -193,7 +199,7 @@ test('ownership keyword synonyms apply only to explicit source nature labels and
   assert.equal(searchCompanies(snapshot, { filters: { natures: ['国企'] } }).total, 0, 'facet filters continue to select original labels exactly');
 });
 
-test('company APIs require a session, share reference data during testing and reject client identity or membership assertions', async t => {
+test('company APIs require a trusted premium membership, share reference data and reject client identity or membership assertions', async t => {
   const f = await fixture(t);
   assert.equal((await f.request('/career/companies')).status, 401);
   assert.equal((await f.request('/career/companies/synthetic-alpha')).status, 401);

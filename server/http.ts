@@ -17,6 +17,8 @@ import { CompanyCatalogRepository } from './company-catalog.js';
 import { validateCompanyId, validateCompanySearchParams } from './company-validation.js';
 import { searchCompanies } from './company-search.js';
 import { answerCareerAssistant } from './career-assistant.js';
+import { assertWorkbenchFeature, getWorkbenchAccess } from './workbench-access.js';
+import type { CareerWorkspace } from '../shared/types.js';
 
 function json(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Cookie, Authorization' });
@@ -109,8 +111,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     ...(options.paymentMchid ? { mchid: options.paymentMchid } : {}),
     ...(options.paymentNotifyUrl ? { notifyUrl: options.paymentNotifyUrl } : {}),
   });
-  // Shared company reference data is available to authenticated users during testing.
-  // Future paid access belongs here on the server, never in a client-supplied tier.
+  // Shared company reference data requires a currently effective trusted membership.
   const companies = new CompanyCatalogRepository(options.companyCatalogPath ?? join(dirname(baseService.store.path), 'company-catalog.json'));
   const secureCookies = options.secureCookies ?? process.env.NODE_ENV === 'production';
   const trustedOrigins = new Set(options.trustedOrigins ?? ['http://127.0.0.1:5173', 'http://localhost:5173']);
@@ -247,6 +248,10 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       } else if (path === '/api/v1/membership/quota') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await jobs.quota.current(service.userId) });
+      } else if (path === '/api/v1/membership/workbench') {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '工作台会员权限不接受查询参数。');
+        json(response, 200, { data: await getWorkbenchAccess(service.store, service.userId) });
       } else if (path === '/api/v1/plans') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: payments.plans() });
@@ -266,35 +271,51 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         json(response, 200, { data: await payments.getOrder(service.userId, decodeURIComponent(match[1])) });
       } else if (path === '/api/v1/career') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        json(response, 200, { data: await career.workspace() });
+        const access = await getWorkbenchAccess(service.store, service.userId);
+        const workspace: CareerWorkspace = access.features.companyJobs ? await career.workspace() : {
+          mode: 'preview', externalDeliveryAvailable: false, catalogState: 'empty',
+          catalogMessage: '升级高级会员解锁公司岗位、招聘入口、复习资料和投递计划。',
+          jobs: [], materials: [], portals: [], favoriteJobIds: [], applications: [],
+        };
+        json(response, 200, { data: workspace });
       } else if (path === '/api/v1/career/companies') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const input = validateCompanySearchParams(url.searchParams);
+        await assertWorkbenchFeature(service.store, service.userId, 'companyJobs');
         json(response, 200, { data: searchCompanies(await companies.load(), input) });
       } else if (path === '/api/v1/career/assistant') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '求职助手不接受查询参数。');
+        await assertWorkbenchFeature(service.store, service.userId, 'careerAssistant');
         json(response, 200, { data: await answerCareerAssistant(service, companies, await body(request)) });
       } else if ((match = path.match(/^\/api\/v1\/career\/companies\/([^/]+)$/))) {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '企业详情不接受查询参数。');
         let id: string;
         try { id = decodeURIComponent(match[1]); } catch { throw new HttpError(400, 'VALIDATION_ERROR', '企业 ID 格式无效。'); }
-        json(response, 200, { data: await companies.get(validateCompanyId(id)) });
+        const companyId = validateCompanyId(id);
+        await assertWorkbenchFeature(service.store, service.userId, 'companyJobs');
+        json(response, 200, { data: await companies.get(companyId) });
       } else if (path === '/api/v1/career/jobs') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await assertWorkbenchFeature(service.store, service.userId, 'companyJobs');
         json(response, 201, { data: await career.createJob(await body(request)) });
       } else if ((match = path.match(/^\/api\/v1\/career\/jobs\/([^/]+)$/))) {
         if (method !== 'DELETE') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await career.deleteJob(match[1]) });
       } else if ((match = path.match(/^\/api\/v1\/career\/favorites\/([^/]+)$/))) {
         if (method !== 'PUT') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await assertWorkbenchFeature(service.store, service.userId, 'companyJobs');
         json(response, 200, { data: await career.favorite(match[1], await body(request)) });
       } else if (path === '/api/v1/career/applications') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await assertWorkbenchFeature(service.store, service.userId, 'applications');
         json(response, 201, { data: await career.createApplication(await body(request)) });
       } else if ((match = path.match(/^\/api\/v1\/career\/applications\/([^/]+)$/))) {
-        if (method === 'PUT' || method === 'PATCH') json(response, 200, { data: await career.updateApplication(match[1], await body(request)) });
+        if (method === 'PUT' || method === 'PATCH') {
+          await assertWorkbenchFeature(service.store, service.userId, 'applications');
+          json(response, 200, { data: await career.updateApplication(match[1], await body(request)) });
+        }
         else if (method === 'DELETE') json(response, 200, { data: await career.deleteApplication(match[1], await body(request)) });
         else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
       } else if ((match = path.match(/^\/api\/v1\/resumes\/([^/]+)\/versions\/([^/]+)\/restore$/))) {

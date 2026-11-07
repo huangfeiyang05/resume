@@ -18,6 +18,7 @@ export interface ResumeExportFile extends ResumeExportInput {
 export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput } from './membership.js';
 export type { PaymentOrder, PaymentOrderStatus, PaymentChannel, WechatPaymentParams, NativePaymentParams, AlipayPaymentParams, CheckoutResult, MembershipQuote, WechatBindResult } from './payment.js';
 export type { AiQuotaSummary } from './quota.js';
+export type { WorkbenchAccess, WorkbenchFeature } from './workbench.js';
 export type { ApplicationStatus, CareerJob, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
 export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, WechatLoginInput, PhoneLoginInput } from './auth.js';
 export type { EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput } from './auth.js';

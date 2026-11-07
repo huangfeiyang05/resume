@@ -2,7 +2,7 @@ import type { MembershipPolicy, MembershipPreview, MembershipState, AiQuotaSumma
 import { HttpError, invalid } from './errors.js';
 import { defaultPricing, type BillingPricing } from './payment-config.js';
 
-/** Current product design. Paid benefits are neither sold nor enforced in preview mode. */
+/** Displayed plans; workbench access is resolved separately from trusted membership records. */
 const plans: Plan[] = [
   {
     id: 'free', name: '免费体验', priceCents: 0, durationMonths: 0, periodLabel: '免费',
@@ -15,7 +15,7 @@ const plans: Plan[] = [
   },
   {
     id: 'basic', name: '初级会员', priceCents: null, durationMonths: 1, periodLabel: '月', highlight: '优化简历',
-    description: '规划权益：简历优化，逐项对照审核，确认后再应用。',
+    description: '工作台简历优化，逐项对照审核，确认后再应用。',
     features: {
       templates: '包含基础模板', optimization: '包含', companyJobs: '不包含',
       studyMaterials: '不包含', smartDelivery: '不包含',
@@ -24,7 +24,7 @@ const plans: Plan[] = [
   },
   {
     id: 'premium', name: '高级会员', priceCents: null, durationMonths: 1, periodLabel: '月', highlight: '精选投递',
-    description: '规划权益：包含初级权益，增加分专业岗位资料、复习资料与精选投递。',
+    description: '包含初级权益，增加公司岗位、招聘入口、复习资料与手动投递计划。',
     features: {
       templates: '包含基础模板', optimization: '包含初级全部优化权益', companyJobs: '分专业岗位筛选、收藏与官方招聘入口',
       studyMaterials: '分专业原创准备清单与复习提纲', smartDelivery: '精选投递计划与手动进度记录',

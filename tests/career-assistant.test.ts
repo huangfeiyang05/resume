@@ -8,6 +8,7 @@ import type { CompanyRecord } from '../shared/company.js';
 import { answerCareerAssistant, assistantLocationMatches, validateCareerAssistantInput } from '../server/career-assistant.js';
 import { CompanyCatalogRepository } from '../server/company-catalog.js';
 import { CareerService } from '../server/career.js';
+import { QuotaService } from '../server/quota.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
 import { createApiServer } from '../server/http.js';
@@ -200,6 +201,10 @@ test('assistant HTTP route requires trusted authentication, allows only POST and
   assert.equal((await request('/career/assistant', 'POST', input)).status, 401);
   const registered = await request('/auth/register', 'POST', { email: 'assistant-http@example.test', password: 'Synthetic26!' });
   assert.equal(registered.status, 201);
+  await new QuotaService(f.store).activateMembership({
+    userId: registered.body.data.user.id, planId: 'premium', verifiedPaymentAt: new Date().toISOString(),
+    verifiedEventId: 'synthetic-assistant-http-event', idempotencyKey: 'synthetic-assistant-http-membership',
+  });
   const cookie = registered.headers.get('set-cookie')!.split(';')[0];
   assert.equal((await request('/career/assistant', 'GET', undefined, cookie)).status, 405);
   assert.equal((await request('/career/assistant?membership=premium', 'POST', input, cookie)).status, 400);

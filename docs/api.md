@@ -1,14 +1,27 @@
 # 项目 API 契约
 
+## 工作台会员权限（2026-11-07）
+
+`GET /api/v1/membership/workbench` 要求有效会话且不接受查询参数，返回 `WorkbenchAccess`：`{planId,expiresAt,features}`。服务端只从当前会话账号的持久化会员记录判断，须满足 `startsAt <= 当前服务端时间 < expiresAt`；没有记录、未生效或到期均返回 `planId: free`、`expiresAt: null` 及全部 `features: false`。读取记录失败返回 503 `WORKBENCH_ACCESS_UNAVAILABLE`，客户端显示重试，不将错误或加载状态判为免费身份。
+
+| `features` 字段 | 所需有效会员 |
+| --- | --- |
+| `resumeOptimization` | 初级或高级 |
+| `careerAssistant`、`companyJobs`、`recruitmentPortals`、`studyMaterials`、`applications` | 高级 |
+
+H5 与微信工作台依据该响应显示锁态，点击提示所需等级并可进入“权益”。客户端自报会员、套餐选择、设备时间、额度百分比和支付返回结果均不授予权限。受限查询与写入在各自 API 再检查，权限不足为 403 `WORKBENCH_MEMBERSHIP_REQUIRED`。此规则替代此前登录账号共享工作台的测试安排；`/membership` 的 `preview` 和 `limitsEnforced: false` 不表示工作台全部开放。
+
+本轮权限限制工作台入口；首页及“我的”的免费简历编辑、规则检查、已有报告、审核与确认应用、基础模板和导出保留。真实模型仍使用原有告知、服务端配置和 Token 周额度，不因本次工作台变更启用新的模型或支付配置。
+
 ## 工作台求职助手
 
-`POST /api/v1/career/assistant` 要求有效会话，请求为 `{resumeId?,resumeRevision?,requirements,message,history?}`。选择简历时必须同时提供 ID 和修订号；服务端从本人资料读取正文，检查版本并返回输入 hash 与有限的文本依据，不能由客户端传入另一人的正文或会员身份。对话历史仅用于本次请求，不写入简历或账号数据库。
+`POST /api/v1/career/assistant` 要求有效会话及高级会员的 `careerAssistant` 权限，请求为 `{resumeId?,resumeRevision?,requirements,message,history?}`。选择简历时必须同时提供 ID 和修订号；服务端从本人资料读取正文，检查版本并返回输入 hash 与有限的文本依据，不能由客户端传入另一人的正文或会员身份。对话历史仅用于本次请求，不写入简历或账号数据库。
 
 响应 `engine: local-rules`，包含文字回答、识别的查询条件、未能核验的要求、最多 5 条企业历史资料及最多 5 条本人目标岗位。多轮对话可调整地区等已支持条件；薪资、当前在招等没有数据支撑的要求明确保留为待核对，不给招聘匹配率。空库、损坏目录、过期简历和无匹配分别处理，不静默放宽条件制造结果。修改请求只返回版本绑定的 `analyze-resume` 操作，用户点击后调用原诊断流程，再逐条审核与确认应用；助手接口本身不修改任何简历，不调用真实模型。
 
 ## 企业资料查询
 
-`GET /api/v1/career/companies` 与 `GET /api/v1/career/companies/:id` 均要求服务端有效会话。当前返回 `access: authenticated-test`，按用户要求在测试阶段共享企业参考资料；后续会员等级由服务端权益接入，客户端不能自报身份、数据文件路径或会员等级。没有普通用户可调用的企业目录写入接口。
+`GET /api/v1/career/companies` 与 `GET /api/v1/career/companies/:id` 均要求服务端有效会话及高级会员的 `companyJobs` 权限。列表响应保留兼容字段 `access: authenticated-test`，该历史字段不授予测试共享权限；实际访问由服务端有效会员记录校验。客户端不能自报身份、数据文件路径或会员等级。没有普通用户可调用的企业目录写入接口。
 
 列表参数：`q`（最多 200 字、20 个空格分隔关键词）、`page`（默认 1）、`pageSize`（默认 20，上限 50）、`sort`（`relevance / name / updated`）。多选筛选使用重复参数：`industries`、`natures`、`locations`、`directions`、`educationLevels`、`recruitmentTypes`、`cohorts`，每维最多 30 项。关键词之间 AND，同维度 OR，不同维度 AND；企业全称/别名优先，企业性质关键词的同义词扩展仅作用于企业性质原文，不按名称猜测。未知参数、重复标量、非法分页或外部身份声明返回 400。
 
@@ -16,7 +29,7 @@
 
 缺失文件返回 `catalogState: empty`，损坏文件返回 `unavailable`，不伪装成正常无结果；详情在损坏时为 503 `COMPANY_CATALOG_UNAVAILABLE`，不存在为 404。正常目录无匹配结果仍为 `ready` 且 `total: 0`。目录每次替换后按可信路径与文件签名刷新缓存，所有读取均经过运行时校验。企业资料与实际岗位分开，不能从企业记录直接建立投递计划。字段、数据位置及整理边界见 [企业资料库](company-library.md)。
 
-开发服务默认监听 `http://127.0.0.1:3001`，H5 通过 Vite `/api` 代理访问；服务器由 Nginx 提供同源 HTTPS 反向代理。所有成功响应为 `{ "data": ... }`，错误为 `{ "error": { "code": "...", "message": "..." } }`。共享类型见 `shared/types.ts` 与 `shared/auth.ts`。当前实现邮箱账号、服务端会话和业务资源用户归属检查，仍使用单进程 JSON 存储，尚未迁移 MySQL、接入支付或完成生产能力验收。
+开发服务默认监听 `http://127.0.0.1:3001`，H5 通过 Vite `/api` 代理访问；服务器由 Nginx 提供同源 HTTPS 反向代理。所有成功响应为 `{ "data": ... }`，错误为 `{ "error": { "code": "...", "message": "..." } }`。共享类型见 `shared/types.ts`、`shared/auth.ts` 与 `shared/workbench.ts`。当前实现账号、服务端会话、业务资源用户归属及工作台会员检查；支付代码已接入，但实际可用性取决于服务端配置及独立验收。仍使用单进程 JSON 存储，尚未迁移 MySQL 或完成生产能力验收。
 
 ## 认证与会话
 
@@ -40,7 +53,7 @@
 
 H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环境启用 Secure；H5 注册和登录响应不返回原始令牌。小程序在注册或登录请求中声明 `X-Auth-Client: mp-weixin`，服务端才在会话响应中附加 `token`；后续发送 `Authorization: Bearer <token>`。此请求头只选择会话传输方式，不授予微信身份、会员或额外权限。会话绝对有效期为 7 天，退出后撤销，重启服务后仍以持久化会话状态验证。服务端只保存随机令牌的 SHA-256 哈希。
 
-`/health`、`/plans` 与认证入口允许未登录访问；`/membership`、`/membership/quota`、账单预览以及所有简历、报告、诊断任务和建议应用接口要求有效会话。所有资源查询与修改均从可信会话确定用户，不能通过客户端提交 `userId` 越权；请求其他用户资源按不存在返回 404。不同用户的草稿与工作空间缓存也分别保存。
+`/health`、`/plans` 与认证入口允许未登录访问；`/membership`、`/membership/quota`、`/membership/workbench`、账单预览以及所有简历、报告、诊断任务和建议应用接口要求有效会话。所有资源查询与修改均从可信会话确定用户，不能通过客户端提交 `userId` 越权；请求其他用户资源按不存在返回 404。不同用户的草稿与工作空间缓存也分别保存。
 
 H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 `AUTH_TRUSTED_ORIGINS` 配置精确来源列表，不把客户端传入的 Host 或转发头视为授权；小程序 Bearer 通道不依赖浏览器 Cookie。`AUTH_SECURE_COOKIES` 控制 Cookie 的 Secure 属性，默认随 `NODE_ENV=production` 启用，公网 HTTPS 不应关闭。
 
@@ -73,6 +86,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/health` | 返回 `status: ok`、`analysisEngine: rules / bailian`、`aiConfigured`（本地配置是否启用，非可用性检测）、可选 `model`、`persistence: local-json` |
 | GET | `/membership` | 返回 `MembershipState`：无可信会员时为免费 `preview`，有效可信会员为 `active`；包含当前方案、由服务器支付配置决定的 `paymentAvailable`、`policy` 和仅百分比的 `quota` |
 | GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
+| GET | `/membership/workbench` | 返回 `WorkbenchAccess`：`{planId,expiresAt,features}`，仅服务端当前有效会员记录授予相应工作台权限；无效会话为 401，不接受查询参数 |
 | GET | `/plans` | 返回 `free / basic / premium` 三档权益与服务器价格（分）；未配置支付时 `paymentAvailable` 为 false，价格仍返回当前服务端配置 |
 | GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade`、当前方案；升级补差价由服务端计算 |
 | GET | `/billing/payment-methods` | 公开；返回 `{wechat:boolean,alipay:boolean}`，即服务器当前已配置并启用的支付渠道，前端据此决定按钮是否展示 |
@@ -135,6 +149,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 401 | `AUTH_REQUIRED` / `INVALID_CREDENTIALS` | 会话缺失或过期、邮箱密码不匹配 |
 | 403 | `ORIGIN_NOT_ALLOWED` | Cookie 写请求来源未获授权 |
 | 403 | `MEMBERSHIP_EXPIRED` | 会员已到期，拒绝新的真实模型调用 |
+| 403 | `WORKBENCH_MEMBERSHIP_REQUIRED` | 工作台查询或写入需要有效初级／高级会员，具体等级由功能决定 |
 | 400 | `ANALYSIS_REQUEST_GUARD_REQUIRED` | 有效会员的模型请求缺少修订号或幂等键 |
 | 404 | `NOT_FOUND` | 接口、简历、报告或建议不存在，或不属于当前用户 |
 | 405 | `METHOD_NOT_ALLOWED` | 请求方法不支持 |
@@ -157,6 +172,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | 502 | `EXPORT_RENDER_FAILED` | 文件渲染失败或生成结果无效 |
 | 503 | `MAIL_NOT_CONFIGURED` / `MAIL_DELIVERY_FAILED` | 邮件服务未配置或发送未成功，不能视为验证码已发送 |
 | 503 | `SMS_NOT_CONFIGURED` / `SMS_DELIVERY_FAILED` | 短信未启用或提交未获确认，不能视为已送达或验证码可用 |
+| 503 | `WORKBENCH_ACCESS_UNAVAILABLE` | 服务端暂时无法查询工作台会员记录，不能据此判断账号为免费 |
 | 429 | `SMS_RATE_LIMITED` / `SMS_BUSY` / `CODE_RESEND_TOO_SOON` | 短信发送限额、在途并发或冷却限制 |
 | 504 | `EXPORT_TIMEOUT` | 导出超过 20 秒未完成 |
 
@@ -164,7 +180,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 ## 权益与充值预览
 
-权益页使用 `free / basic / premium` 三档：免费体验包含模板简历；初级会员规划提供简历优化；高级会员包含初级权益，以及按专业分类的公司和岗位信息、复习资料、精选投递（智能投递）。工作台提供岗位目录筛选、个人岗位添加、收藏、复习正文阅读和投递计划/手动进度记录；默认包含覆盖现有 16 个专业的应届生准备材料和官方招聘入口；入口不等同在招岗位，当前没有自动执行投递。会员权益、价格和周期由服务端返回，客户端不能自行授予身份。已确定金额使用整数分；付费 `priceCents: null` 表示待定价，不能按零元商品处理。AI 周额度已采用实际输入加输出 Token 结算，后台试运行上限为初级 200,000、高级 800,000 Token；公共响应只提供剩余百分比，不使用固定次数或点数。详情见 [AI 周额度](ai-quota.md)。
+权益页使用 `free / basic / premium` 三档：免费体验保留基础模板和首页规则闭环；初级及高级开放工作台简历优化入口；高级再开放求职助手、按专业分类的公司和岗位信息、招聘入口、复习资料、投递计划与手动进度记录。具体锁态由 `/membership/workbench` 决定。工作台默认包含覆盖现有 16 个专业的应届生准备材料和官方招聘入口；入口不等同在招岗位，当前没有自动执行投递。会员权益、价格和周期由服务端返回，客户端不能自行授予身份。已确定金额使用整数分；付费 `priceCents: null` 表示待定价，不能按零元商品处理。AI 周额度已采用实际输入加输出 Token 结算，后台试运行上限为初级 200,000、高级 800,000 Token；公共响应只提供剩余百分比，不使用固定次数或点数。详情见 [AI 周额度](ai-quota.md)。
 
 `membership.policy` 描述一个自然月、手动续费、上海时区及初级升高级的补差价和周期重置规则。有效初级升级时应补高级月价减初级月价；服务端确认支付成功后立即生效，在原到期日基础上顺延一个自然月，原剩余天数保留。月末无对应日期时取次月月底同一时刻；已过期按高级新购。同档有效会员续费从原到期时刻延长一个自然月，过期后从确认付款时刻起算。详见 [会员机制](membership.md)。这些是本项目产品规则，不是对其他平台退款、抵扣政策的承诺。
 
@@ -188,16 +204,18 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 ## 求职工作台
 
-所有 `/career` 接口要求有效会话，个人数据从会话确定归属。当前为高级会员功能预览，不授予付费身份，不接支付或外部代投。契约从 `shared/types.ts` 导出，详细范围见 [求职工作台](career-workspace.md)。
+所有 `/career` 接口要求有效会话，个人数据从会话确定归属。2026-11-07 起按上述工作台会员规则校验：高级可读取完整工作台，免费和初级的 `GET /career` 保留 `mode: preview` 与 `externalDeliveryAvailable: false`，但 `catalogState: empty`，`jobs`、`materials`、`portals`、`favoriteJobIds`、`applications` 均为空；`catalogMessage` 提示升级高级。这里的空数组表示当前权限不下发数据，不证明服务器目录为空，也不删除账号已有资料。权限校验后才提供资料正文、企业详情、筛选计数和招聘链接，不能仅靠前端样式隐藏。
+
+岗位新增与收藏要求高级 `companyJobs`，投递计划新增与修改要求高级 `applications`。本人旧岗位和投递记录的删除接口继续按归属、关联记录及原有修订号条件处理，不增加会员前置条件；本轮没有新增非高级读取旧岗位或计划的界面。本机助手对话仍可清理。工作台不会授予会员或对外代投，契约从 `shared/types.ts` 导出，详细范围见 [求职工作台](career-workspace.md)。
 
 | 方法 | 路径（前缀 `/api/v1`） | 输入 / 返回 |
 | --- | --- | --- |
-| GET | `/career` | `CareerWorkspace`：目录状态、岗位、纯文本资料、官方招聘入口 `portals`、本人收藏与投递记录 |
-| POST | `/career/jobs` | `CareerJobInput` → 本人添加的 `CareerJob` |
+| GET | `/career` | `CareerWorkspace`：高级返回目录状态、岗位、纯文本资料、官方入口、本人收藏和投递记录；免费／初级返回上述空数组 |
+| POST | `/career/jobs` | 高级：`CareerJobInput` → 本人添加的 `CareerJob` |
 | DELETE | `/career/jobs/:id` | 删除本人添加且无绑定投递记录的岗位；共享目录不可删 |
-| PUT | `/career/favorites/:jobId` | `{favorite:boolean}` → `{jobId,favorite}`，重复设置一致 |
-| POST | `/career/applications` | `{jobId,resumeId,resumeRevision,idempotencyKey}` → `CareerApplication`；快照和哈希由服务端固定 |
-| PUT / PATCH | `/career/applications/:id` | `{revision,status?,note?,resumeId?,resumeRevision?,confirmedManualSubmission?}` → 修改后的 `CareerApplication`；客户端统一使用微信支持的 PUT |
+| PUT | `/career/favorites/:jobId` | 高级：`{favorite:boolean}` → `{jobId,favorite}`，重复设置一致 |
+| POST | `/career/applications` | 高级：`{jobId,resumeId,resumeRevision,idempotencyKey}` → `CareerApplication`；快照和哈希由服务端固定 |
+| PUT / PATCH | `/career/applications/:id` | 高级：`{revision,status?,note?,resumeId?,resumeRevision?,confirmedManualSubmission?}` → 修改后的 `CareerApplication`；客户端统一使用微信支持的 PUT |
 | DELETE | `/career/applications/:id` | `{revision}` → `{deleted:true,id}` |
 
 创建投递计划核对岗位开放状态与截止日期、简历归属和修订号；幂等键相同但输入不同返回冲突。状态允许 `planned → applied / withdrawn`，`applied → interview / offer / rejected / withdrawn`，`interview → offer / rejected / withdrawn`，`offer → withdrawn`；拒绝和撤回为终态。记录 `applied` 必须 `confirmedManualSubmission:true`，且计划快照仍对应当前已保存简历，不含待补事实占位内容。更换绑定仅限计划状态，须先保存与审核，再另行确认已投递。所有状态事件标记 `source:user`、`submissionMode:manual`，不能视为企业反馈或系统发件成功。

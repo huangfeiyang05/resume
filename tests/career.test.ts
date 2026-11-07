@@ -5,10 +5,11 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import type { ApplicationCreateInput, CareerApplication, CareerJob, CareerMaterial, Resume } from '../shared/types.js';
+import type { ApplicationCreateInput, CareerApplication, CareerJob, CareerMaterial, PaidPlanId, Resume } from '../shared/types.js';
 import { createApiServer } from '../server/http.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
+import { QuotaService } from '../server/quota.js';
 
 const resumeText = '合成测试简历，不代表真实个人。\n项目经历\n围绕明确业务问题整理需求，设计接口并与测试人员核对验收结果。';
 const personalJob = {
@@ -21,7 +22,8 @@ async function fixture(t: TestContext, legacy = false) {
   const path = join(directory, 'database.json');
   const catalogPath = join(directory, 'career-catalog.json');
   if (legacy) await writeFile(path, JSON.stringify({ version: 3, users: [], sessions: [], emailChallenges: [], resumes: [], analyses: [] }));
-  let server = createApiServer(new ResumeService(new JsonStore(path)), { careerCatalogPath: catalogPath });
+  let store = new JsonStore(path);
+  let server = createApiServer(new ResumeService(store), { careerCatalogPath: catalogPath });
   let base = '';
   const start = async () => {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -44,9 +46,13 @@ async function fixture(t: TestContext, legacy = false) {
     });
     return { status: response.status, headers: response.headers, body: await response.json() as any };
   };
-  const register = async (label: string) => {
+  const register = async (label: string, planId: PaidPlanId | null = 'premium') => {
     const result = await request('/auth/register', 'POST', { email: `${label}@example.test`, password: 'Fixture-pw-26!' });
     assert.equal(result.status, 201);
+    if (planId) await new QuotaService(store).activateMembership({
+      userId: result.body.data.user.id, planId, verifiedPaymentAt: new Date().toISOString(),
+      verifiedEventId: `synthetic-event-${label}`, idempotencyKey: `synthetic-member-${label}`,
+    });
     const cookie = result.headers.get('set-cookie')!.split(';')[0];
     return (route: string, method = 'GET', data?: unknown) => request(route, method, data, cookie);
   };
@@ -55,7 +61,8 @@ async function fixture(t: TestContext, legacy = false) {
     request, register, path, directory, catalogPath, catalog,
     async restart() {
       await close();
-      server = createApiServer(new ResumeService(new JsonStore(path)), { careerCatalogPath: catalogPath });
+      store = new JsonStore(path);
+      server = createApiServer(new ResumeService(store), { careerCatalogPath: catalogPath });
       await start();
     },
   };
@@ -101,7 +108,7 @@ function catalogJob(overrides: Partial<CareerJob> = {}): CareerJob {
 test('career requires a session and an empty catalogue never fabricates jobs, materials or a paid membership', async t => {
   const f = await fixture(t, true);
   assert.equal((await f.request('/career')).status, 401);
-  const request = await f.register('career-empty');
+  const request = await f.register('career-empty', null);
   const result = await request('/career');
   assert.equal(result.status, 200);
   assert.equal(result.body.data.mode, 'preview');

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import type { MembershipQuote, MembershipState, NativePaymentParams, Plan, PlanId } from '../../shared/types';
+import type { PaidPlanId } from '../../shared/membership';
 import { membershipApi } from '../services/membership';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
 
+const props = defineProps<{ initialPlan?: PaidPlanId }>();
+let initialPlanOpened = false;
 const membership = ref<MembershipState>();
 const plans = ref<Plan[]>([]);
 const loading = ref(true);
@@ -37,7 +40,7 @@ function mobileBrowser(): boolean {
   try { const platform = uni.getSystemInfoSync().platform; return platform === 'ios' || platform === 'android'; } catch { return false; }
 }
 const rows: Array<{ key: keyof Plan['features']; label: string }> = [
-  { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '简历优化' },
+  { key: 'templates', label: '模板简历' }, { key: 'optimization', label: '工作台简历优化' },
   { key: 'aiQuota', label: 'AI 工具额度' },
   { key: 'companyJobs', label: '岗位信息' }, { key: 'studyMaterials', label: '复习资料' },
   { key: 'smartDelivery', label: '智能投递' },
@@ -105,6 +108,10 @@ async function load() {
     membership.value = current;
     plans.value = availablePlans;
     paymentMethods.value = await membershipApi.methods().catch(() => undefined);
+    if (props.initialPlan && !initialPlanOpened) {
+      initialPlanOpened = true;
+      await openPurchase(props.initialPlan);
+    }
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '权益信息暂时不可用，请重试。';
   } finally { loading.value = false; }
@@ -278,7 +285,7 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
       </view>
 
       <view class="benefits-section-heading comparison-heading"><text class="benefits-section-title">权益对比</text></view>
-      <scroll-view scroll-x class="benefits-comparison-scroll"><view class="glass-panel benefits-comparison" role="table" aria-label="免费体验、初级会员与高级会员规划权益对比">
+      <scroll-view scroll-x class="benefits-comparison-scroll"><view class="glass-panel benefits-comparison" role="table" aria-label="免费体验、初级会员与高级会员权益对比">
         <view class="benefits-comparison-row benefits-comparison-header" role="row"><view role="columnheader">权益</view><view v-for="plan in plans" :key="plan.id" :class="{ 'current-column': plan.id === membership.currentPlanId }" role="columnheader"><text>{{ plan.name }}</text><text v-if="plan.id === membership.currentPlanId" class="comparison-current-label">当前</text></view></view>
         <view v-for="row in rows" :key="row.key" class="benefits-comparison-row" role="row">
           <view class="comparison-feature-name" role="rowheader">{{ row.label }}</view>
