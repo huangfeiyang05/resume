@@ -32,6 +32,7 @@ const selectedAmount = computed(() => quote.value?.amountCents ?? selectedPlan.v
 const canPayWechat = computed(() => membership.value?.paymentAvailable === true && paymentMethods.value?.wechat === true && !iosDevice);
 const canPayAlipay = computed(() => membership.value?.paymentAvailable === true && !miniProgram && paymentMethods.value?.alipay === true);
 const canPay = computed(() => canPayWechat.value || canPayAlipay.value);
+const payActionCount = computed(() => Number(canPayWechat.value) + Number(canPayAlipay.value) + Number(!canPay.value));
 function mobileBrowser(): boolean {
   try { const platform = uni.getSystemInfoSync().platform; return platform === 'ios' || platform === 'android'; } catch { return false; }
 }
@@ -297,11 +298,12 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
         <text class="benefits-native-note">{{ paying ? '正在等待扫码支付结果…' : '二维码有效期 2 小时，支付成功后自动开通。' }}</text>
       </view>
       <text v-if="paymentError" class="benefits-checkout-error" role="alert">{{ paymentError }}</text>
-      <view class="benefits-checkout-footer"><text>{{ paymentHint }}</text>
-        <view class="benefits-pay-actions">
-          <button v-if="canPayWechat" class="button primary" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : (miniProgram ? `微信支付 ${price(selectedAmount)}` : nativePayment ? '重新获取二维码' : `微信扫码支付 ${price(selectedAmount)}`) }}</button>
-          <button v-if="canPayAlipay" class="button" :class="{ primary: !canPayWechat, secondary: canPayWechat }" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="payAlipay" role="button">{{ paying ? '正在支付…' : `支付宝支付 ${price(selectedAmount)}` }}</button>
-          <button v-if="!canPay" class="button secondary" disabled role="button">{{ !membership?.paymentAvailable ? '支付暂未开放' : iosDevice ? 'iOS 暂不支持' : '暂不可支付' }}</button>
+      <view class="benefits-checkout-footer">
+        <text class="benefits-pay-hint">{{ paymentHint }}</text>
+        <view class="benefits-pay-actions" :class="{ 'is-single': payActionCount < 2 }">
+          <button v-if="canPayWechat" class="button primary benefits-pay-button" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : (miniProgram ? `微信支付 ${price(selectedAmount)}` : nativePayment ? '重新获取二维码' : `微信扫码支付 ${price(selectedAmount)}`) }}</button>
+          <button v-if="canPayAlipay" class="button benefits-pay-button" :class="canPayWechat ? 'secondary' : 'primary'" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="payAlipay" role="button">{{ paying ? '正在支付…' : `支付宝支付 ${price(selectedAmount)}` }}</button>
+          <button v-if="!canPay" class="button secondary benefits-pay-button" disabled role="button">{{ !membership?.paymentAvailable ? '支付暂未开放' : iosDevice ? 'iOS 暂不支持' : '暂不可支付' }}</button>
         </view>
       </view>
     </AppModal>
@@ -386,11 +388,13 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
 .benefits-native-qr { width: 220px; height: 220px; display: block; }
 .benefits-native-title { font-size: 15px; color: #1f2937; line-height: 1.6; text-align: center; }
 .benefits-native-note { font-size: 13px; color: #536174; line-height: 1.6; text-align: center; }
-.benefits-checkout-footer { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.benefits-checkout-footer > text { font-size: 13px; color: #536174; line-height: 1.8; }
-.benefits-pay-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.benefits-checkout-footer { margin-top: 24px; display: flex; flex-direction: column; gap: 14px; }
+.benefits-pay-hint { display: block; font-size: 13px; color: #536174; line-height: 1.8; }
+.benefits-pay-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.benefits-pay-actions.is-single { grid-template-columns: minmax(0, 1fr); }
+.benefits-pay-button { width: 100%; min-height: 46px; display: flex; align-items: center; justify-content: center; border-radius: 10px; font-size: 15px; }
 @media (max-width: 850px) { .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); }.benefit-plan { padding: 24px; }.benefit-plan-top { align-items: center; }.benefit-price { margin: 18px 0 22px; }.benefit-card-list { margin-bottom: 24px; } }
-@media (max-width: 600px) { .benefits-quota { padding: 22px 20px; }.benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-checkout-footer { align-items: stretch; flex-direction: column; gap: 15px; }.benefits-checkout-footer .button { width: 100%; }.benefits-pay-actions { flex-direction: column; align-items: stretch; } }
+@media (max-width: 600px) { .benefits-quota { padding: 22px 20px; }.benefits-current { padding: 23px 20px; flex-direction: column; align-items: stretch; gap: 22px; }.benefits-current-main { gap: 14px; }.benefits-gem { width: 48px; height: 48px; }.benefits-current-name { font-size: 22px; }.benefits-upgrade { width: 100%; }.benefits-section-title { font-size: 19px; }.benefits-section-heading { margin-top: 28px; }.benefit-plan { padding: 22px 20px; }.benefits-checkout-summary { padding: 18px 16px; border: 1px solid #d8dfe8; border-radius: 14px; }.benefits-pay-actions { grid-template-columns: minmax(0, 1fr); } }
 /* Keep compact plan cards on mobile; the full comparison can scroll horizontally. */
 @media (max-width: 600px) {
   .benefits-plans { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
