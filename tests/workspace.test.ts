@@ -3,6 +3,9 @@ import test, { type TestContext } from 'node:test';
 import type { Analysis, AnalysisInput, ApplySuggestionResult, Resume, ResumeUpdateInput } from '../shared/types.js';
 import { api, ApiError } from '../src/services/api.js';
 import { useWorkspace } from '../src/services/workspace.js';
+import { blankResumeText } from '../src/utils/example.js';
+import type { ImportedResume } from '../src/utils/importResume.js';
+import type { ImportSignal } from '../src/utils/importCancellation.js';
 
 const originalText = '工作经历\n负责业务系统的接口维护、需求分析与日常问题处理，协作完成项目相关文档。';
 function resume(id: string, revision = 1): Resume {
@@ -22,6 +25,9 @@ function deferred<T>() {
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
+}
+function imported(fileName = '已识别简历.docx', text = '工作经历\n文件中的真实岗位经历、实际职责与项目贡献，需由用户核对后保存。'): ImportedResume {
+  return { fileName, text, format: fileName.endsWith('.pdf') ? 'pdf' : 'docx' };
 }
 function fixture(t: TestContext, seeds = [resume('A'), resume('B')]) {
   const originalApi = { ...api };
@@ -494,4 +500,224 @@ test('leaving the assistant while health or model consent is pending cannot subm
   const consenting = w.analyzeFromAssistant({ resumeId: 'A', revision: 1, targetRole: '后端' }, () => active);
   await consent.promise; active = false; confirm();
   assert.equal(await consenting, undefined); assert.equal(submissions, 0);
+});
+
+test('an imported file fills only default new-editor content, preserves the chosen role and remains a local draft', async t => {
+  const { w, storage } = fixture(t, []);
+  let writes = 0;
+  api.createResume = async () => { writes++; return resume('unexpected'); };
+  api.analyze = async () => { writes++; return report(resume('unexpected')); };
+  w.openEditor();
+  w.editorRole.value = '后端工程师';
+  const result = imported();
+  assert.equal(await w.importEditorFile(async (_signal, onParsing) => { onParsing(); return result; }), true);
+  assert.equal(w.editorText.value, result.text);
+  assert.equal(w.editorTitle.value, '已识别简历');
+  assert.equal(w.editorRole.value, '后端工程师');
+  assert.equal(w.editorOpen.value, true);
+  assert.equal(w.editorImportBusy.value, false);
+  assert.equal(w.editorImportPreview.value, undefined);
+  assert.equal(writes, 0, 'file extraction never saves or diagnoses automatically');
+  assert.deepEqual(storage.get('resume-draft-new'), { title: '已识别简历', role: '后端工程师', text: result.text, baseRevision: undefined });
+  w.openEditor(undefined, '', '用户自定名称');
+  await w.importEditorFile(async () => imported('a'.repeat(140) + '.pdf'));
+  assert.equal(w.editorTitle.value, '用户自定名称');
+  w.openEditor(undefined, '', '我的第一份简历');
+  await w.importEditorFile(async () => imported('a'.repeat(140) + '.pdf'));
+  assert.equal(w.editorTitle.value, 'a'.repeat(100));
+});
+
+test('importing over an existing resume requires preview confirmation and retains its revision and identity', async t => {
+  const { w, storage } = fixture(t);
+  const existing = resume('A', 3), result = imported('新文件.pdf');
+  let submissions = 0;
+  api.updateResume = async (id, input) => {
+    submissions++;
+    assert.equal(id, existing.id); assert.equal(input.revision, 3); assert.equal(input.text, result.text);
+    return { ...existing, ...input, revision: 4 };
+  };
+  w.openEditor(existing);
+  assert.equal(await w.importEditorFile(async () => result), true);
+  assert.equal(w.editorText.value, existing.text);
+  assert.deepEqual(w.editorImportPreview.value, result);
+  await w.saveEditor(true);
+  assert.equal(submissions, 0, 'unreviewed import blocks both save modes');
+  assert.equal(w.confirmEditorImport(), true);
+  assert.equal(w.editorId.value, existing.id);
+  assert.equal(w.editorBaseRevision.value, 3);
+  assert.equal(w.editorTitle.value, existing.title);
+  assert.equal(w.editorRole.value, existing.targetRole);
+  assert.equal(w.editorText.value, result.text);
+  assert.equal(w.editorImportPreview.value, undefined);
+  assert.equal((storage.get('resume-draft-A') as { baseRevision: number }).baseRevision, 3);
+  await w.saveEditor();
+  assert.equal(submissions, 1);
+});
+
+test('typing during file parsing keeps the text and requests explicit review; later typing invalidates that review', async t => {
+  const { w, storage } = fixture(t, []);
+  w.openEditor();
+  const pending = deferred<ImportedResume>();
+  const parsing = w.importEditorFile((_signal, onParsing) => { onParsing(); return pending.promise; });
+  const typed = '选择文件后补充的实际经历：维护业务接口，整理需求和验收资料。';
+  w.editorText.value = typed; w.saveDraft();
+  pending.resolve(imported());
+  assert.equal(await parsing, true);
+  assert.equal(w.editorText.value, typed);
+  assert.ok(w.editorImportPreview.value);
+  const newer = typed + '\n预览期间继续补充的真实项目职责。';
+  w.editorText.value = newer; w.saveDraft();
+  assert.equal(w.confirmEditorImport(), false);
+  assert.equal(w.editorText.value, newer);
+  assert.equal(w.editorImportPreview.value, undefined);
+  assert.match(w.editorImportError.value, /正文已更新.*重新选择/);
+  assert.equal((storage.get('resume-draft-new') as { text: string }).text, newer);
+});
+
+test('cancelling an import preview preserves the current draft and allows explicitly saving that original content', async t => {
+  const { w, storage } = fixture(t, []);
+  w.openEditor(undefined, originalText, '手动草稿'); w.saveDraft();
+  const before = structuredClone(storage.get('resume-draft-new'));
+  let submissions = 0;
+  api.createResume = async input => { submissions++; assert.equal(input.text, originalText); return { ...resume('saved-original'), ...input }; };
+  await w.importEditorFile(async () => imported());
+  await w.saveEditor();
+  assert.equal(submissions, 0);
+  assert.deepEqual(storage.get('resume-draft-new'), before);
+  w.cancelEditorImport();
+  assert.equal(w.editorImportPreview.value, undefined);
+  assert.equal(w.editorText.value, originalText);
+  await w.saveEditor();
+  assert.equal(submissions, 1);
+});
+
+test('closing an editor aborts file work, keeps its draft and cannot be undone by a late parse result', async t => {
+  const { w, storage } = fixture(t, []);
+  w.openEditor(undefined, originalText, '等待解析的草稿');
+  const pending = deferred<ImportedResume>();
+  let signal!: ImportSignal;
+  const parsing = w.importEditorFile((current, onParsing) => { signal = current; onParsing(); return pending.promise; });
+  assert.equal(w.editorImportBusy.value, true);
+  w.closeEditor();
+  assert.equal(signal.aborted, true);
+  assert.equal(await parsing, false, 'cancellation finishes even if a parser never acknowledges it');
+  assert.equal(w.editorImportBusy.value, false);
+  assert.equal(w.editorOpen.value, false);
+  const draft = structuredClone(storage.get('resume-draft-new'));
+  pending.resolve(imported()); await Promise.resolve();
+  assert.equal(w.editorOpen.value, false);
+  assert.equal(w.editorImportPreview.value, undefined);
+  assert.equal(w.editorImportError.value, '');
+  assert.deepEqual(storage.get('resume-draft-new'), draft);
+  assert.equal((draft as { text: string }).text, originalText);
+});
+
+test('opening another new-editor session invalidates an earlier file choice even when both use the same draft key', async t => {
+  const { w } = fixture(t, []);
+  w.openEditor();
+  const pending = deferred<ImportedResume>();
+  let signal!: ImportSignal;
+  const first = w.importEditorFile(current => { signal = current; return pending.promise; });
+  w.openEditor(undefined, blankResumeText, '第二次新建');
+  assert.equal(signal.aborted, true);
+  assert.equal(await first, false);
+  pending.resolve(imported()); await Promise.resolve();
+  assert.equal(w.editorOpen.value, true);
+  assert.equal(w.editorId.value, '');
+  assert.equal(w.editorTitle.value, '第二次新建');
+  assert.equal(w.editorText.value, blankResumeText);
+  assert.equal(w.editorImportPreview.value, undefined);
+});
+
+test('an old import cannot clear a later request busy state or overwrite the later file', async t => {
+  const { w } = fixture(t, []);
+  w.openEditor();
+  const firstResult = deferred<ImportedResume>(), secondResult = deferred<ImportedResume>();
+  const first = w.importEditorFile((_signal, onParsing) => { onParsing(); return firstResult.promise; });
+  const second = w.importEditorFile((_signal, onParsing) => { onParsing(); return secondResult.promise; });
+  assert.equal(await first, false);
+  assert.equal(w.editorImportBusy.value, true);
+  firstResult.resolve(imported('过时文件.docx')); await Promise.resolve();
+  assert.equal(w.editorImportBusy.value, true);
+  secondResult.resolve(imported('当前文件.docx', '当前文件中明确记录的真实经历与项目职责，需要在保存之前进行核对。'));
+  assert.equal(await second, true);
+  assert.equal(w.editorTitle.value, '当前文件');
+  assert.match(w.editorText.value, /^当前文件/);
+  assert.equal(w.editorImportBusy.value, false);
+});
+
+test('file errors and a cancelled chooser leave existing text and local drafts unchanged', async t => {
+  const { w, storage } = fixture(t);
+  w.openEditor(resume('A')); w.saveDraft();
+  const draft = structuredClone(storage.get('resume-draft-A'));
+  assert.equal(await w.importEditorFile(async (_signal, onParsing) => { onParsing(); throw new Error('合成损坏文件'); }), false);
+  assert.match(w.editorImportError.value, /合成损坏文件/);
+  assert.equal(w.editorImportBusy.value, false);
+  assert.equal(w.editorText.value, originalText);
+  assert.deepEqual(storage.get('resume-draft-A'), draft);
+  assert.equal(await w.importEditorFile(async () => undefined), false);
+  assert.equal(w.editorImportError.value, '');
+  assert.equal(w.editorImportPreview.value, undefined);
+  assert.deepEqual(storage.get('resume-draft-A'), draft);
+});
+
+test('file timeout starts when parsing begins, aborts work and discards its late output', async t => {
+  const { w } = fixture(t, []);
+  w.openEditor();
+  const pending = deferred<ImportedResume>();
+  let beginParsing!: () => void, signal!: ImportSignal;
+  const parsing = w.importEditorFile((current, onParsing) => { signal = current; beginParsing = onParsing; return pending.promise; });
+  t.mock.timers.tick(45_000);
+  assert.equal(w.editorImportBusy.value, true, 'time spent using a native file chooser is not parsing time');
+  assert.equal(signal.aborted, false);
+  beginParsing();
+  t.mock.timers.tick(10_000); beginParsing();
+  t.mock.timers.tick(19_999);
+  assert.equal(signal.aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(signal.aborted, true);
+  assert.equal(await parsing, false);
+  assert.equal(w.editorImportBusy.value, false);
+  assert.match(w.editorImportError.value, /解析超时/);
+  pending.resolve(imported()); await Promise.resolve();
+  assert.equal(w.editorText.value, blankResumeText);
+  assert.equal(w.editorImportPreview.value, undefined);
+});
+
+test('saving during an active file selection is blocked and closed or saving editors never start new file work', async t => {
+  const { w } = fixture(t, []);
+  let started = 0, submitted = 0;
+  assert.equal(await w.importEditorFile(async () => { started++; return imported(); }), false);
+  w.openEditor(undefined, originalText);
+  const pending = deferred<ImportedResume>();
+  const parsing = w.importEditorFile(() => { started++; return pending.promise; });
+  api.createResume = async () => { submitted++; return resume('unexpected'); };
+  await w.saveEditor(true);
+  assert.equal(submitted, 0);
+  w.cancelEditorImport(); await parsing;
+  w.busy.value = '正在保存简历';
+  assert.equal(await w.importEditorFile(async () => { started++; return imported(); }), false);
+  assert.equal(started, 1);
+  assert.match(w.editorImportError.value, /等待当前操作完成/);
+  assert.equal(w.editorText.value, originalText);
+});
+
+test('clipboard-style imports and cancellation work without a native AbortController and retain a default title', async t => {
+  const { w } = fixture(t, []);
+  const globals = globalThis as typeof globalThis & { AbortController?: typeof AbortController };
+  const originalController = globals.AbortController;
+  Object.defineProperty(globals, 'AbortController', { value: undefined, writable: true, configurable: true });
+  t.after(() => { Object.defineProperty(globals, 'AbortController', { value: originalController, writable: true, configurable: true }); });
+  w.openEditor();
+  assert.equal(await w.importEditorFile(async (_signal, onParsing) => { onParsing(); return imported(''); }), true);
+  assert.equal(w.editorTitle.value, '我的第一份简历');
+  assert.equal(w.editorText.value, imported('').text);
+  const pending = deferred<ImportedResume>();
+  let signal!: ImportSignal;
+  const importing = w.importEditorFile((current, onParsing) => { signal = current; onParsing(); return pending.promise; });
+  w.cancelEditorImport();
+  assert.equal(signal.aborted, true);
+  assert.equal(await importing, false);
+  assert.equal(w.editorText.value, imported('').text);
+  assert.equal(w.editorImportError.value, '');
 });

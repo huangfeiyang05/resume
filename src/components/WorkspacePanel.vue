@@ -19,7 +19,8 @@ import { useWorkspace, type Page } from '../services/workspace';
 import { api, ApiError } from '../services/api';
 import { useEmailChallenge } from '../services/auth';
 import { exampleJob } from '../utils/example';
-import { importResumeFile } from '../utils/importResume';
+import { selectResumeFile } from '../utils/selectResumeFile';
+import { normalizeImportedText } from '../utils/importResume';
 import { saveResumeExportFile } from '../utils/saveExportFile';
 import { downloadResumeTemplate } from '../utils/downloadResumeTemplate';
 import { resumeTemplates, type ResumeWordTemplate } from '../data/resumeTemplates';
@@ -62,6 +63,7 @@ function submitVerify() {
   emit('verifyEmail', proof);
 }
 const { health, analysisRunning, page, resumes, selectedId, selected, analysis, history, busy, loading, loadError, notice, editorOpen, editorId, editorTitle, editorRole, editorText, editorBaseRevision, jobDescription, targetRole, activeSuggestion } = w;
+const { editorImportBusy, editorImportError, editorImportPreview } = w;
 const tabs: { id: Page; label: string; icon: string }[] = [
   { id: 'overview', label: '首页', icon: 'grid' }, { id: 'career', label: '工作台', icon: 'sparkles' },
   { id: 'benefits', label: '权益', icon: 'crown' }, { id: 'resumes', label: '我的', icon: 'user' },
@@ -148,16 +150,27 @@ function pasteImport() {
   importOpen.value = false; openEditor(undefined, pasteText.value.trim(), pasteTitle.value.trim() || '导入的简历');
 }
 function chooseFile() {
-  // #ifdef H5
-  const input = document.createElement('input'); input.type = 'file'; input.accept = '.pdf,.docx,.txt,.md';
-  input.onchange = async () => {
-    const file = input.files?.[0]; if (!file) return;
-    busy.value = '正在本机解析文件';
-    try { const result = await importResumeFile(file); importOpen.value = false; openEditor(undefined, result.text, result.fileName.replace(/\.[^.]+$/, '')); w.toast('文件已解析，请核对后保存。'); }
-    catch (error) { w.fail(error); } finally { busy.value = ''; }
-  };
-  input.click();
-  // #endif
+  importOpen.value = false;
+  openEditor();
+  chooseEditorFile();
+}
+function chooseEditorFile() {
+  void w.importEditorFile((signal, onParsing) => selectResumeFile({ signal, onParsing }));
+}
+function importEditorClipboard() {
+  void w.importEditorFile((_signal, onParsing) => new Promise((resolve, reject) => {
+    onParsing();
+    uni.getClipboardData({
+      success: result => {
+        try {
+          const text = normalizeImportedText(result.data);
+          if (!text) throw new Error('剪贴板没有简历正文，请复制文字后重试。');
+          resolve({ text, fileName: '', format: 'txt' });
+        } catch (cause) { reject(cause); }
+      },
+      fail: () => reject(new Error('无法读取剪贴板，请直接粘贴简历正文。')),
+    });
+  }));
 }
 function readClipboard() { uni.getClipboardData({ success: result => { pasteText.value = result.data; }, fail: () => w.toast('无法读取剪贴板，请直接粘贴正文。') }); }
 function openExport() { if (!selected.value) { w.toast('请先导入或创建简历。'); importOpen.value = true; return; } exportOpen.value = true; }
@@ -224,7 +237,33 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
     </view>
     <view class="liquid-dock" role="navigation" aria-label="主导航"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" :aria-current="activeTab === tab.id ? 'page' : undefined" @click="navigate(tab.id)" role="button" tabindex="0"><view><AppIcon :name="tab.icon" :size="21" /></view><text>{{ tab.label }}</text></button></view>
     <AppModal v-if="importOpen" title="导入简历" @close="importOpen = false"><view class="import-body"><!-- #ifdef H5 --><button class="upload-dropzone" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-cloud"><AppIcon name="upload" :size="30" /></view><text class="upload-title">选择你的简历文件</text><text class="upload-description">PDF、Word（.docx）、TXT、Markdown · 最大 10 MB</text><text class="upload-local"><AppIcon name="shield" :size="13" />文件在本机解析，不上传原文件</text></button><!-- #endif --><view class="or-divider"><view /><text>或直接粘贴正文</text><view /></view><input v-model="pasteTitle" class="text-input" placeholder="简历名称（选填）" :maxlength="100" aria-label="导入简历名称" /><textarea v-model="pasteText" class="large-textarea paste-textarea" placeholder="在这里粘贴简历正文，请保留教育、工作与项目经历等内容。" :maxlength="inputLimits.resumeText" aria-label="粘贴简历正文" /><!-- #ifdef MP-WEIXIN --><button class="text-button" @click="readClipboard" role="button" tabindex="0">从剪贴板读取</button><!-- #endif --><view class="modal-footer"><button class="button primary" :disabled="!!busy" @click="pasteImport" role="button" tabindex="0">继续整理<AppIcon name="arrow" :size="16" /></button></view></view></AppModal>
-    <AppModal v-if="editorOpen" :title="editorId ? '编辑简历' : '新建简历'" wide @close="w.saveDraft(); editorOpen = false"><view v-if="editorConflict" class="info-banner"><AppIcon name="info" :size="17" /><text>草稿基于旧版本。请先复制要保留的内容，再载入最新版本。</text><button class="text-button" :disabled="!!busy" @click="w.reloadEditor()" role="button" tabindex="0">载入最新版本</button></view><view class="editor-grid"><view class="editor-form"><view class="editor-inputs"><view><text class="field-label">简历名称</text><input v-model="editorTitle" class="text-input" placeholder="例如：产品经理 · 秋招版" :maxlength="100" aria-label="简历名称" /></view><view><text class="field-label">目标岗位</text><input v-model="editorRole" class="text-input" placeholder="例如：产品经理" :maxlength="100" aria-label="编辑目标岗位" /></view></view><view class="field-label-row"><text class="field-label">简历正文</text><text class="subtle">{{ editorText.length }} 字</text></view><textarea v-model="editorText" class="large-textarea editor-textarea" placeholder="写下你的基本信息、教育、工作、项目经历和技能。" :maxlength="inputLimits.resumeText" aria-label="简历正文" /><view class="draft-status"><view class="online-dot" />草稿保存在本机，保存后同步。</view></view></view><view class="modal-footer editor-footer"><view class="inline-actions"><button class="button secondary" :disabled="!!busy" @click="saveResume(false)" role="button" tabindex="0">保存简历</button><button class="button primary" :disabled="!!busy" @click="saveResume(true)" role="button" tabindex="0">保存并诊断<AppIcon name="sparkles" :size="17" /></button></view></view></AppModal>
+    <AppModal v-if="editorOpen" :title="editorId ? '编辑简历' : '新建简历'" wide @close="w.closeEditor()">
+      <view v-if="editorConflict" class="info-banner"><AppIcon name="info" :size="17" /><text>草稿基于旧版本。请先复制要保留的内容，再载入最新版本。</text><button class="text-button" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="w.reloadEditor()" role="button" tabindex="0">载入最新版本</button></view>
+      <view class="editor-grid"><view class="editor-form">
+        <view class="editor-import-entry">
+          <!-- #ifdef H5 -->
+          <view class="editor-import-row"><view><text class="editor-import-title">已有 Word 或 PDF 简历？</text><text class="editor-import-description">上传文件，自动提取为可编辑的简历正文</text></view><button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="chooseEditorFile" role="button" tabindex="0"><view v-if="editorImportBusy" class="spinner" /><AppIcon v-else name="upload" :size="17" />{{ editorImportBusy ? '正在选择或识别…' : '上传 Word / PDF' }}</button></view>
+          <text class="editor-import-hint">支持 .docx、文字型 PDF、TXT、Markdown · 最大 10 MB</text>
+          <text class="editor-import-local"><AppIcon name="shield" :size="13" />在本机提取文字，不上传原文件；请核对内容后保存。</text>
+          <!-- #endif -->
+          <!-- #ifdef MP-WEIXIN -->
+          <view class="editor-import-row"><view><text class="editor-import-title">导入已有简历正文</text><text class="editor-import-description">复制文字后填入，也可以直接在下方编辑</text></view><button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="importEditorClipboard" role="button" tabindex="0"><AppIcon name="copy" :size="17" />{{ editorImportBusy ? '正在读取…' : '从剪贴板导入' }}</button></view>
+          <text class="editor-import-hint">Word / PDF 文件请在网页端导入，微信端可粘贴正文。</text>
+          <!-- #endif -->
+          <button v-if="editorImportBusy" class="text-button editor-import-cancel" @click="w.cancelEditorImport()" role="button" tabindex="0">取消导入，保留当前正文</button>
+        </view>
+        <view v-if="editorImportError" class="editor-import-error" role="alert"><AppIcon name="info" :size="16" /><text>{{ editorImportError }}</text></view>
+        <view v-if="editorImportPreview" class="editor-import-preview">
+          <text class="editor-import-title">识别结果预览</text><text class="editor-import-description">{{ editorImportPreview.fileName || '剪贴板正文' }} · {{ editorImportPreview.text.length }} 字</text>
+          <text class="editor-import-hint">当前已有正文。请核对识别内容，确认后再替换；简历名称和目标岗位会保留。</text>
+          <scroll-view scroll-y class="editor-import-preview-body"><text selectable class="editor-import-preview-text">{{ editorImportPreview.text }}</text></scroll-view>
+          <view class="editor-import-actions"><button class="button secondary" @click="w.cancelEditorImport()" role="button" tabindex="0">保留现有正文</button><button class="button primary" @click="w.confirmEditorImport()" role="button" tabindex="0">替换为识别正文</button></view>
+        </view>
+        <view class="editor-inputs"><view><text class="field-label">简历名称</text><input v-model="editorTitle" class="text-input" placeholder="例如：产品经理 · 秋招版" :maxlength="100" aria-label="简历名称" /></view><view><text class="field-label">目标岗位</text><input v-model="editorRole" class="text-input" placeholder="例如：产品经理" :maxlength="100" aria-label="编辑目标岗位" /></view></view>
+        <view class="field-label-row"><text class="field-label">简历正文</text><text class="subtle">{{ editorText.length }} 字</text></view><textarea v-model="editorText" class="large-textarea editor-textarea" placeholder="写下你的基本信息、教育、工作、项目经历和技能。" :maxlength="inputLimits.resumeText" aria-label="简历正文" /><view class="draft-status"><view class="online-dot" />草稿保存在本机，保存后同步。</view>
+      </view></view>
+      <view class="modal-footer editor-footer"><view class="inline-actions"><button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="saveResume(false)" role="button" tabindex="0">保存简历</button><button class="button primary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="saveResume(true)" role="button" tabindex="0">保存并诊断<AppIcon name="sparkles" :size="17" /></button></view></view>
+    </AppModal>
     <AppModal v-if="activeSuggestion" title="审核修改" subtitle="核对真实内容后，确认采纳。" wide @close="activeSuggestion = undefined"><view class="comparison-grid"><view class="comparison-original"><view class="comparison-label">原文</view><text>{{ activeSuggestion.original }}</text></view><view class="comparison-revised"><view class="comparison-label">修改后</view><textarea v-model="suggestionText" class="large-textarea suggestion-textarea" :maxlength="inputLimits.replacement" aria-label="编辑建议内容" /></view></view><view class="comparison-reason"><AppIcon name="bulb" :size="18" /><text>{{ activeSuggestion.reason }}</text></view><view class="modal-footer"><button class="text-button muted" @click="activeSuggestion = undefined" role="button" tabindex="0">暂时保留原文</button><button class="button primary" :disabled="!!busy || suggestionIncomplete" @click="w.applySuggestion(suggestionText, true)" role="button" tabindex="0">{{ suggestionIncomplete ? '请补充待填内容' : '确认并采纳' }}<AppIcon name="check" :size="17" /></button></view></AppModal>
     <AppModal v-if="exportOpen && selected && exportDocument" title="预览与导出" subtitle="导出已保存的简历。" wide @close="exportOpen = false">
       <view class="export-body">
@@ -254,3 +293,31 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
     <view v-if="busy" class="busy-indicator" role="status" aria-live="polite"><view class="spinner" /><text>{{ busy }}…</text><button v-if="analysisRunning" class="text-button" role="button" tabindex="0" @click="w.cancelAnalysis()">取消</button></view>
   </view>
 </template>
+
+<style scoped>
+.editor-import-entry { border: 1px dashed #b6c9e2; border-radius: 12px; padding: 17px 18px; background: rgba(240,246,255,.55); margin-bottom: 20px; }
+.editor-import-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.editor-import-row > view { min-width: 0; }
+.editor-import-row > .button { flex-shrink: 0; font-size: 14px; }
+.editor-import-title { display: block; color: var(--ink); font-size: 15px; font-weight: 600; }
+.editor-import-description { display: block; color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 4px; overflow-wrap: anywhere; }
+.editor-import-hint { display: block; color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 10px; }
+.editor-import-local { display: flex; align-items: center; gap: 5px; color: #647a73; font-size: 12px; line-height: 1.8; margin-top: 4px; }
+.editor-import-cancel { margin-top: 9px; font-size: 13px; }
+.editor-import-error { display: flex; gap: 8px; align-items: flex-start; color: #9e3b36; background: #fff3f0; border: 1px solid #f0d2cc; padding: 12px; border-radius: 10px; font-size: 13px; line-height: 1.8; margin-bottom: 18px; }
+.editor-import-error > .app-icon { margin-top: 3px; }
+.editor-import-preview { padding: 16px; margin-bottom: 20px; border: 1px solid #c7d6ec; border-radius: 12px; background: rgba(255,255,255,.65); }
+.editor-import-preview-body { display: block; height: 180px; width: 100%; margin: 12px 0; background: rgba(244,247,252,.8); border-radius: 8px; }
+.editor-import-preview-text { display: block; padding: 12px; white-space: pre-wrap; font-size: 14px; line-height: 1.8; color: var(--ink); }
+.editor-import-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.editor-import-actions > .button { font-size: 14px; }
+@media (max-width: 600px) {
+  .editor-import-entry { padding: 14px; margin-bottom: 18px; }
+  .editor-import-row { flex-wrap: wrap; gap: 12px; }
+  .editor-import-row > .button { width: 100%; justify-content: center; }
+  .editor-import-local { align-items: flex-start; }
+  .editor-import-local > .app-icon { margin-top: 4px; }
+  .editor-import-actions { display: grid; grid-template-columns: 1fr; }
+  .editor-import-actions > .button { justify-content: center; }
+}
+</style>

@@ -3,9 +3,11 @@ import type { Analysis, AnalysisSuggestion, Resume, Health } from '../../shared/
 import { api, ApiError } from './api';
 import { blankResumeText, exampleResume } from '../utils/example';
 import { inputLimits } from '../../shared/limits';
+import type { ImportedResume } from '../utils/importResume';
+import { createImportController, type ImportSignal } from '../utils/importCancellation';
 
 export type Page = 'overview' | 'benefits' | 'resumes' | 'diagnosis' | 'match' | 'templates' | 'career';
-export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = {}) {
+export function useWorkspace(options: { autoLoad?: boolean; userId?: string; importTimeoutMs?: number } = {}) {
   // Existing anonymous development drafts are never imported into a registered account.
   const draftKey = (id: string) => options.userId ? `resume-user-${options.userId}-draft-${id || 'new'}` : `resume-draft-${id || 'new'}`;
   const page = ref<Page>('overview');
@@ -24,6 +26,9 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   const editorRole = ref('');
   const editorText = ref('');
   const editorBaseRevision = ref<number>();
+  const editorImportBusy = ref(false);
+  const editorImportError = ref('');
+  const editorImportPreview = ref<ImportedResume>();
   const jobDescription = ref('');
   const targetRole = ref('');
   const activeSuggestion = ref<AnalysisSuggestion>();
@@ -75,6 +80,10 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   let refreshRequest = 0;
   let listRevision = 0;
   let editorSession = 0;
+  let editorImportRequest = 0;
+  type EditorImportGuard = { request: number; session: number; id: string; revision: number | undefined; text: string };
+  let editorImportGuard: EditorImportGuard | undefined;
+  let activeEditorImport: { controller: ReturnType<typeof createImportController>; clearTimer: () => void } | undefined;
   let restorationRequest = 0;
   let assistantRequest = 0;
   function toast(message: string) { notice.value = message; clearTimeout(noticeTimeout); noticeTimeout = setTimeout(() => notice.value = '', 5000); }
@@ -184,6 +193,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
     catch (error) { if (requestId === selectionRequest && reportId === reportRequest) fail(error); }
   }
   function openEditor(resume?: Resume, text?: string, title?: string) {
+    cancelEditorImport();
     ++editorSession;
     editorId.value = resume?.id || '';
     const key = draftKey(editorId.value);
@@ -197,6 +207,91 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   function saveDraft() {
     if (editorOpen.value) uni.setStorageSync(draftKey(editorId.value), { title: editorTitle.value, role: editorRole.value, text: editorText.value, baseRevision: editorBaseRevision.value });
   }
+  function cancelEditorImport() {
+    ++editorImportRequest;
+    activeEditorImport?.clearTimer();
+    activeEditorImport?.controller.abort();
+    activeEditorImport = undefined;
+    editorImportBusy.value = false;
+    editorImportError.value = '';
+    editorImportPreview.value = undefined;
+    editorImportGuard = undefined;
+  }
+  function closeEditor() {
+    saveDraft();
+    cancelEditorImport();
+    ++editorSession;
+    editorOpen.value = false;
+  }
+  function currentEditorImport(guard: EditorImportGuard) {
+    return !disposed && guard.request === editorImportRequest && guard.session === editorSession && editorOpen.value
+      && guard.id === editorId.value && guard.revision === editorBaseRevision.value;
+  }
+  function applyEditorImport(result: ImportedResume) {
+    editorText.value = result.text;
+    if (!editorId.value && (!editorTitle.value.trim() || editorTitle.value.trim() === '我的第一份简历')) {
+      const fileTitle = result.fileName.replace(/\.[^.]+$/, '').trim().slice(0, 100);
+      if (fileTitle) editorTitle.value = fileTitle;
+    }
+    editorImportPreview.value = undefined;
+    editorImportGuard = undefined;
+    saveDraft();
+    toast('内容已填入正文，请核对后保存。');
+  }
+  async function importEditorFile(loader: (signal: ImportSignal, onParsing: () => void) => Promise<ImportedResume | undefined>): Promise<boolean> {
+    if (disposed || !editorOpen.value) return false;
+    if (busy.value) { editorImportError.value = '请等待当前操作完成后再导入文件。'; return false; }
+    cancelEditorImport();
+    const guard: EditorImportGuard = { request: editorImportRequest, session: editorSession, id: editorId.value, revision: editorBaseRevision.value, text: editorText.value };
+    const controller = createImportController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const clearTimer = () => { if (timer !== undefined) clearTimeout(timer); };
+    let stop!: () => void;
+    const stopped = new Promise<undefined>((resolve, reject) => {
+      stop = () => timedOut ? reject(new Error('文件解析超时，请重新选择文件或粘贴正文。')) : resolve(undefined);
+      controller.signal.addEventListener('abort', stop, { once: true });
+    });
+    activeEditorImport = { controller, clearTimer };
+    editorImportBusy.value = true;
+    const onParsing = () => {
+      if (timer !== undefined || controller.signal.aborted || activeEditorImport?.controller !== controller || !currentEditorImport(guard)) return;
+      timer = setTimeout(() => { timedOut = true; controller.abort(); }, options.importTimeoutMs ?? 30_000);
+    };
+    try {
+      const result = await Promise.race([loader(controller.signal, onParsing), stopped]);
+      if (!result || !currentEditorImport(guard)) return false;
+      // Empty/default content can be replaced directly only while it is still the reviewed input.
+      if (editorText.value === guard.text && (!guard.text.trim() || guard.text === blankResumeText)) {
+        applyEditorImport(result);
+      } else {
+        editorImportPreview.value = { ...result };
+        editorImportGuard = { ...guard, text: editorText.value };
+      }
+      return true;
+    } catch (error) {
+      if (currentEditorImport(guard)) editorImportError.value = error instanceof Error ? error.message : '文件解析失败，请重试或粘贴正文。';
+      return false;
+    } finally {
+      clearTimer();
+      controller.signal.removeEventListener('abort', stop);
+      if (guard.request === editorImportRequest) { editorImportBusy.value = false; activeEditorImport = undefined; }
+    }
+  }
+  function confirmEditorImport(): boolean {
+    const guard = editorImportGuard, result = editorImportPreview.value;
+    if (!guard || !result) return false;
+    if (busy.value) { editorImportError.value = '请等待当前操作完成后再确认导入。'; return false; }
+    if (!currentEditorImport(guard) || editorText.value !== guard.text) {
+      editorImportPreview.value = undefined;
+      editorImportGuard = undefined;
+      editorImportError.value = '正文已更新，本次识别结果未覆盖。请重新选择文件导入。';
+      return false;
+    }
+    editorImportError.value = '';
+    try { applyEditorImport(result); return true; }
+    catch (error) { editorImportError.value = error instanceof Error ? error.message : '无法保存导入草稿，请保留正文后重试。'; return false; }
+  }
   async function reloadEditor() {
     if (!editorId.value || busy.value) return;
     const id = editorId.value, session = editorSession;
@@ -209,6 +304,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
     } catch (error) { fail(error); } finally { busy.value = ''; }
   }
   async function saveEditor(diagnose = false, stayOnPage = false) {
+    if (editorImportBusy.value || editorImportPreview.value) { toast('请先确认或取消文件导入，再保存简历。'); return; }
     if (busy.value) return;
     if (!editorTitle.value.trim() || editorText.value.trim().length < 20) { toast('请填写简历名称，并输入至少 20 字的简历内容。'); return; }
     if (editorText.value.length > inputLimits.resumeText) { toast(`简历正文不能超过 ${inputLimits.resumeText} 个字符，请精简后保存。`); return; }
@@ -324,7 +420,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
       ++listRevision;
       resumes.value = resumes.value.filter(r => r.id !== resume.id);
       uni.removeStorageSync(draftKey(resume.id));
-      if (editorId.value === resume.id) { ++editorSession; editorOpen.value = false; }
+      if (editorId.value === resume.id) { cancelEditorImport(); ++editorSession; editorOpen.value = false; }
       if (selectedId.value === resume.id) {
         if (resumes.value.length) await select(resumes.value[0].id);
         else clearSelection();
@@ -363,7 +459,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string } = 
   }
   if (options.autoLoad !== false) {
     onMounted(refresh);
-    onUnmounted(() => { disposed = true; void cancelAnalysis(); clearTimeout(noticeTimeout); ++selectionRequest; ++reportRequest; ++refreshRequest; ++editorSession; ++restorationRequest; ++assistantRequest; });
+    onUnmounted(() => { disposed = true; cancelEditorImport(); void cancelAnalysis(); clearTimeout(noticeTimeout); ++selectionRequest; ++reportRequest; ++refreshRequest; ++editorSession; ++restorationRequest; ++assistantRequest; });
   }
-  return { health, aiConsent, analysisRunning, cancelAnalysis, loadHealth, page, resumes, selectedId, selected, analysis, history, busy, loading, loadError, notice, editorOpen, editorId, editorTitle, editorRole, editorText, editorBaseRevision, jobDescription, targetRole, activeSuggestion, refresh, select, openEditor, saveDraft, reloadEditor, saveEditor, useExample, diagnoseResume, selectAssistantResume, analyzeFromAssistant, applySuggestion, acceptRestoredResume, remove, toast, fail };
+  return { health, aiConsent, analysisRunning, cancelAnalysis, loadHealth, page, resumes, selectedId, selected, analysis, history, busy, loading, loadError, notice, editorOpen, editorId, editorTitle, editorRole, editorText, editorBaseRevision, editorImportBusy, editorImportError, editorImportPreview, jobDescription, targetRole, activeSuggestion, refresh, select, openEditor, closeEditor, saveDraft, reloadEditor, saveEditor, importEditorFile, confirmEditorImport, cancelEditorImport, useExample, diagnoseResume, selectAssistantResume, analyzeFromAssistant, applySuggestion, acceptRestoredResume, remove, toast, fail };
 }
