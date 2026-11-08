@@ -8,7 +8,8 @@ import type { WechatPayGateway } from './wechat-pay.js';
 import type { AlipayGateway } from './alipay.js';
 import type { BillingPricing } from './payment-config.js';
 import { AnalysisJobs } from './jobs.js';
-import { AuthService } from './auth.js';
+import { adminSessionTtlMs, AuthService } from './auth.js';
+import { adminOverview, adminTasks, adminUsers, parseAdminQuery } from './admin.js';
 import { isIP } from 'node:net';
 import { CareerService } from './career.js';
 import { exportResume } from './exports.js';
@@ -78,6 +79,7 @@ function formFields(raw: string): Record<string, string> {
 
 export interface ApiServerOptions {
   auth?: AuthService;
+  adminUserIds?: ReadonlySet<string>;
   secureCookies?: boolean;
   trustedOrigins?: string[];
   trustProxy?: boolean;
@@ -91,12 +93,15 @@ export interface ApiServerOptions {
   paymentNotifyUrl?: string;
 }
 const cookieName = 'youfang_session';
+const adminCookieName = 'youfang_admin';
+const adminPath = '/api/v1/admin';
+function cookieToken(request: IncomingMessage, name: string) {
+  const values = (request.headers.cookie ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${name}=`));
+  return values.length === 1 ? values[0].slice(name.length + 1) : undefined;
+}
 function sessionToken(request: IncomingMessage) {
   const authorization = request.headers.authorization;
-  if (authorization?.startsWith('Bearer ')) return authorization.slice(7);
-  // An old browser may still send cached Basic credentials; only Bearer has meaning here.
-  const values = (request.headers.cookie ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${cookieName}=`));
-  return values.length === 1 ? values[0].slice(cookieName.length + 1) : undefined;
+  return authorization?.startsWith('Bearer ') ? authorization.slice(7) : cookieToken(request, cookieName);
 }
 
 /** The HTTP boundary always authenticates business requests before selecting a user's scope. */
@@ -116,6 +121,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
   const secureCookies = options.secureCookies ?? process.env.NODE_ENV === 'production';
   const trustedOrigins = new Set(options.trustedOrigins ?? ['http://127.0.0.1:5173', 'http://localhost:5173']);
   const cookie = (token: string, maxAge: number) => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureCookies ? '; Secure' : ''}`;
+  const adminCookie = (token: string, maxAge: number) => `${adminCookieName}=${token}; Path=${adminPath}; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secureCookies ? '; Secure' : ''}`;
   function assertWriteOrigin(request: IncomingMessage) {
     if (['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? 'GET')) return;
     const origin = request.headers.origin;
@@ -136,12 +142,48 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     if (options.trustProxy && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote) && typeof supplied === 'string' && isIP(supplied)) return supplied;
     return remote;
   }
+  async function handleAdmin(request: IncomingMessage, response: ServerResponse, path: string, method: string) {
+    const token = cookieToken(request, adminCookieName);
+    if (path === '/logout' && method === 'POST') {
+      await auth.logout(token, 'admin');
+      response.setHeader('Set-Cookie', adminCookie('', 0));
+      json(response, 200, { data: { signedOut: true } });
+      return;
+    }
+    const allowed = options.adminUserIds;
+    if (!allowed?.size) throw new HttpError(503, 'ADMIN_NOT_CONFIGURED', '管理后台尚未配置管理员。');
+    if (path === '/login' && method === 'POST') {
+      const result = await auth.login(await body(request), clientAddress(request), allowed);
+      response.setHeader('Set-Cookie', adminCookie(result.token, adminSessionTtlMs / 1000));
+      json(response, 200, { data: { expiresAt: result.session.expiresAt } });
+      return;
+    }
+    const { user } = await auth.authenticate(token, 'admin');
+    if (!allowed.has(user.id) || !user.emailVerified || !user.hasPassword) {
+      throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
+    }
+    if (path === '/overview' && method === 'GET') {
+      json(response, 200, { data: adminOverview(await baseService.store.read(), Date.now()) });
+    } else if ((path === '/users/search' || path === '/tasks/search') && method === 'POST') {
+      const query = parseAdminQuery(await body(request), path === '/users/search' ? 'users' : 'tasks');
+      const database = await baseService.store.read();
+      json(response, 200, { data: path === '/users/search'
+        ? adminUsers(database, query.query, query.page, Date.now()) : adminTasks(database, query) });
+    } else {
+      throw new HttpError(404, 'NOT_FOUND', '管理接口不存在。');
+    }
+  }
   return createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname.replace(/\/$/, '');
       const method = request.method ?? 'GET';
       assertWriteOrigin(request);
+      if (path === adminPath || path.startsWith(`${adminPath}/`)) {
+        if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '管理接口不接受 URL 查询参数。');
+        await handleAdmin(request, response, path.slice(adminPath.length), method);
+        return;
+      }
       if (path === '/api/v1/billing/wechat/notify') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const raw = await rawBody(request);

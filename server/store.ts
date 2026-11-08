@@ -12,7 +12,7 @@ import { normalizePaymentStorage, type PaymentStorage } from './payment-storage.
 
 export const legacyWorkspaceId = 'legacy-local-workspace';
 export interface StoredUser extends AuthUser { passwordHash?: string; wechatOpenid?: string }
-export interface StoredSession { tokenHash: string; userId: string; createdAt: string; expiresAt: string }
+export interface StoredSession { tokenHash: string; userId: string; createdAt: string; expiresAt: string; scope?: 'admin' }
 export interface StoredResume extends Resume { userId: string }
 export interface StoredAnalysis extends Analysis { userId: string }
 export interface StoredEmailChallenge {
@@ -94,7 +94,8 @@ export class JsonStore {
           || (!user.email && !user.phone && !user.wechatOpenid) || (!user.phone && !user.passwordHash && !user.wechatOpenid)
           || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
           || (user.emailVerified === true && !user.email))
-        || parsed.sessions.some((session: StoredSession) => !session || typeof session.tokenHash !== 'string' || typeof session.userId !== 'string' || !Number.isFinite(Date.parse(session.expiresAt)))
+        || parsed.sessions.some((session: StoredSession) => !session || typeof session.tokenHash !== 'string' || typeof session.userId !== 'string'
+          || !Number.isFinite(Date.parse(session.expiresAt)) || (session.scope !== undefined && session.scope !== 'admin'))
         || [...parsed.resumes, ...parsed.analyses].some((record: { userId?: string }) => !record || typeof record.userId !== 'string')) {
         throw new Error('Unsupported or malformed account database.');
       }

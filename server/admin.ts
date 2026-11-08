@@ -1,0 +1,97 @@
+import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser } from '../shared/types.js';
+import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
+import { invalid } from './errors.js';
+import { summarizeQuota } from './quota.js';
+import { quotaIdentifier, quotaWeekMilliseconds, type StoredAiUsage } from './quota-storage.js';
+import { workbenchAccessForMembership } from './workbench-access.js';
+import type { Database } from './store.js';
+
+const pageSize = 20;
+const errorCodePattern = /^[A-Z][A-Z0-9_]{0,79}$/;
+
+export function parseAdminUserIds(value = ''): ReadonlySet<string> {
+  if (!value.trim()) return new Set();
+  const ids = value.split(',').map(id => id.trim());
+  if (!ids.every(quotaIdentifier)) throw new Error('ADMIN_USER_IDS must contain comma-separated account IDs.');
+  return new Set(ids);
+}
+
+export function parseAdminQuery(value: unknown, kind: 'users' | 'tasks'): AdminTaskQuery & { page: number; query: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid('请提供查询对象。');
+  const input = value as Record<string, unknown>;
+  const allowed = kind === 'users' ? ['page', 'query'] : ['page', 'query', 'status', 'usageStatus'];
+  if (Object.keys(input).some(key => !allowed.includes(key))) invalid('查询包含不支持的字段。');
+  const { page = 1, query = '', status, usageStatus } = input;
+  if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1 || page > 100_000) invalid('页码无效。');
+  if (typeof query !== 'string' || query.length > 254 || /[\u0000-\u001f\u007f]/.test(query)) invalid('查询标识无效。');
+  const taskStatus = adminTaskStatuses.find(value => value === status);
+  const taskUsage = adminUsageStatuses.find(value => value === usageStatus);
+  if (status !== undefined && !taskStatus) invalid('诊断状态无效。');
+  if (usageStatus !== undefined && !taskUsage) invalid('用量状态无效。');
+  return { page, query: query.trim(), status: taskStatus, usageStatus: taskUsage };
+}
+
+function paginate<T>(items: T[], page: number): AdminPage<T> {
+  return { page, pageSize, total: items.length, items: items.slice((page - 1) * pageSize, page * pageSize) };
+}
+
+export function adminOverview(database: Database, now: number): AdminOverview {
+  const userIds = new Set(database.users.map(user => user.id));
+  return {
+    users: userIds.size,
+    newUsers7Days: database.users.filter(user => {
+      const createdAt = Date.parse(user.createdAt);
+      return now - quotaWeekMilliseconds <= createdAt && createdAt <= now;
+    }).length,
+    activeMembers: database.memberships.filter(record => userIds.has(record.userId)
+      && workbenchAccessForMembership(record, now).planId !== 'free').length,
+    failedTasks: database.analysisTasks.filter(task => task.job.status === 'failed').length,
+    pendingUsage: database.aiUsage.filter(row => row.status === 'pending').length,
+  };
+}
+
+export function adminUsers(database: Database, query: string, page: number, now: number): AdminPage<AdminUser> {
+  const email = query.toLowerCase();
+  const users = paginate(database.users.filter(user => !query || user.id === query || user.email === email || user.phone === query)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)), page);
+  const memberships = new Map(database.memberships.map(row => [row.userId, row]));
+  const usageByUser = new Map(users.items.map(user => [user.id, [] as StoredAiUsage[]]));
+  for (const row of database.aiUsage) usageByUser.get(row.userId)?.push(row);
+  return { ...users, items: users.items.map(user => {
+    const membership = memberships.get(user.id);
+    const [name, domain] = user.email?.split('@') ?? [];
+    return {
+      id: user.id, createdAt: user.createdAt,
+      email: name && domain ? { masked: `${name[0]}***@${domain[0]}***`, verified: user.emailVerified } : null,
+      phoneMasked: user.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : null,
+      wechat: !!user.wechatOpenid,
+      membership: membership ? { planId: membership.planId, startsAt: membership.startsAt, expiresAt: membership.expiresAt,
+        latestEvent: membership.activations.at(-1)!.kind } : null,
+      workbench: workbenchAccessForMembership(membership, now),
+      quota: summarizeQuota({ memberships: membership ? [membership] : [], aiUsage: usageByUser.get(user.id)! }, user.id, now),
+    };
+  }) };
+}
+
+export function adminTasks(database: Database, { page, query, status, usageStatus }: ReturnType<typeof parseAdminQuery>): AdminPage<AdminTask> {
+  const ledger = new Map(database.aiUsage.map(row => [row.taskId, row]));
+  const rows: AdminTask[] = database.analysisTasks.map(task => {
+    const { job } = task;
+    const usage = ledger.get(job.id);
+    const linked = usage?.userId === task.userId;
+    if (linked) ledger.delete(job.id);
+    const code = job.error?.code;
+    return { id: job.id, userId: task.userId, engine: task.engine, status: job.status,
+      errorCode: code && errorCodePattern.test(code) ? code : null, resumeRevision: task.snapshot.revision,
+      createdAt: job.createdAt, updatedAt: job.updatedAt, usageStatus: linked ? usage.status : null };
+  });
+  // Deleting a resume removes its diagnosis tasks. Unresolved charges still need to be found.
+  for (const row of ledger.values()) {
+    if (row.status !== 'pending') continue;
+    rows.push({ id: row.taskId, userId: row.userId, engine: 'bailian', status: null, errorCode: null,
+      resumeRevision: null, createdAt: row.createdAt, updatedAt: row.updatedAt, usageStatus: row.status });
+  }
+  return paginate(rows.filter(row => (!query || row.id === query || row.userId === query || row.errorCode === query.toUpperCase())
+    && (!status || row.status === status) && (!usageStatus || row.usageStatus === usageStatus))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)), page);
+}

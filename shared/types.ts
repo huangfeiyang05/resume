@@ -1,4 +1,5 @@
 export type IssueSeverity = 'high' | 'medium' | 'low';
+export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus } from './admin.js';
 export type { CareerAssistantInput, CareerAssistantResult } from './career-assistant.js';
 export type { CompanySource, CompanyRecord, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
 export type { ResumeExportTemplate } from './resume-layout.js';

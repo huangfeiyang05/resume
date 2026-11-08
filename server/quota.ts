@@ -60,6 +60,20 @@ function counts(storage: QuotaStorage, membership: StoredMembership, cycleStarts
   return { used, reserved };
 }
 
+export function summarizeQuota(storage: QuotaStorage, userId: string, instant: number): QuotaSummary {
+  const membership = storage.memberships.find(record => record.userId === userId);
+  const pending = storage.aiUsage.some(row => row.userId === userId && outstanding(row));
+  if (!membership) return { status: 'preview', remainingPercent: null, resetsAt: null, expiresAt: null, pending };
+  if (instant < Date.parse(membership.startsAt) || instant >= Date.parse(membership.expiresAt)) {
+    return { status: 'inactive', remainingPercent: null, resetsAt: null, expiresAt: membership.expiresAt, pending };
+  }
+  const cycle = cycleFor(membership, instant);
+  const { used } = counts(storage, membership, cycle.startsAt);
+  const limit = weeklyTokenLimits[membership.planId];
+  return { status: 'active', remainingPercent: Math.ceil(Math.max(0, limit - used) / limit * 100),
+    resetsAt: cycle.endsAt, expiresAt: membership.expiresAt, pending };
+}
+
 /** Local single-process ledger. Callers must obtain userId from a trusted session. No HTTP grant endpoint. */
 export class QuotaService {
   constructor(readonly store: QuotaStore, private readonly now: () => Date = () => new Date()) {}
@@ -71,19 +85,7 @@ export class QuotaService {
 
   async current(userId: string): Promise<QuotaSummary> {
     validId(userId);
-    const storage = await this.store.read();
-    const membership = storage.memberships.find(record => record.userId === userId);
-    const pending = storage.aiUsage.some(row => row.userId === userId && outstanding(row));
-    if (!membership) return { status: 'preview', remainingPercent: null, resetsAt: null, expiresAt: null, pending };
-    const instant = this.now().getTime();
-    if (instant < Date.parse(membership.startsAt) || instant >= Date.parse(membership.expiresAt)) {
-      return { status: 'inactive', remainingPercent: null, resetsAt: null, expiresAt: membership.expiresAt, pending };
-    }
-    const cycle = cycleFor(membership, instant);
-    const { used } = counts(storage, membership, cycle.startsAt);
-    const limit = weeklyTokenLimits[membership.planId];
-    return { status: 'active', remainingPercent: Math.ceil(Math.max(0, limit - used) / limit * 100),
-      resetsAt: cycle.endsAt, expiresAt: membership.expiresAt, pending };
+    return summarizeQuota(await this.store.read(), userId, this.now().getTime());
   }
 
   async reserve(userId: string, taskId: string, inputHash: string, reserveTokens: number): Promise<StoredAiUsage> {

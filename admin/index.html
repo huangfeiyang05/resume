@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>简历有方 · 管理后台</title>
+</head>
+<body>
+  <main id="login" class="login" hidden>
+    <span class="brand-mark" aria-hidden="true">方</span>
+    <h1>简历有方管理后台</h1>
+    <p>使用已验证的管理员邮箱登录。</p>
+    <form id="login-form" method="post">
+      <label>邮箱<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
+      <button class="primary" type="submit">登录</button>
+    </form>
+    <p id="login-message" role="status"></p>
+    <a href="/">返回简历有方</a>
+  </main>
+  <p id="initial-status" role="status">正在检查管理员会话…</p>
+  <div id="app" class="shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">方</span><div>简历有方<small>管理后台</small></div></div>
+      <nav aria-label="后台菜单">
+        <button type="button" data-section="overview">运营概览</button>
+        <button type="button" data-section="users">用户与会员</button>
+        <button type="button" data-section="tasks">诊断与用量</button>
+      </nav>
+      <button type="button" id="logout">退出登录</button>
+    </aside>
+    <main class="workspace">
+      <header>
+        <div><p class="eyebrow">运营管理 / 只读</p><h1 id="section-title"></h1></div>
+        <button type="button" id="refresh">刷新</button>
+      </header>
+      <div id="filters" hidden>
+        <form id="search-form" method="post">
+          <label><span id="search-label"></span><input name="query" maxlength="254" autocomplete="off"></label>
+          <label id="task-status-label">任务状态<select name="status"></select></label>
+          <label id="usage-status-label">用量状态<select name="usageStatus"></select></label>
+          <button type="submit" class="primary">查询</button>
+        </form>
+      </div>
+      <p id="notice" role="status"></p>
+      <div id="result"></div>
+    </main>
+  </div>
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>

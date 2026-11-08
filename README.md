@@ -42,6 +42,10 @@ H5 使用 HttpOnly、SameSite 的会话 Cookie，线上加上 Secure；不把 H5
 
 原单工作空间中没有归属的历史简历不会自动送给第一位注册用户；兼容迁移会保留为旧工作空间数据，对新注册账号不可见。需要迁移这些资料时应另行核实归属，不按“谁先注册”认领。
 
+## 管理后台
+
+网页后台入口为 `/admin/`。首版提供运营概览、用户与会员、诊断与用量三项只读查询。管理员以已验证的邮箱和密码单独登录，授权来自服务端的 `ADMIN_USER_IDS`，留空时入口保持锁定。查看 [管理后台说明](docs/admin.md) 了解本地启动和数据范围。
+
 ## 邮件服务配置
 
 邮件发送由服务端 SMTP 适配器承接，前端不持有 SMTP 授权码或发信密钥。当前 163 配置使用 `smtp.163.com:465` 和 TLS；用户名为完整发信邮箱，认证凭据为客户端授权码。配置项为 `MAIL_ENABLED`、`MAIL_PROVIDER=smtp`、`SMTP_HOST`、`SMTP_PORT`、`SMTP_SECURE`、`SMTP_USER`、`SMTP_PASSWORD`、`MAIL_FROM` 和 `MAIL_CODE_SECRET`，详见 [部署说明](docs/deployment.md)。

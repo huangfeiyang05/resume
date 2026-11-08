@@ -13,6 +13,7 @@ import { loadAlipayConfig, loadBillingPricing, loadPaymentConfig } from './payme
 import { WechatPayClient } from './wechat-pay.js';
 import { AlipayClient } from './alipay.js';
 import { WechatCodeExchange } from './wechat-identity.js';
+import { parseAdminUserIds } from './admin.js';
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.');
@@ -44,6 +45,7 @@ const auth = new AuthService(store, {
 });
 const server = createApiServer(new ResumeService(store, provider), {
   auth,
+  adminUserIds: parseAdminUserIds(process.env.ADMIN_USER_IDS),
   secureCookies: secureFlag === 'true', trustedOrigins, trustProxy: process.env.NODE_ENV === 'production',
   pricing,
   ...(paymentConfig && gateway ? { paymentGateway: gateway, paymentAppid: paymentConfig.appid, paymentMchid: paymentConfig.mchid, paymentNotifyUrl: paymentConfig.notifyUrl } : {}),

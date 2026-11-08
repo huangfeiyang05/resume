@@ -9,10 +9,13 @@ import { EmailCodeService, validateEmail, validateProof } from './email-codes.js
 import { PhoneCodeService, validatePhone } from './phone-codes.js';
 
 const ttl = 7 * 24 * 60 * 60 * 1000;
+export const adminSessionTtlMs = 60 * 60 * 1000;
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const hashOptions = { N: 65536, r: 8, p: 2, maxmem: 96 * 1024 * 1024 };
 const dummySalt = Buffer.from('youfang-dummy-password-check');
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+// Old releases hash the raw token, so a rollback cannot turn an admin session into a user session.
+const sessionDigest = (token: string, scope?: 'admin') => digest(scope === 'admin' ? `admin:${token}` : token);
 function publicUser(user: StoredUser): AuthUser {
   return { id: user.id, ...(user.email ? { email: user.email } : {}), ...(user.phone ? { phone: user.phone } : {}),
     createdAt: user.createdAt, emailVerified: user.emailVerified === true, phoneVerified: user.phoneVerified === true,
@@ -117,17 +120,18 @@ export class AuthService {
     } finally { this.hashing--; }
   }
 
-  private newSession(database: Database, user: StoredUser): { session: AuthSession; token: string } {
+  private newSession(database: Database, user: StoredUser, scope?: 'admin'): { session: AuthSession; token: string } {
     const now = this.now();
     database.sessions = database.sessions.filter(session => Date.parse(session.expiresAt) > now);
-    const userSessions = database.sessions.filter(session => session.userId === user.id);
+    const userSessions = database.sessions.filter(session => session.userId === user.id && session.scope === scope);
     if (userSessions.length >= 20) {
       const remove = new Set(userSessions.slice(0, userSessions.length - 19).map(session => session.tokenHash));
       database.sessions = database.sessions.filter(session => !remove.has(session.tokenHash));
     }
     const token = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(now + this.sessionTtlMs).toISOString();
-    database.sessions.push({ tokenHash: digest(token), userId: user.id, createdAt: new Date(now).toISOString(), expiresAt });
+    const expiresAt = new Date(now + (scope === 'admin' ? adminSessionTtlMs : this.sessionTtlMs)).toISOString();
+    database.sessions.push({ tokenHash: sessionDigest(token, scope), userId: user.id, createdAt: new Date(now).toISOString(), expiresAt,
+      ...(scope ? { scope } : {}) });
     return { session: { user: publicUser(user), expiresAt }, token };
   }
 
@@ -197,7 +201,7 @@ export class AuthService {
     return user!;
   }
 
-  async login(body: unknown, client = 'local') {
+  async login(body: unknown, client = 'local', adminUserIds?: ReadonlySet<string>) {
     const { email, password } = validateCredentials(body, false, 'login');
     this.checkRateLimit(client, email);
     const user = (await this.store.read()).users.find(user => user.email === email);
@@ -209,7 +213,10 @@ export class AuthService {
     return this.store.mutate(database => {
       const current = database.users.find(candidate => candidate.id === user.id && candidate.passwordHash === user.passwordHash);
       if (!current) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');
-      return this.newSession(database, current);
+      if (adminUserIds && (!adminUserIds.has(current.id) || !current.emailVerified)) {
+        throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
+      }
+      return this.newSession(database, current, adminUserIds ? 'admin' : undefined);
     });
   }
 
@@ -396,21 +403,22 @@ export class AuthService {
     return result;
   }
 
-  async authenticate(token: string | undefined): Promise<AuthSession> {
+  async authenticate(token: string | undefined, scope?: 'admin'): Promise<AuthSession> {
     if (!token || !tokenPattern.test(token)) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录，或重新登录后继续。');
     const database = await this.store.read();
-    const session = database.sessions.find(session => session.tokenHash === digest(token) && Date.parse(session.expiresAt) > this.now());
+    const tokenHash = sessionDigest(token, scope);
+    const session = database.sessions.find(session => session.scope === scope && session.tokenHash === tokenHash && Date.parse(session.expiresAt) > this.now());
     const user = session && database.users.find(user => user.id === session.userId);
     if (!session || !user) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
     return { user: publicUser(user), expiresAt: session.expiresAt };
   }
 
-  async logout(token: string | undefined) {
+  async logout(token: string | undefined, scope?: 'admin') {
     if (token && tokenPattern.test(token)) {
-      const tokenHash = digest(token);
-      if ((await this.store.read()).sessions.some(session => session.tokenHash === tokenHash)) {
+      const tokenHash = sessionDigest(token, scope);
+      if ((await this.store.read()).sessions.some(session => session.scope === scope && session.tokenHash === tokenHash)) {
         await this.store.mutate(database => {
-          database.sessions = database.sessions.filter(session => session.tokenHash !== tokenHash);
+          database.sessions = database.sessions.filter(session => session.scope !== scope || session.tokenHash !== tokenHash);
         });
       }
     }

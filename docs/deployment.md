@@ -69,7 +69,7 @@ VITE_TEMPLATE_BASE_URL=https://www.youfangcv.site npm run build:release
 COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf dist/resume-youfang.tar.gz -C dist/release .
 ```
 
-`build:release` 包含类型检查、H5、微信及独立 Node 后端构建。`dist/release/` 只包含 H5、编译后 API、运行时依赖、部署配置与许可证，不包含 `.data/`、本机模型配置、私钥或简历原件。`dist/build/mp-weixin` 保留在本机供开发者工具导入，不是服务器网页。
+`build:release` 包含类型检查、H5、微信、管理网页及独立 Node 后端构建。发布包将管理网页放在 `www/admin/`，由现有 Nginx 同源提供。管理员授权独立于发布流程，见 [管理后台说明](admin.md)。发布包内容为网页、编译后 API、运行时依赖、部署配置和许可证。`dist/build/mp-weixin` 保留在本机供开发者工具导入。
 
 打包后自动运行 `npm run release:verify`：直接加载发布包中的编译模块，在临时数据库和回环地址验证账号隔离、强制修订号、历史恢复/幂等、删除及资料包读取；不使用线上账号、不发送邮件或调用模型。上传后的服务器也可运行 `/opt/nodejs/bin/node <新版本目录>/ops/verify-release.mjs <新版本目录>` 验证目标环境，临时数据在结束时清理。它不替代真实数据的只读兼容检查、生产服务校验或页面/真机验收。
 

@@ -42,6 +42,7 @@ await rm(destination, { recursive: true, force: true });
 await mkdir(resolve(destination, 'api/node_modules'), { recursive: true });
 // Explicit allowlist: never copy local data, environment files, YAML credentials or resume originals.
 await cp(resolve(root, 'dist/build/h5'), resolve(destination, 'www'), { recursive: true });
+await cp(resolve(root, 'dist/admin'), resolve(destination, 'www/admin'), { recursive: true });
 await cp(resolve(root, 'dist/server'), resolve(destination, 'api'), { recursive: true });
 for (const dependency of packages) await cp(dependency.directory, resolve(destination, `api/node_modules/${dependency.name}`), { recursive: true });
 await cp(resolve(root, 'deploy'), resolve(destination, 'ops'), { recursive: true });

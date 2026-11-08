@@ -1,0 +1,272 @@
+import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse } from '../shared/types.js';
+import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
+import { workbenchFeatureNames, workbenchFeatures } from '../shared/workbench.js';
+import './style.css';
+
+const titles = { overview: '运营概览', users: '用户与会员', tasks: '诊断与用量' } as const;
+type Section = keyof typeof titles;
+const planNames = { free: '免费', basic: '初级', premium: '高级' };
+const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级' };
+const statusNames = { queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
+const usageNames = { reserved: '已预占', dispatched: '已派发', pending: '待核对', settled: '已结算', released: '已释放' };
+const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short' });
+const formatTime = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? timeFormat.format(new Date(value)) : '—';
+
+const login = document.querySelector<HTMLElement>('#login')!;
+const loginForm = document.querySelector<HTMLFormElement>('#login-form')!;
+const loginMessage = document.querySelector<HTMLElement>('#login-message')!;
+const initialStatus = document.querySelector<HTMLElement>('#initial-status')!;
+const app = document.querySelector<HTMLElement>('#app')!;
+const filters = document.querySelector<HTMLElement>('#filters')!;
+const search = document.querySelector<HTMLFormElement>('#search-form')!;
+const queryInput = search.querySelector<HTMLInputElement>('[name=query]')!;
+const statusSelect = search.querySelector<HTMLSelectElement>('[name=status]')!;
+const usageSelect = search.querySelector<HTMLSelectElement>('[name=usageStatus]')!;
+const nav = document.querySelectorAll<HTMLButtonElement>('nav [data-section]');
+const notice = document.querySelector<HTMLElement>('#notice')!;
+const result = document.querySelector<HTMLElement>('#result')!;
+
+let section: Section = 'overview';
+let userQuery: AdminUserQuery = {};
+let taskQuery: AdminTaskQuery = {};
+let generation = 0;
+
+class RequestError extends Error {
+  constructor(readonly status: number, readonly code: string | undefined, message: string) { super(message); }
+}
+
+async function api<T>(path: string, payload?: object): Promise<T> {
+  const response = await fetch(`/api/v1/admin/${path}`, {
+    credentials: 'same-origin', cache: 'no-store',
+    ...(payload === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
+  });
+  const json = await response.json().catch(() => undefined) as ApiResponse<T> | { error?: { code: string; message: string } } | undefined;
+  if (response.ok && json && 'data' in json) return json.data;
+  const error = json && 'error' in json ? json.error : undefined;
+  throw new RequestError(response.status, error?.code, error?.message ?? '管理接口暂时不可用，请稍后重试。');
+}
+
+function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string) {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function button(label: string, action: () => void, className?: string) {
+  const node = element('button', label, className);
+  node.type = 'button';
+  node.addEventListener('click', action);
+  return node;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof RequestError ? error.message : '连接失败，请重试。';
+}
+
+function showLogin(message: string, disabled = false) {
+  generation++;
+  initialStatus.hidden = true;
+  app.hidden = true;
+  result.replaceChildren();
+  login.hidden = false;
+  loginForm.hidden = disabled;
+  loginForm.reset();
+  loginMessage.textContent = message;
+}
+
+function open(next: Section) {
+  section = next;
+  for (const item of nav) {
+    if (item.dataset.section === section) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  }
+  document.querySelector('#section-title')!.textContent = titles[section];
+  filters.hidden = section === 'overview';
+  document.querySelector('#search-label')!.textContent = section === 'tasks' ? '任务 ID、用户 ID 或错误码' : '用户 ID、完整邮箱或手机号';
+  document.querySelector<HTMLElement>('#task-status-label')!.hidden = section !== 'tasks';
+  document.querySelector<HTMLElement>('#usage-status-label')!.hidden = section !== 'tasks';
+  queryInput.value = (section === 'tasks' ? taskQuery.query : userQuery.query) ?? '';
+  statusSelect.value = taskQuery.status ?? '';
+  usageSelect.value = taskQuery.usageStatus ?? '';
+  void refresh();
+}
+
+async function refresh() {
+  const current = ++generation;
+  notice.textContent = '正在加载…';
+  result.replaceChildren();
+  try {
+    if (section === 'overview') {
+      const overview = await api<AdminOverview>('overview');
+      if (current !== generation) return;
+      renderOverview(overview);
+    } else if (section === 'users') {
+      const users = await api<AdminPage<AdminUser>>('users/search', userQuery);
+      if (current !== generation) return;
+      renderUsers(users);
+    } else {
+      const tasks = await api<AdminPage<AdminTask>>('tasks/search', taskQuery);
+      if (current !== generation) return;
+      renderTasks(tasks);
+    }
+    login.hidden = true;
+    initialStatus.hidden = true;
+    app.hidden = false;
+    notice.textContent = '';
+  } catch (error) {
+    if (current !== generation) return;
+    if (error instanceof RequestError && [401, 403].includes(error.status)) {
+      showLogin(error.status === 401 ? '' : error.message);
+    } else if (error instanceof RequestError && error.code === 'ADMIN_NOT_CONFIGURED') {
+      showLogin(error.message, true);
+    } else if (app.hidden) {
+      showLogin(errorMessage(error));
+    } else {
+      notice.textContent = errorMessage(error);
+    }
+  }
+}
+
+function renderOverview(data: AdminOverview) {
+  const cards = element('div', undefined, 'metrics');
+  const add = (label: string, value: number, action?: () => void) => {
+    const card = action ? button('', action, 'metric') : element('div', undefined, 'metric');
+    card.append(element('span', label), element('strong', value.toLocaleString('zh-CN')));
+    cards.append(card);
+  };
+  add('注册用户', data.users, () => { userQuery = {}; open('users'); });
+  add('近 7 天新增', data.newUsers7Days);
+  add('有效会员', data.activeMembers);
+  add('失败诊断任务', data.failedTasks, () => { taskQuery = { status: 'failed' }; open('tasks'); });
+  add('用量待核对', data.pendingUsage, () => { taskQuery = { usageStatus: 'pending' }; open('tasks'); });
+  result.append(cards, element('p', '统计来自当前服务已保存的记录。时间按北京时间显示。', 'help'));
+}
+
+function table<T>(page: AdminPage<T>, columns: string[], render: (row: T) => (Node | string)[]) {
+  const scroll = element('div', undefined, 'table-scroll');
+  if (page.items.length) {
+    const view = element('table');
+    const heading = view.createTHead().insertRow();
+    for (const column of columns) {
+      const cell = element('th', column);
+      cell.scope = 'col';
+      heading.append(cell);
+    }
+    const body = view.createTBody();
+    for (const row of page.items) {
+      const line = body.insertRow();
+      for (const value of render(row)) line.insertCell().append(value);
+    }
+    scroll.append(view);
+  } else {
+    scroll.append(element('p', '没有符合条件的记录。', 'empty'));
+  }
+  const pagination = element('div', undefined, 'pagination');
+  const last = Math.max(1, Math.ceil(page.total / page.pageSize));
+  const go = (number: number) => {
+    if (section === 'users') userQuery = { ...userQuery, page: number };
+    else taskQuery = { ...taskQuery, page: number };
+    void refresh();
+  };
+  const previous = button('上一页', () => go(page.page - 1));
+  previous.disabled = page.page <= 1;
+  const next = button('下一页', () => go(page.page + 1));
+  next.disabled = page.page >= last;
+  pagination.append(element('span', `共 ${page.total} 条 · 第 ${page.page} 页`), previous, next);
+  result.append(scroll, pagination);
+}
+
+function lines(...values: (Node | string)[]) {
+  const group = element('div', undefined, 'lines');
+  group.append(...values.map(value => typeof value === 'string' ? element('span', value) : value));
+  return group;
+}
+
+function renderUsers(page: AdminPage<AdminUser>) {
+  table(page, ['用户', '账号绑定', '会员记录', '工作台权限', 'AI 周额度'], user => {
+    const details = element('details');
+    details.append(element('summary', `当前生效：${planNames[user.workbench.planId]}`), lines(...workbenchFeatures.map(key =>
+      `${workbenchFeatureNames[key]}：${user.workbench.features[key] ? '已解锁' : '未解锁'}`)));
+    const remaining = user.quota.remainingPercent;
+    return [
+      lines(element('code', user.id), `注册：${formatTime(user.createdAt)}`,
+        button('查看诊断', () => { taskQuery = { query: user.id }; open('tasks'); }, 'link')),
+      lines(...[user.email ? `${user.email.masked} · ${user.email.verified ? '已验证' : '待验证'}` : '',
+        user.phoneMasked ?? '', user.wechat ? '已绑定微信' : ''].filter(Boolean)),
+      user.membership ? lines(`${planNames[user.membership.planId]} · ${eventNames[user.membership.latestEvent]}`,
+        `生效：${formatTime(user.membership.startsAt)}`, `到期：${formatTime(user.membership.expiresAt)}`) : '无会员记录',
+      details,
+      lines(remaining === null ? (user.quota.status === 'inactive' ? '当前无有效会员' : '尚未启用') : `剩余 ${remaining}%`,
+        ...(user.quota.resetsAt ? [`${user.quota.resetsAt === user.quota.expiresAt ? '本期有效至' : '刷新'}：${formatTime(user.quota.resetsAt)}`] : []),
+        ...(user.quota.pending ? ['有处理中或待核对用量'] : [])),
+    ];
+  });
+}
+
+function renderTasks(page: AdminPage<AdminTask>) {
+  table(page, ['任务与用户', '诊断方式', '任务状态', '用量状态', '时间'], task => [
+    lines(element('code', task.id),
+      button(task.userId, () => { userQuery = { query: task.userId }; open('users'); }, 'link'),
+      ...(task.resumeRevision === null ? [] : [`简历修订 ${task.resumeRevision}`])),
+    task.engine === 'rules' ? '本地规则' : '百炼模型',
+    lines(task.status ? statusNames[task.status] : '仅保留用量记录',
+      ...(task.errorCode ? [element('code', task.errorCode)] : [])),
+    task.usageStatus ? usageNames[task.usageStatus] : '—',
+    lines(`创建：${formatTime(task.createdAt)}`, `更新：${formatTime(task.updatedAt)}`),
+  ]);
+}
+
+function setupSelect<T extends string>(select: HTMLSelectElement, values: readonly T[], names: Record<T, string>) {
+  select.add(new Option('全部', ''));
+  for (const value of values) select.add(new Option(names[value], value));
+}
+setupSelect(statusSelect, adminTaskStatuses, statusNames);
+setupSelect(usageSelect, adminUsageStatuses, usageNames);
+
+for (const item of nav) item.addEventListener('click', () => open(item.dataset.section as Section));
+document.querySelector('#refresh')!.addEventListener('click', () => void refresh());
+search.addEventListener('submit', event => {
+  event.preventDefault();
+  const query = queryInput.value.trim();
+  if (section === 'users') userQuery = { query };
+  else taskQuery = { query, status: adminTaskStatuses.find(value => value === statusSelect.value),
+    usageStatus: adminUsageStatuses.find(value => value === usageSelect.value) };
+  void refresh();
+});
+
+loginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const submit = loginForm.querySelector('button')!;
+  submit.disabled = true;
+  loginMessage.textContent = '正在登录…';
+  const fields = new FormData(loginForm);
+  try {
+    await api('login', { email: fields.get('email'), password: fields.get('password') });
+    loginForm.reset();
+    open('overview');
+  } catch (error) {
+    loginMessage.textContent = errorMessage(error);
+    loginForm.querySelector<HTMLInputElement>('[name=password]')!.value = '';
+  } finally {
+    submit.disabled = false;
+  }
+});
+
+const logout = document.querySelector<HTMLButtonElement>('#logout')!;
+logout.addEventListener('click', async () => {
+  logout.disabled = true;
+  try {
+    await api('logout', {});
+    userQuery = {};
+    taskQuery = {};
+    queryInput.value = '';
+    showLogin('已退出管理员会话。');
+  } catch (error) {
+    notice.textContent = errorMessage(error);
+  } finally {
+    logout.disabled = false;
+  }
+});
+
+open('overview');

@@ -29,6 +29,11 @@ try {
     .map(name => readFile(join(releaseRoot, 'www/assets', name), 'utf8')));
   assert.ok(scripts.some(script => script.includes(pdfWorkers[0])), 'PDF parser must reference the emitted worker');
   checks.push('pdf-worker-module-has-javascript-extension-and-reference');
+  const adminPage = await readFile(join(releaseRoot, 'www/admin/index.html'), 'utf8');
+  const adminScript = adminPage.match(/src="\/admin\/(assets\/[^"]+\.js)"/)?.[1];
+  assert.ok(adminScript, 'Admin entry must load its own compiled script under /admin/');
+  assert.ok((await readFile(join(releaseRoot, 'www/admin', adminScript), 'utf8')).includes('/api/v1/admin/'));
+  checks.push('admin-static-entry-and-script');
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const base = `http://127.0.0.1:${server.address().port}/api/v1`;
   async function request(route, method = 'GET', input, cookie) {
@@ -46,6 +51,8 @@ try {
   for (const path of ['/resumes', '/career', '/career/companies', '/membership', '/membership/quota', '/membership/workbench']) assert.equal((await request(path)).status, 401);
   assert.equal((await request('/career/assistant', 'POST', { requirements: '', message: '查找企业' })).status, 401);
   checks.push('private-routes-require-session');
+  assert.equal((await request('/admin/overview')).body.error.code, 'ADMIN_NOT_CONFIGURED');
+  checks.push('admin-disabled-without-allowlist');
   const owner = await account(), other = await account(), quotaAccount = await account();
   const preview = await request('/membership', 'GET', undefined, owner);
   assert.equal(preview.body.data.quota.status, 'preview');
