@@ -3,7 +3,7 @@ import type {
   CareerContentReceipt, CareerContentReview, CareerContentSummary, CareerContentValue, ReviewCareerContent, SaveCareerContentDraft,
 } from '../shared/types.js';
 import { inputLimits } from '../shared/limits.js';
-import { careerFileFallbackText, careerFileFormat, careerFileLimits, isCareerAttachment } from '../shared/career-attachment.js';
+import { careerFileFallbackText, careerFileFormat, careerFileLimits, careerFileMaxBytes, isCareerAttachment } from '../shared/career-attachment.js';
 import { button, element, formatTime } from './dom.js';
 
 const kindNames = { material: '复习资料', portal: '招聘入口' };
@@ -48,17 +48,33 @@ function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: Care
 }
 
 function attachmentLink(file: CareerAttachment) {
+  const src = `/api/v1/admin/career-files/${file.id}.${file.format}`;
   const link = element('a', `${file.fileName}（${Math.ceil(file.bytes / 1024)} KB）`);
-  link.href = `/api/v1/admin/career-files/${file.id}.${file.format}`;
+  link.href = src;
   link.download = file.fileName;
-  return link;
+  const preview = element('div', undefined, 'content-media');
+  preview.append(link);
+  if (file.format === 'mp4') {
+    const player = element('video');
+    player.src = src;
+    player.preload = 'none';
+    player.controls = true;
+    player.playsInline = true;
+    player.setAttribute('aria-label', `预览视频 ${file.fileName}`);
+    const message = element('p', '', 'help');
+    message.setAttribute('role', 'status');
+    player.addEventListener('error', () => { message.textContent = '视频无法播放，请重新登录或核对上传的原文件。'; });
+    preview.append(player, message);
+  }
+  return preview;
 }
 
 class AttachmentUploadError extends Error {}
 
 async function uploadAttachment(file: File, request: Request, progress: (sent: number) => void) {
-  if (!careerFileFormat(file.name) || !file.name.includes('.') || file.size < 1 || file.size > careerFileLimits.bytes) {
-    throw new AttachmentUploadError('请选择 10 MB 以内的 PDF 或 Word（.docx）文件。');
+  const format = careerFileFormat(file.name);
+  if (!format || !file.name.includes('.') || file.size < 1 || file.size > careerFileMaxBytes(format)) {
+    throw new AttachmentUploadError('请选择 10 MB 以内的 PDF／Word（.docx），或 30 MB 以内的 MP4。');
   }
   const uploadId = crypto.randomUUID();
   try {
@@ -66,7 +82,7 @@ async function uploadAttachment(file: File, request: Request, progress: (sent: n
       const bytes = new Uint8Array(await file.slice(offset, offset + careerFileLimits.chunkBytes).arrayBuffer());
       let binary = '';
       for (const byte of bytes) binary += String.fromCharCode(byte);
-      const result = await request<{ receivedBytes: number }>('career-files/chunk', { uploadId, index, data: btoa(binary) });
+      const result = await request<{ receivedBytes: number }>('career-files/chunk', { uploadId, index, format, data: btoa(binary) });
       if (result.receivedBytes !== offset + bytes.length) throw new AttachmentUploadError('文件分片未完整保存，请重新上传。');
       progress(result.receivedBytes);
     }
@@ -223,8 +239,8 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
       const label = element('label');
       const picker = element('input');
       picker.type = 'file';
-      picker.accept = '.pdf,.docx';
-      label.append(element('span', '上传 PDF 或 Word（.docx），最大 10 MB'), picker);
+      picker.accept = '.pdf,.docx,.mp4';
+      label.append(element('span', '上传 PDF／Word（10 MB 内）或 MP4 视频（30 MB 内，H.264）'), picker);
       const fileInfo = element('div', undefined, 'content-actions');
       const textBody = form.querySelector<HTMLTextAreaElement>('[name=content]')!;
       function showAttachment() {

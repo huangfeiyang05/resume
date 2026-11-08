@@ -3,18 +3,21 @@ import { constants } from 'node:fs';
 import { link, mkdir, open, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import JSZip from 'jszip';
-import { careerFileFormat, careerFileIdPattern, careerFileLimits, isCareerAttachment, type CareerAttachment, type CareerFileFormat } from '../shared/career-attachment.js';
+import { careerFileFormat, careerFileIdPattern, careerFileLimits, careerFileMaxBytes, isCareerAttachment, isCareerFileFormat, type CareerAttachment, type CareerFileFormat } from '../shared/career-attachment.js';
+import { isH264Mp4 } from './career-mp4.js';
 import { careerObject } from './career-validation.js';
 import { HttpError, invalid, notFound } from './errors.js';
 
 const uploadLifetime = 15 * 60_000;
 const maxUploads = 4;
+const maxBufferedBytes = 64 * 1024 * 1024;
 const maxStorageBytes = 512 * 1024 * 1024;
 const maxFiles = 2000;
-const storedFile = /^[a-f0-9]{64}\.(pdf|docx)$/;
+const storedFile = /^[a-f0-9]{64}\.(pdf|docx|mp4)$/;
 const uploadIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 interface Upload {
   actorId: string;
+  format?: CareerFileFormat;
   chunks: Buffer[];
   bytes: number;
   touchedAt: number;
@@ -37,6 +40,10 @@ function fileDigest(format: CareerFileFormat, bytes: Buffer) {
 }
 
 async function validateFile(bytes: Buffer, format: CareerFileFormat) {
+  if (format === 'mp4') {
+    if (isH264Mp4(bytes)) return;
+    invalid('视频格式不受支持，请导出为包含 H.264 视频轨道的 MP4。');
+  }
   if (format === 'pdf') {
     if (/^%PDF-[12]\.\d[\r\n]/.test(bytes.subarray(0, 12).toString('latin1'))
       && /%%EOF[ \t\r\n\f]*$/.test(bytes.subarray(-1024).toString('latin1'))) return;
@@ -70,8 +77,10 @@ export class CareerFiles {
   }
 
   chunk(body: unknown, actorId: string) {
-    const input = careerObject(body, ['uploadId', 'index', 'data']);
+    const input = careerObject(body, ['uploadId', 'index', 'data', 'format']);
     const id = uploadId(input.uploadId), index = input.index, value = input.data;
+    const format = input.format;
+    if (format !== undefined && !isCareerFileFormat(format)) invalid('资料文件类型无效。');
     if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0
       || typeof value !== 'string' || !value || value.length > careerFileLimits.chunkBytes * 4 / 3
       || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) invalid('文件分片无效。');
@@ -89,15 +98,19 @@ export class CareerFiles {
         const completed = [...this.uploads].find(([, item]) => item.attachment);
         if (completed) this.uploads.delete(completed[0]);
       }
-      upload = { actorId, chunks: [], bytes: 0, touchedAt: Date.now() };
+      upload = { actorId, format, chunks: [], bytes: 0, touchedAt: Date.now() };
       this.uploads.set(id, upload);
     }
     if (upload.finalizing || upload.attachment) throw new HttpError(409, 'CAREER_FILE_UPLOAD_STATE', '该文件正在完成或已经上传。');
-    if (index < upload.chunks.length && upload.chunks[index].equals(bytes)) return { receivedBytes: upload.bytes };
-    if (index !== upload.chunks.length || (index > 0 && upload.chunks[index - 1].length !== careerFileLimits.chunkBytes)) {
+    if (upload.format === format && index < upload.chunks.length && upload.chunks[index].equals(bytes)) return { receivedBytes: upload.bytes };
+    if (upload.format !== format || index !== upload.chunks.length || (index > 0 && upload.chunks[index - 1].length !== careerFileLimits.chunkBytes)) {
       throw new HttpError(409, 'CAREER_FILE_CHUNK_CONFLICT', '文件分片顺序或内容不一致，请重新上传。');
     }
-    if (upload.bytes + bytes.length > careerFileLimits.bytes) throw new HttpError(413, 'CAREER_FILE_TOO_LARGE', '资料文件不能超过 10 MB。');
+    if (upload.bytes + bytes.length > careerFileMaxBytes(format)) {
+      throw new HttpError(413, 'CAREER_FILE_TOO_LARGE', format === 'mp4' ? '视频不能超过 30 MB。' : '文档不能超过 10 MB。');
+    }
+    const buffered = [...this.uploads.values()].reduce((total, item) => total + (item.attachment ? 0 : item.bytes), 0);
+    if (buffered + bytes.length > maxBufferedBytes) throw new HttpError(429, 'CAREER_FILE_UPLOAD_BUSY', '上传队列暂满，请稍后重试。');
     upload.chunks.push(bytes);
     upload.bytes += bytes.length;
     return { receivedBytes: upload.bytes };
@@ -108,7 +121,7 @@ export class CareerFiles {
     const upload = this.find(uploadId(input.uploadId), actorId) ?? notFound('上传');
     const name = typeof input.fileName === 'string' ? input.fileName.trim() : '';
     const format = careerFileFormat(name);
-    if (!format || input.bytes !== upload.bytes) invalid('资料文件格式或长度不符。');
+    if (!format || input.bytes !== upload.bytes || (upload.format !== undefined && format !== upload.format)) invalid('资料文件格式或长度不符。');
     if (upload.attachment) {
       if (upload.attachment.fileName !== name) invalid('该上传已使用其他文件名完成。');
       return upload.attachment;
@@ -150,7 +163,7 @@ export class CareerFiles {
     }
     try {
       const info = await handle.stat();
-      if (!info.isFile() || info.size < 1 || info.size > careerFileLimits.bytes || (expectedBytes !== undefined && info.size !== expectedBytes)) {
+      if (!info.isFile() || info.size < 1 || info.size > careerFileMaxBytes(format) || (expectedBytes !== undefined && info.size !== expectedBytes)) {
         throw new HttpError(503, 'CAREER_FILE_UNAVAILABLE', '资料文件暂时不可读取。');
       }
       return { handle, bytes: info.size };

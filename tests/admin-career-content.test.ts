@@ -26,6 +26,26 @@ const sampleJob = {
 };
 const { id: _id, updatedAt: _updatedAt, ...editableMaterial } = existingMaterial;
 
+function mp4Box(type: string, ...parts: Buffer[]) {
+  const header = Buffer.alloc(8);
+  header.writeUInt32BE(8 + parts.reduce((bytes, part) => bytes + part.length, 0));
+  header.write(type, 4, 'ascii');
+  return Buffer.concat([header, ...parts]);
+}
+
+function videoContainer(codec: string) {
+  const handler = Buffer.alloc(12), samples = Buffer.alloc(8);
+  handler.write('vide', 8, 'ascii');
+  samples.writeUInt32BE(1, 4);
+  const configuration = mp4Box('avcC', Buffer.from([1, 66, 0, 30, 255, 224, 0]));
+  const info = mp4Box('minf', mp4Box('stbl', mp4Box('stsd', samples, mp4Box(codec, Buffer.alloc(78), configuration))));
+  return Buffer.concat([
+    mp4Box('ftyp', Buffer.from('isom\0\0\0\0', 'latin1')),
+    mp4Box('moov', mp4Box('trak', mp4Box('mdia', mp4Box('hdlr', handler), info))),
+    mp4Box('mdat', Buffer.from('synthetic transport bytes')),
+  ]);
+}
+
 test('admin drafts, reviewed releases and restores are atomic, auditable and visible only to eligible workbench users', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'youfang-career-content-'));
   const databasePath = join(directory, 'db.json');
@@ -145,11 +165,11 @@ test('admin drafts, reviewed releases and restores are atomic, auditable and vis
     createdAt: existingMaterial.updatedAt, updatedAt: existingMaterial.updatedAt, revision: 1 }, 'pdf', 'minimal');
   const word = await readFile(new URL('../src/static/resume-templates/classic-onyx.docx', import.meta.url));
   const files = '/admin/career-files';
-  async function upload(fileName: string, bytes: Buffer) {
+  async function upload(fileName: string, bytes: Buffer, format?: 'mp4') {
     const uploadId = randomUUID();
     for (let offset = 0, index = 0; offset < bytes.length; offset += careerFileLimits.chunkBytes, index++) {
       const chunk = bytes.subarray(offset, offset + careerFileLimits.chunkBytes);
-      const payload = { uploadId, index, data: chunk.toString('base64') };
+      const payload = { uploadId, index, format, data: chunk.toString('base64') };
       const sent = await write(`${files}/chunk`, payload);
       assert.equal(sent.status, 200);
       assert.deepEqual((await write(`${files}/chunk`, payload)).body.data, { receivedBytes: offset + chunk.length });
@@ -223,6 +243,54 @@ test('admin drafts, reviewed releases and restores are atomic, auditable and vis
   assert.equal((await write(`${material}/apply`, restoreAttachment)).status, 200);
   assert.deepEqual((await new CareerService(new JsonStore(databasePath), subscriberId, catalogPath).workspace()).materials[0].attachment, originalFile);
   assert.equal((await download(publicFile(replacement), reader)).status, 404);
+
+  const unsupported = videoContainer('hvc1'), badVideo = randomUUID();
+  assert.equal((await write(`${files}/chunk`, { uploadId: badVideo, index: 0, format: 'mp4', data: unsupported.toString('base64') })).status, 200);
+  assert.equal((await write(`${files}/finish`, { uploadId: badVideo, fileName: 'HEVC.mp4', bytes: unsupported.length })).status, 400);
+  assert.equal((await write(`${files}/cancel`, { uploadId: badVideo })).status, 200);
+  const videoBytes = videoContainer('avc1');
+  const video = await upload('复习视频.mp4', videoBytes, 'mp4');
+  const videoFile = publicFile(video);
+  const readVideo = (options: { range?: string; method?: 'GET' | 'HEAD'; cookie?: string } = {}) => fetch(origin + videoFile, {
+    method: options.method ?? 'GET', headers: {
+      ...(options.cookie ? { Cookie: options.cookie } : {}),
+      ...(options.range ? { Range: options.range } : {}),
+    },
+  });
+  assert.equal((await download(adminFile(video), admin)).status, 200);
+  assert.equal((await saveFile(video)).status, 200);
+  assert.equal((await readVideo({ range: 'bytes=0-1', cookie: reader })).status, 404);
+  const videoRelease = await publishFile();
+  assert.equal(videoRelease.status, 200);
+  assert.equal((await readVideo({ range: 'bytes=0-1' })).status, 401);
+  assert.equal((await readVideo({ range: 'bytes=0-1', cookie: operatorNormal })).status, 403);
+  const metadata = await readVideo({ method: 'HEAD', cookie: reader });
+  assert.equal(metadata.status, 200);
+  assert.equal(metadata.headers.get('content-type'), 'video/mp4');
+  assert.equal(metadata.headers.get('content-length'), String(videoBytes.length));
+  assert.equal(metadata.headers.get('accept-ranges'), 'bytes');
+  assert.equal(await metadata.text(), '');
+  for (const [range, start, end] of [
+    ['bytes=0-1', 0, 1],
+    ['bytes=8-', 8, videoBytes.length - 1],
+    ['bytes=-8', videoBytes.length - 8, videoBytes.length - 1],
+  ] as const) {
+    const partial = await readVideo({ range, cookie: reader });
+    assert.equal(partial.status, 206);
+    assert.equal(partial.headers.get('content-range'), `bytes ${start}-${end}/${videoBytes.length}`);
+    assert.deepEqual(Buffer.from(await partial.arrayBuffer()), videoBytes.subarray(start, end + 1));
+  }
+  const outOfBounds = await readVideo({ range: 'bytes=1000000-', cookie: reader });
+  assert.equal(outOfBounds.status, 416);
+  assert.equal(outOfBounds.headers.get('content-range'), `bytes */${videoBytes.length}`);
+  const database = await new JsonStore(databasePath).read();
+  assert.equal(Object.values(database.careerVideos)[0].format, 'mp4');
+  assert.ok(Object.values(database.careerAttachments).every(file => file.format !== 'mp4'), 'previous release can still read document metadata');
+  const videoRestore = await preview(material, { revision: (await inspect()).revision,
+    action: 'restore', sourceVersion: fileRelease.body.data.version });
+  assert.equal((await write(`${material}/apply`, videoRestore)).status, 200);
+  assert.equal((await readVideo({ range: 'bytes=0-1', cookie: reader })).status, 404);
+  assert.equal((await download(publicFile(originalFile), reader)).status, 200);
   const off = await preview(material, { revision: (await inspect()).revision, action: 'withdraw' });
   assert.equal((await write(`${material}/apply`, off)).status, 200);
   assert.equal((await download(publicFile(originalFile), reader)).status, 404);

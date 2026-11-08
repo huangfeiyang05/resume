@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobInput, CareerRecruitmentPortal, CompanyRecord, Resume, WorkbenchFeature } from '../../shared/types';
 import { inputLimits } from '../../shared/limits';
 import { careerFileFallbackText } from '../../shared/career-attachment';
 import { workbenchFeatureNames, workbenchRequiredPlan } from '../../shared/workbench';
-import { api, openCareerMaterialFile } from '../services/api';
+import { api, openCareerMaterialFile, startCareerVideo, type CareerVideoSource } from '../services/api';
 import { applicationStatusLabels, applicationTransitions, jobAcceptingPlans, useCareerWorkspace } from '../services/career';
 import { useWorkbenchAccess } from '../services/workbenchAccess';
 import { createCareerHistory } from '../services/careerAssistantHistory';
@@ -42,6 +42,8 @@ const activeJob = computed(() => jobs.value.find(item => item.id === selectedJob
 const activeApplication = computed(() => applications.value.find(item => item.id === selectedApplicationId.value));
 const activeMaterial = computed(() => materials.value.find(item => item.id === selectedMaterialId.value));
 const openingMaterialFile = ref(false), materialFileNotice = ref('');
+const videoSource = shallowRef<CareerVideoSource>(), videoProgress = ref<number | null>(null), videoLoading = ref(false);
+let pendingVideo: ReturnType<typeof startCareerVideo> | undefined;
 const jobQuery = ref(''), materialQuery = ref(''), major = ref(''), materialMajor = ref('');
 const favoritesOnly = ref(false), applicationFilter = ref<ApplicationStatus | '' | 'active'>('');
 const localError = ref('');
@@ -106,8 +108,9 @@ watch([activeJob, activeApplication, activeMaterial, modal], () => {
 });
 watch(() => a.canUse('companyJobs'), allowed => { if (!allowed && modal.value !== 'optimize' && modal.value !== 'clear-history') modal.value = undefined; });
 watch(() => a.canUse('resumeOptimization'), allowed => { if (!allowed && modal.value === 'optimize') modal.value = undefined; });
+watch(() => modal.value === 'material' && a.canUse('studyMaterials') ? `${props.owner}/${activeMaterial.value?.id}/${activeMaterial.value?.attachment?.id}` : '', resetMaterialVideo);
 onMounted(() => { void refreshWorkspace(); });
-onUnmounted(() => { disposed = true; ++resumeRequest; c.dispose(); a.dispose(); });
+onUnmounted(() => { disposed = true; ++resumeRequest; resetMaterialVideo(); c.dispose(); a.dispose(); });
 function date(value: string) {
   const local = new Date(Date.parse(value) + 8 * 60 * 60 * 1000);
   return `${local.getUTCFullYear()}/${String(local.getUTCMonth() + 1).padStart(2, '0')}/${String(local.getUTCDate()).padStart(2, '0')}`;
@@ -147,6 +150,40 @@ function showApplication(item: CareerApplication) {
   modal.value = 'application'; resetError(); void refreshResumes();
 }
 function showMaterial(id: string) { if (!requestFeature('studyMaterials')) return; selectedMaterialId.value = id; materialFileNotice.value = ''; modal.value = 'material'; resetError(); }
+function resetMaterialVideo() {
+  pendingVideo?.cancel();
+  pendingVideo = undefined;
+  videoLoading.value = false;
+  videoProgress.value = null;
+  const previous = videoSource.value;
+  videoSource.value = undefined;
+  if (previous) void nextTick(() => previous.release());
+}
+async function openMaterialVideo() {
+  const item = activeMaterial.value;
+  if (item?.attachment?.format !== 'mp4' || videoLoading.value || !requestFeature('studyMaterials')) return;
+  resetError();
+  videoLoading.value = true;
+  const task = startCareerVideo(item.id, item.attachment, progress => { if (pendingVideo === task) videoProgress.value = progress; });
+  pendingVideo = task;
+  try {
+    const source = await task.ready;
+    if (pendingVideo === task) videoSource.value = source;
+    else source.release();
+  } catch (error) {
+    if (pendingVideo === task) localError.value = error instanceof Error ? error.message : '视频暂时无法打开。';
+  } finally {
+    if (pendingVideo === task) {
+      pendingVideo = undefined;
+      videoLoading.value = false;
+      videoProgress.value = null;
+    }
+  }
+}
+function materialVideoError() {
+  resetMaterialVideo();
+  localError.value = '视频无法播放，请重新打开资料或检查网络。';
+}
 async function openMaterialFile() {
   const item = activeMaterial.value;
   if (!item?.attachment || openingMaterialFile.value || !requestFeature('studyMaterials')) return;
@@ -439,10 +476,18 @@ function copySource(value?: string) {
       <text class="career-material-summary">{{ activeMaterial.summary }}</text>
       <view v-if="activeMaterial.attachment" class="career-source-box">
         <text>{{ activeMaterial.attachment.fileName }} · {{ Math.ceil(activeMaterial.attachment.bytes / 1024) }} KB</text>
-        <button class="text-button" :disabled="openingMaterialFile" @click="openMaterialFile" role="button" tabindex="0">
-          {{ openingMaterialFile ? '正在读取文件…' : '打开资料文件' }}
-        </button>
-        <text v-if="materialFileNotice" role="status">{{ materialFileNotice }}</text>
+        <template v-if="activeMaterial.attachment.format === 'mp4'">
+          <video v-if="videoSource" :src="videoSource.url" class="career-material-video" controls playsinline @error="materialVideoError" />
+          <button v-else class="text-button" :disabled="videoLoading" @click="openMaterialVideo" role="button" tabindex="0">
+            {{ videoLoading ? (videoProgress === null ? '正在读取视频…' : `正在读取视频 ${videoProgress}%`) : '打开视频播放器' }}
+          </button>
+        </template>
+        <template v-else>
+          <button class="text-button" :disabled="openingMaterialFile" @click="openMaterialFile" role="button" tabindex="0">
+            {{ openingMaterialFile ? '正在读取文件…' : '打开资料文件' }}
+          </button>
+          <text v-if="materialFileNotice" role="status">{{ materialFileNotice }}</text>
+        </template>
       </view>
       <text v-if="!activeMaterial.attachment || activeMaterial.content !== careerFileFallbackText" class="career-prose career-material-content">{{ activeMaterial.content }}</text>
       <view class="career-source-box"><text>来源：{{ activeMaterial.sourceLabel }} · 整理 / 更新 {{ date(activeMaterial.updatedAt) }}</text><button v-if="activeMaterial.sourceUrl" class="text-button" @click="copySource(activeMaterial.sourceUrl)" role="button" tabindex="0">复制来源链接<AppIcon name="copy" :size="14" /></button></view>
@@ -460,6 +505,8 @@ function copySource(value?: string) {
 </template>
 
 <style scoped>
+.career-material-video { display: block; width: 100%; max-width: 100%; height: 300px; margin-top: 10px; background: #172724; }
+@media(max-width:767px) { .career-material-video { height: 210px; } }
 .career-identity { display: inline-block; margin-top: 4px; font-size: 12px; color: #65738a; background: #edf2f9; border-radius: 6px; padding: 3px 8px; }
 .career-shortcuts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-bottom: 18px; }.career-shortcut { width: 100%; display: flex; align-items: center; gap: 13px; padding: 19px 20px; border-radius: 15px; text-align: left; color: #26344a; }.career-shortcut > view:nth-child(2) { flex: 1; min-width: 0; font-size: 16px; }.career-shortcut-icon { height: 40px; width: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #edf2fa; flex-shrink: 0; }.career-shortcut-tier { font-size: 11px; display: inline-block; padding: 2px 6px; margin-left: 8px; background: #edf1f7; color: #65738a; border-radius: 5px; }.career-shortcut .career-caption { font-size: 12px; margin-top: 3px; }
 .career-tabs > button.locked { color: #8290a4; }.career-tabs > button > .app-icon { margin-right: 4px; opacity: .7; }.career-count.locked { background: rgba(247,249,252,.8); }.career-count.locked > text:first-child { color: #7c8a9e; font-size: 15px; font-weight: 500; line-height: 2.55; }.career-count.locked > .app-icon { opacity: .55; }.career-locked-footer { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-top: 11px; }.career-locked-footer .career-caption { font-size: 12px; margin: 0; }.career-locked-footer .text-button { font-size: 12px; white-space: nowrap; }.career-upgrade-icon { width: 52px; height: 52px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: #eef3fa; margin: 0 auto 19px; }

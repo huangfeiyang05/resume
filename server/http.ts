@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import { CareerFiles } from './career-files.js';
-import { careerFileTypes, type CareerFileFormat } from '../shared/career-attachment.js';
+import { careerFileTypes, isCareerFileFormat, type CareerAttachment } from '../shared/career-attachment.js';
 import { HttpError } from './errors.js';
 import { JsonStore } from './store.js';
 import { ResumeService } from './service.js';
@@ -37,16 +37,40 @@ function text(response: ServerResponse, status: number, value: string) {
   response.end(value);
 }
 
-async function sendCareerFile(response: ServerResponse, files: CareerFiles, id: string, format: CareerFileFormat, fileName?: string, size?: number) {
+/** A single byte range supports seeking without caching private videos. */
+function videoRange(header: string, bytes: number) {
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(header);
+  if (!match || (!match[1] && !match[2])) return null;
+  const first = Number(match[1]), last = Number(match[2]);
+  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return null;
+  if (!match[1]) return last > 0 ? { start: Math.max(0, bytes - last), end: bytes - 1 } : null;
+  const end = match[2] ? Math.min(last, bytes - 1) : bytes - 1;
+  return first <= end ? { start: first, end } : null;
+}
+
+async function sendCareerFile(request: IncomingMessage, response: ServerResponse, files: CareerFiles,
+  { id, format, fileName, bytes: size }: Pick<CareerAttachment, 'id' | 'format'> & Partial<CareerAttachment>) {
   const { handle, bytes } = await files.file(id, format, size);
   try {
     const name = fileName ? `; filename*=UTF-8''${encodeURIComponent(fileName).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)}` : '';
-    response.writeHead(200, {
-      'Content-Type': careerFileTypes[format], 'Content-Length': bytes, 'Content-Disposition': `attachment${name}`,
+    const video = format === 'mp4';
+    const range = video && request.headers.range && !request.headers['if-range'] ? videoRange(request.headers.range, bytes) : undefined;
+    const headers = {
+      'Content-Type': careerFileTypes[format], 'Content-Disposition': `${video ? 'inline' : 'attachment'}${name}`,
       'Content-Security-Policy': 'sandbox', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
-      Vary: 'Cookie, Authorization',
+      'Cross-Origin-Resource-Policy': 'same-origin', Vary: 'Cookie, Authorization',
+      ...(video ? { 'Accept-Ranges': 'bytes' } : {}),
+    };
+    if (range === null) {
+      response.writeHead(416, { ...headers, 'Content-Range': `bytes */${bytes}`, 'Content-Length': 0 }).end();
+      return;
+    }
+    response.writeHead(range ? 206 : 200, {
+      ...headers, 'Content-Length': range ? range.end - range.start + 1 : bytes,
+      ...(range ? { 'Content-Range': `bytes ${range.start}-${range.end}/${bytes}` } : {}),
     });
-    await pipeline(handle.createReadStream(), response);
+    if (request.method === 'HEAD') response.end();
+    else await pipeline(handle.createReadStream(range), response);
   } catch { response.destroy(); }
   finally { await handle.close().catch(() => undefined); }
 }
@@ -184,9 +208,9 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     if (!allowed.has(user.id) || !user.emailVerified || !user.hasPassword) {
       throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
     }
-    const uploadedFile = path.match(/^\/career-files\/([a-f0-9]{64})\.(pdf|docx)$/);
-    if (uploadedFile && method === 'GET') {
-      await sendCareerFile(response, careerFiles, uploadedFile[1], uploadedFile[2] as CareerFileFormat);
+    const uploadedFile = path.match(/^\/career-files\/([a-f0-9]{64})\.([a-z0-9]+)$/);
+    if (uploadedFile && isCareerFileFormat(uploadedFile[2]) && (method === 'GET' || method === 'HEAD')) {
+      await sendCareerFile(request, response, careerFiles, { id: uploadedFile[1], format: uploadedFile[2] });
       return;
     }
     if (method === 'POST' && ['/career-files/chunk', '/career-files/finish', '/career-files/cancel'].includes(path)) {
@@ -375,10 +399,10 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         };
         json(response, 200, { data: workspace });
       } else if ((match = path.match(/^\/api\/v1\/career\/materials\/([A-Za-z0-9_-]+)\/file\/([a-f0-9]{64})$/))) {
-        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         await assertWorkbenchFeature(service.store, service.userId, 'studyMaterials');
         const file = await career.materialFile(careerId(match[1]), match[2]);
-        await sendCareerFile(response, careerFiles, file.id, file.format, file.fileName, file.bytes);
+        await sendCareerFile(request, response, careerFiles, file);
       } else if (path === '/api/v1/career/companies') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const input = validateCompanySearchParams(url.searchParams);

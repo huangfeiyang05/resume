@@ -18,6 +18,11 @@ export interface StoredCareerContent {
   changes: CareerContentChange[];
 }
 export type CareerAttachmentIndex = Record<string, CareerAttachment>;
+export interface CareerMediaStorage { careerAttachments: CareerAttachmentIndex; careerVideos: CareerAttachmentIndex }
+
+export function careerMedia({ careerAttachments, careerVideos }: CareerMediaStorage): CareerAttachmentIndex {
+  return { ...careerAttachments, ...careerVideos };
+}
 
 export const careerHistoryMaxBytes = 16 * 1024 * 1024;
 export const careerContentHashPattern = /^[a-f0-9]{64}$/;
@@ -74,13 +79,15 @@ export function projectCareerContent(entry?: StoredCareerContent, attachments: C
 }
 
 /** Store references separately so older releases can still read the text representation and audit. */
-export function normalizeCareerAttachments(value: unknown, entries: StoredCareerContent[]): CareerAttachmentIndex {
+export function normalizeCareerAttachments(value: unknown, entries: StoredCareerContent[], videos = false): CareerAttachmentIndex {
   if (value === undefined) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid career file references.');
   const eligible = new Set(entries.filter(entry => entry.kind === 'material').flatMap(entry =>
     entry.changes.filter(change => change.action === 'draft').map(change => change.operationId)));
   return Object.fromEntries(Object.entries(value).map(([key, attachment]) => {
-    if (!eligible.has(key) || !isCareerAttachment(attachment)) throw new Error('Invalid career file reference.');
+    if (!eligible.has(key) || !isCareerAttachment(attachment) || (attachment.format === 'mp4') !== videos) {
+      throw new Error('Invalid career file reference.');
+    }
     return [key, attachment];
   }));
 }

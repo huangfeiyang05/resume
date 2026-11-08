@@ -86,6 +86,8 @@ code { font-size: .87em; overflow-wrap: anywhere; }
 .content-preview dl { margin: .3rem 0; max-height: 27rem; overflow: auto; }
 .content-preview dt { font-weight: 600; }
 .content-preview dd { margin: 0 0 .5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.content-media { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.content-media video { display: block; width: 100%; max-width: 30rem; aspect-ratio: 16 / 9; margin-top: .45rem; background: #172724; }
 .content-confirmation { display: flex; align-items: start; gap: .4rem; margin: .7rem 0; }
 .content-confirmation input { width: auto; }
 .content-history { margin-top: 1rem; }

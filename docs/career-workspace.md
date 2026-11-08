@@ -64,7 +64,7 @@
 | `availability` | `open` 或 `closed`；关闭或过期岗位不能新建计划或记录新投递 |
 | `updatedAt` | 带时区的 ISO 更新时间 |
 
-复习资料字段包括 `id`、`title`、`major`、`role`、`summary`、`content`、`sourceLabel`、可选 `sourceUrl`、`updatedAt` 和可选 `attachment`。纯文本正文直接阅读。PDF 和 Word（.docx）以原文件保存在私有目录，文件信息随发布版本返回，服务端按会话、有效高级会员与当前发布版本校验每次下载。网页端下载后本地打开，微信端通过文档阅读器打开。附件按文件类型校验和限长，不进入正文解析或模型调用。
+复习资料字段包括 `id`、`title`、`major`、`role`、`summary`、`content`、`sourceLabel`、可选 `sourceUrl`、`updatedAt` 和可选 `attachment`。纯文本正文直接阅读，PDF／Word（.docx）可下载，MP4 可在资料页播放。附件原件保存在私有目录，服务端按会话、有效高级会员与当前发布版本校验每次读取。网页端支持视频按字节范围读取，微信端通过带鉴权的临时下载播放，离开资料页会取消读取并清理播放器。附件按文件类型校验和限长。
 
 招聘入口字段为 `id`、`organization`、`majors`、`audience`、`description`、HTTPS `sourceUrl` 和 `checkedAt`。专业标签只用于发现入口，不代表机构接受该专业；核查日期不是招聘排期。材料 `updatedAt` 表示本项目整理时间，来源机构的发布日期在核查记录中另行说明。
 

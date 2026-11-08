@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerWorkspace, Resume } from '../shared/types.js';
 import { hasUnresolvedPlaceholders } from './analysis.js';
 import { careerCatalogLocation, loadCareerCatalog, publishedCareerCatalog, type CareerCatalog } from './career-catalog.js';
+import { careerMedia } from './career-content-storage.js';
 import { careerId, careerObject, careerRevision, validateApplicationCreate, validateApplicationUpdate, validateCareerJobInput, type StoredCareerApplication, type StoredCareerJob } from './career-validation.js';
 import { HttpError, invalid, notFound } from './errors.js';
 import { JsonStore, type Database, type StoredResume } from './store.js';
@@ -40,7 +41,7 @@ export class CareerService {
   }
   private async publishedCatalog() {
     const [database, base] = await Promise.all([this.store.read(), this.catalog()]);
-    return { database, catalog: publishedCareerCatalog(base, database.careerContent, database.careerAttachments) };
+    return { database, catalog: publishedCareerCatalog(base, database.careerContent, careerMedia(database)) };
   }
   async materialFile(id: string, fileId: string) {
     const { catalog } = await this.publishedCatalog();

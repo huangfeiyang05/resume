@@ -171,10 +171,11 @@ try {
   const [directory, database, companies] = process.argv.slice(2);
   const { JsonStore } = await import(pathToFileURL(`${directory}/api/server/store.js`).href);
   const data = await new JsonStore(database).read();
-  if (Object.keys(data.careerAttachments ?? {}).length) {
+  const media = { ...data.careerAttachments, ...data.careerVideos };
+  if (Object.keys(media).length) {
     const { CareerFiles } = await import(pathToFileURL(`${directory}/api/server/career-files.js`).href);
     const files = new CareerFiles(database);
-    const attachments = new Map(Object.values(data.careerAttachments).map(item => [item.id, item]));
+    const attachments = new Map(Object.values(media).map(item => [item.id, item]));
     for (const attachment of attachments.values()) {
       const { handle } = await files.file(attachment.id, attachment.format, attachment.bytes);
       await handle.close();
@@ -221,7 +222,7 @@ fi
 if [[ -d $CAREER_FILES && ! -L $CAREER_FILES ]]; then
   install -d -m 0700 -o root -g root -- "$BACKUP_DIR/career-files"
   for file in "$CAREER_FILES"/*; do
-    [[ ${file##*/} =~ ^[a-f0-9]{64}\.(pdf|docx)$ ]] || continue
+    [[ ${file##*/} =~ ^[a-f0-9]{64}\.(pdf|docx|mp4)$ ]] || continue
     [[ -f $file && ! -L $file ]] || abort
     install -m 0600 -o root -g root -- "$file" "$BACKUP_DIR/career-files/${file##*/}"
   done

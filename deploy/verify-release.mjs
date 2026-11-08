@@ -20,6 +20,21 @@ const auth = new AuthService(store, { phoneCodes, now: () => fixtureTime, requir
 const adminIds = new Set();
 const server = createApiServer(new ResumeService(store), { secureCookies: false, auth, adminUserIds: adminIds });
 const checks = [];
+function fixtureVideo() {
+  const box = (type, ...parts) => {
+    const header = Buffer.alloc(8);
+    header.writeUInt32BE(8 + parts.reduce((size, part) => size + part.length, 0));
+    header.write(type, 4, 'ascii');
+    return Buffer.concat([header, ...parts]);
+  };
+  const handler = Buffer.alloc(12), sampleTable = Buffer.alloc(8);
+  handler.write('vide', 8);
+  sampleTable.writeUInt32BE(1, 4);
+  const config = box('avcC', Buffer.from([1, 66, 0, 30, 255, 224, 0]));
+  const descriptions = box('stsd', sampleTable, box('avc1', Buffer.alloc(78), config));
+  const media = box('mdia', box('hdlr', handler), box('minf', box('stbl', descriptions)));
+  return Buffer.concat([box('ftyp', Buffer.from('isom\0\0\0\0', 'latin1')), box('moov', box('trak', media)), box('mdat', Buffer.from('synthetic'))]);
+}
 try {
   // The existing server serves .js as JavaScript; .mjs can be octet-stream and blocked by nosniff.
   const assetNames = await readdir(join(releaseRoot, 'www/assets'));
@@ -146,6 +161,25 @@ try {
   assert.deepEqual((await currentWorkspace()).materials, catalog.materials);
   assert.deepEqual((await currentContent()).history.map(entry => entry.action), ['restore', 'publish', 'draft']);
   checks.push('admin-reviewed-content-release-idempotent-restore-and-member-visibility');
+  const clip = fixtureVideo(), videoUploadId = randomUUID();
+  const videoChunk = { uploadId: videoUploadId, index: 0, format: 'mp4', data: clip.toString('base64') };
+  assert.equal((await request('/admin/career-files/chunk', 'POST', videoChunk, admin)).body.data.receivedBytes, clip.length);
+  const videoUpload = await request('/admin/career-files/finish', 'POST', { uploadId: videoUploadId, fileName: '合成验收视频.mp4', bytes: clip.length }, admin);
+  assert.equal(videoUpload.status, 200);
+  const videoPath = `/career/materials/${materialId}/file/${videoUpload.body.data.id}`;
+  const videoDraft = { revision: (await currentContent()).revision, operationId: randomUUID(),
+    content: { ...material, content: '', attachment: videoUpload.body.data } };
+  assert.equal((await request(`${contentPath}/draft`, 'POST', videoDraft, admin)).status, 200);
+  assert.equal((await request(videoPath, 'GET', undefined, owner)).status, 404);
+  await releaseContent('publish');
+  const videoPart = await fetch(`${base}${videoPath}`, { headers: { Cookie: owner, Range: 'bytes=0-15' } });
+  assert.equal(videoPart.status, 206);
+  assert.equal(videoPart.headers.get('content-range'), `bytes 0-15/${clip.length}`);
+  assert.deepEqual(Buffer.from(await videoPart.arrayBuffer()), clip.subarray(0, 16));
+  assert.equal((await request(videoPath, 'GET', undefined, quotaAccount)).status, 403);
+  await releaseContent('restore', 0);
+  assert.equal((await request(videoPath, 'GET', undefined, owner)).status, 404);
+  checks.push('career-video-protected-range-and-rollback');
   const created = await request('/resumes', 'POST', {
     title: '合成部署验收简历', targetRole: '合成测试岗位',
     text: '合成部署验收内容，不对应真实个人。\n项目经历\n整理测试需求与接口约定，核对实际交付并记录验收依据。',
