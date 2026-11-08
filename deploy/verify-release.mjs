@@ -180,6 +180,28 @@ try {
   await releaseContent('restore', 0);
   assert.equal((await request(videoPath, 'GET', undefined, owner)).status, 404);
   checks.push('career-video-protected-range-and-rollback');
+  const batchPath = '/admin/company-batches';
+  const csv = Buffer.from('公司名称,招聘批次,招聘链接\n合成验收单位,秋招,https://example.test/careers\n');
+  const batchId = randomUUID();
+  const batchChunk = { id: batchId, index: 0, data: csv.toString('base64') };
+  assert.equal((await request(`${batchPath}/chunk`, 'POST', batchChunk, owner)).status, 401);
+  assert.equal((await request(`${batchPath}/chunk`, 'POST', batchChunk, admin)).body.data.receivedBytes, csv.length);
+  const batchPreview = await request(`${batchPath}/preview`, 'POST',
+    { id: batchId, bytes: csv.length, format: 'csv', sourceTitle: '合成历史批次' }, admin);
+  assert.equal(batchPreview.status, 200);
+  assert.equal(batchPreview.body.data.afterCount, 1);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 0);
+  const publishBatch = { id: batchPreview.body.data.id, confirmed: true };
+  const publishedBatch = await request(`${batchPath}/apply`, 'POST', publishBatch, admin);
+  assert.equal(publishedBatch.status, 200);
+  assert.deepEqual((await request(`${batchPath}/apply`, 'POST', publishBatch, admin)).body.data, publishedBatch.body.data);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 1);
+  assert.equal((await request('/career/companies', 'GET', undefined, quotaAccount)).status, 403);
+  const batchRollback = await request(`${batchPath}/rollback-preview`, 'POST', {}, admin);
+  assert.equal(batchRollback.status, 200);
+  assert.equal((await request(`${batchPath}/apply`, 'POST', { id: batchRollback.body.data.id, confirmed: true }, admin)).status, 200);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 0);
+  checks.push('company-batch-admin-preview-idempotent-publish-and-rollback');
   const created = await request('/resumes', 'POST', {
     title: '合成部署验收简历', targetRole: '合成测试岗位',
     text: '合成部署验收内容，不对应真实个人。\n项目经历\n整理测试需求与接口约定，核对实际交付并记录验收依据。',

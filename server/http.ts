@@ -21,6 +21,7 @@ import { CareerService } from './career.js';
 import { exportResume } from './exports.js';
 import { dirname, join } from 'node:path';
 import { CompanyCatalogRepository } from './company-catalog.js';
+import { CompanyBatches } from './company-batches.js';
 import { validateCompanyId, validateCompanySearchParams } from './company-validation.js';
 import { searchCompanies } from './company-search.js';
 import { answerCareerAssistant } from './career-assistant.js';
@@ -164,6 +165,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
   });
   // Shared company reference data requires a currently effective trusted membership.
   const companies = new CompanyCatalogRepository(options.companyCatalogPath ?? join(dirname(baseService.store.path), 'company-catalog.json'));
+  const companyBatches = new CompanyBatches(companies);
   const secureCookies = options.secureCookies ?? process.env.NODE_ENV === 'production';
   const trustedOrigins = new Set(options.trustedOrigins ?? ['http://127.0.0.1:5173', 'http://localhost:5173']);
   const cookie = (token: string, maxAge: number) => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secureCookies ? '; Secure' : ''}`;
@@ -207,6 +209,23 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     const { user } = await auth.authenticate(token, 'admin');
     if (!allowed.has(user.id) || !user.emailVerified || !user.hasPassword) {
       throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
+    }
+    if (path === '/company-batches' && method === 'GET') {
+      json(response, 200, { data: await companyBatches.state() });
+      return;
+    }
+    if (method === 'POST' && ['/company-batches/chunk', '/company-batches/preview', '/company-batches/report', '/company-batches/rollback-preview', '/company-batches/apply'].includes(path)) {
+      if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+        throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
+      }
+      const input = await body(request);
+      const data = path.endsWith('/chunk') ? companyBatches.chunk(input, user.id)
+        : path.endsWith('/preview') ? await companyBatches.preview(input, user.id)
+        : path.endsWith('/report') ? companyBatches.reviewReport(input, user.id)
+        : path.endsWith('/rollback-preview') ? await companyBatches.previewRollback(input, user.id)
+        : await companyBatches.apply(input, user.id);
+      json(response, 200, { data });
+      return;
     }
     const uploadedFile = path.match(/^\/career-files\/([a-f0-9]{64})\.([a-z0-9]+)$/);
     if (uploadedFile && isCareerFileFormat(uploadedFile[2]) && (method === 'GET' || method === 'HEAD')) {

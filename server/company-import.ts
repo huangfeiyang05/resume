@@ -45,6 +45,10 @@ function textHasContact(value: string): boolean {
   return contactContent.test(value.replace(/https?:\/\/[^\s<>"']+/g, ' '));
 }
 
+export function companySourceLabelHasPrivateData(value: string): boolean {
+  return textHasContact(value) || /https?:\/\//i.test(value);
+}
+
 interface ImportTable { headers: string[]; rows: Array<{ row: number; cells: string[] }>; rowNumberBasis: 'table-row' | 'json-array-index' | 'explicit-row-number' }
 export interface CompanyImportIssue { row: number; code: string; fields: string[] }
 export interface CompanyImportReport {

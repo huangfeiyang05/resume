@@ -1,11 +1,12 @@
-import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary } from '../shared/types.js';
+import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
 import { workbenchFeatureNames, workbenchFeatures } from '../shared/workbench.js';
 import { button, element, formatTime } from './dom.js';
 import { renderCareerContent } from './career-content.js';
+import { renderCompanyBatches } from './company-batches.js';
 import './style.css';
 
-const titles = { overview: '运营概览', users: '用户与会员', tasks: '诊断与用量', content: '求职内容' } as const;
+const titles = { overview: '运营概览', users: '用户与会员', tasks: '诊断与用量', content: '求职内容', companies: '企业资料' } as const;
 type Section = keyof typeof titles;
 const planNames = { free: '免费', basic: '初级', premium: '高级' };
 const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级' };
@@ -49,6 +50,11 @@ async function api<T>(path: string, payload?: object): Promise<T> {
 
 function errorMessage(error: unknown) {
   return error instanceof RequestError ? error.message : '连接失败，请重试。';
+}
+function editorError(error: unknown) {
+  if (error instanceof RequestError && error.status === 401) showLogin('管理会话已失效，请重新登录。');
+  else if (error instanceof RequestError && error.code === 'ADMIN_FORBIDDEN') showLogin(error.message);
+  return errorMessage(error);
 }
 
 function showLogin(message: string, disabled = false) {
@@ -99,17 +105,14 @@ async function refresh() {
       const tasks = await api<AdminPage<AdminTask>>('tasks/search', taskQuery);
       if (current !== generation) return;
       renderTasks(tasks);
-    } else {
+    } else if (section === 'content') {
       const content = await api<CareerContentSummary[]>('career-content');
       if (current !== generation) return;
-      contentEditor = renderCareerContent(result, content, api, error => {
-        if (error instanceof RequestError && error.status === 401) {
-          showLogin('管理会话已失效，请重新登录。');
-        } else if (error instanceof RequestError && error.code === 'ADMIN_FORBIDDEN') {
-          showLogin(error.message);
-        }
-        return errorMessage(error);
-      });
+      contentEditor = renderCareerContent(result, content, api, editorError);
+    } else {
+      const companies = await api<CompanyBatchState>('company-batches');
+      if (current !== generation) return;
+      contentEditor = renderCompanyBatches(result, companies, api, editorError);
     }
     login.hidden = true;
     initialStatus.hidden = true;

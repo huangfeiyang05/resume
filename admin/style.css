@@ -97,3 +97,8 @@ code { font-size: .87em; overflow-wrap: anywhere; }
   .content-workspace, .content-comparison { grid-template-columns: minmax(0, 1fr); }
   .content-list { max-height: 17rem; }
 }
+.company-batch-workspace { display: grid; gap: .8rem; }
+.company-batch-workspace h2 { font-size: 1.2rem; }
+.company-batch-workspace textarea { font: inherit; width: 100%; padding: .5rem; border: 1px solid var(--border); border-radius: .45rem; }
+.company-batch-workspace details label { margin: .4rem 0; }
+.company-batch-workspace li { margin-bottom: .35rem; overflow-wrap: anywhere; }

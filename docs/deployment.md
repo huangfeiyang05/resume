@@ -88,6 +88,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf dist/resume-youfang.ta
 | `/var/lib/resume-youfang/.data/career-catalog.json` | 可选自定义底稿。存在时替换打包底稿，缺失时使用随服务发布的原创公开资料，后台按条目发布时不改写此文件 |
 | `/var/lib/resume-youfang/.data/career-files/` | 私有复习资料附件，按格式和内容摘要去重，代码发布时随账号数据备份。保留原件以支持回滚 |
 | `/var/lib/resume-youfang/.data/company-catalog.json` | 经审核的企业招聘参考资料，经有效会话与高级会员权限校验后提供查询；仅单独授权的数据导入写入，不随代码包或 Git 上传，代码发布时只读校验并受限备份 |
+| `/var/lib/resume-youfang/.data/company-batches/` | 后台企业资料批次历史和版本快照。代码发布时随企业目录一并受限备份 |
 | `/etc/resume-youfang/runtime.env` | 可选服务器配置，不提交 Git，不放静态目录 |
 | `/etc/nginx/sites-available/resume-youfang` | 生效的站点配置 |
 | `/etc/systemd/system/resume-youfang.service` | 单实例 API 服务 |

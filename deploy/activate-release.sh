@@ -14,6 +14,7 @@ readonly STATE_DIR=/var/lib/resume-youfang/.data
 readonly DATA_FILE=/var/lib/resume-youfang/.data/resumes.json
 readonly CATALOG_FILE=/var/lib/resume-youfang/.data/career-catalog.json
 readonly COMPANY_FILE=/var/lib/resume-youfang/.data/company-catalog.json
+readonly COMPANY_BATCHES=/var/lib/resume-youfang/.data/company-batches
 readonly CAREER_FILES=/var/lib/resume-youfang/.data/career-files
 readonly BACKUP_ROOT=/var/backups/resume-youfang
 readonly NODE=/opt/nodejs/bin/node
@@ -134,6 +135,7 @@ flock -n 9 || abort
 [[ $(current_target) == "$PREVIOUS_DIR" ]] || abort
 [[ ! -e $BACKUP_DIR && ! -L $BACKUP_DIR && ! -L $BACKUP_ROOT ]] || abort
 [[ ! -L $STATE_DIR && ( ! -e $STATE_DIR || -d $STATE_DIR ) ]] || abort
+[[ ! -L $COMPANY_BATCHES && ( ! -e $COMPANY_BATCHES || -d $COMPANY_BATCHES ) ]] || abort
 [[ ! -L $CAREER_FILES && ( ! -e $CAREER_FILES || -d $CAREER_FILES ) ]] || abort
 for path in "$DATA_FILE" "$CATALOG_FILE" "$COMPANY_FILE"; do
   [[ ! -L $path && ( ! -e $path || -f $path ) ]] || abort
@@ -218,6 +220,14 @@ fi
 if [[ -f $COMPANY_FILE && ! -L $COMPANY_FILE ]]; then
   install -m 0600 -o root -g root -- "$COMPANY_FILE" "$BACKUP_DIR/company-catalog.json" >/dev/null 2>&1
   companies_present=true
+fi
+if [[ -d $COMPANY_BATCHES && ! -L $COMPANY_BATCHES ]]; then
+  install -d -m 0700 -o root -g root -- "$BACKUP_DIR/company-batches"
+  for file in "$COMPANY_BATCHES"/*.json; do
+    [[ ${file##*/} =~ ^(journal|[a-f0-9]{64})\.json$ ]] || continue
+    [[ -f $file && ! -L $file ]] || abort
+    install -m 0600 -o root -g root -- "$file" "$BACKUP_DIR/company-batches/${file##*/}"
+  done
 fi
 if [[ -d $CAREER_FILES && ! -L $CAREER_FILES ]]; then
   install -d -m 0700 -o root -g root -- "$BACKUP_DIR/career-files"
