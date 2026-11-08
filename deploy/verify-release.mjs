@@ -202,6 +202,34 @@ try {
   assert.equal((await request(`${batchPath}/apply`, 'POST', { id: batchRollback.body.data.id, confirmed: true }, admin)).status, 200);
   assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 0);
   checks.push('company-batch-admin-preview-idempotent-publish-and-rollback');
+  const manual = { name: '合成手工录入企业', industries: '软件、教育', locations: '杭州',
+    recruitmentTypes: '校招', educationLevels: '本科', recruitmentUrl: 'https://example.test/campus',
+    aliases: '合成企业', nature: '民营', directions: '软件开发', cohorts: '应届毕业生', summary: '仅用于隔离发布验收。' };
+  const manualBytes = Buffer.from(JSON.stringify([manual]));
+  const manualId = randomUUID();
+  const manualChunk = { id: manualId, index: 0, data: manualBytes.toString('base64') };
+  assert.equal((await request(`${batchPath}/chunk`, 'POST', manualChunk, admin)).body.data.receivedBytes, manualBytes.length);
+  const manualPreview = await request(`${batchPath}/preview`, 'POST', {
+    id: manualId, bytes: manualBytes.length, format: 'json', sourceTitle: '合成手工来源', sheet: '后台手工录入', headerRow: 1,
+  }, admin);
+  assert.equal(manualPreview.status, 200);
+  assert.equal(manualPreview.body.data.unmappedColumns, 0);
+  assert.equal(manualPreview.body.data.afterCount, 1);
+  const manualReport = await request(`${batchPath}/report`, 'POST', { id: manualPreview.body.data.reportId }, admin);
+  assert.equal(manualReport.status, 200);
+  const reviewed = manualReport.body.data.added[0];
+  assert.equal(reviewed.name, manual.name);
+  assert.deepEqual(reviewed.industries, ['软件', '教育']);
+  assert.deepEqual(reviewed.educationLevels, ['本科']);
+  assert.equal(reviewed.recruitmentUrl, manual.recruitmentUrl);
+  assert.equal(reviewed.summary, manual.summary);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 0);
+  assert.equal((await request(`${batchPath}/apply`, 'POST', { id: manualPreview.body.data.id, confirmed: true }, admin)).status, 200);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.items[0].name, manual.name);
+  const manualRollback = await request(`${batchPath}/rollback-preview`, 'POST', {}, admin);
+  assert.equal((await request(`${batchPath}/apply`, 'POST', { id: manualRollback.body.data.id, confirmed: true }, admin)).status, 200);
+  assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 0);
+  checks.push('company-manual-entry-uses-reviewed-batch-publishing');
   const created = await request('/resumes', 'POST', {
     title: '合成部署验收简历', targetRole: '合成测试岗位',
     text: '合成部署验收内容，不对应真实个人。\n项目经历\n整理测试需求与接口约定，核对实际交付并记录验收依据。',
