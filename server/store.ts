@@ -5,6 +5,7 @@ import type { Analysis, Resume } from '../shared/types.js';
 import type { AuthUser } from '../shared/auth.js';
 import type { EmailCodePurpose, PhoneCodePurpose } from '../shared/auth.js';
 import { normalizeCareerStorage, type CareerStorage } from './career-validation.js';
+import { normalizeCareerContent, type StoredCareerContent } from './career-content-storage.js';
 import { normalizeResumeHistory, type StoredResumeVersion, type StoredResumeRestore } from './resume-history.js';
 import { normalizeAnalysisTasks, type AnalysisTaskStorage } from './job-storage.js';
 import { normalizeQuotaStorage, type QuotaStorage } from './quota-storage.js';
@@ -43,6 +44,7 @@ export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStora
   analyses: StoredAnalysis[];
   resumeVersions: StoredResumeVersion[];
   resumeRestores: StoredResumeRestore[];
+  careerContent: StoredCareerContent[];
 }
 
 /** One process owns this file. Mutations are serialized and committed atomically. */
@@ -77,7 +79,7 @@ export class JsonStore {
       if (parsed.version === 1) {
         const resumes = parsed.resumes.map((resume: Resume) => ({ ...resume, userId: legacyWorkspaceId }));
         return {
-        version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [],
+        version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [], careerContent: [],
         ...normalizeCareerStorage({}),
         ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}),
         ...normalizeResumeHistory({}, resumes),
@@ -100,7 +102,7 @@ export class JsonStore {
         throw new Error('Unsupported or malformed account database.');
       }
       if (parsed.version === 2) {
-        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [] };
+        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [], careerContent: [] };
       }
       if (!Array.isArray(parsed.emailChallenges)
         || parsed.users.some((user: StoredUser) => typeof user.emailVerified !== 'boolean')
@@ -132,10 +134,10 @@ export class JsonStore {
         || new Set(parsed.users.flatMap((user: StoredUser) => user.wechatOpenid ? [user.wechatOpenid] : [])).size !== parsed.users.filter((user: StoredUser) => user.wechatOpenid).length
         || new Set(parsed.users.map((user: StoredUser) => user.id)).size !== parsed.users.length
         || new Set(phoneChallenges.map((challenge: StoredPhoneChallenge) => challenge.id)).size !== phoneChallenges.length) throw new Error('Duplicate account identifiers.');
-      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed) };
+      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), careerContent: normalizeCareerContent(parsed.careerContent) };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return { version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [], ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
+      return { version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [], careerContent: [], ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
     }
   }
 

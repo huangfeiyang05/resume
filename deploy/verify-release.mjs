@@ -17,7 +17,8 @@ let fixtureTime = Date.now();
 const smsMessages = [];
 const phoneCodes = new PhoneCodeService(store, { enabled: true, async sendCode(input) { smsMessages.push(input); } }, { secret: 'release-fixture-sms-secret-more-than-32-bytes', now: () => fixtureTime });
 const auth = new AuthService(store, { phoneCodes, now: () => fixtureTime, requireEmailVerification: false });
-const server = createApiServer(new ResumeService(store), { secureCookies: false, auth });
+const adminIds = new Set();
+const server = createApiServer(new ResumeService(store), { secureCookies: false, auth, adminUserIds: adminIds });
 const checks = [];
 try {
   // The existing server serves .js as JavaScript; .mjs can be octet-stream and blocked by nosniff.
@@ -44,16 +45,17 @@ try {
     return { status: response.status, headers: response.headers, body: await response.json() };
   }
   async function account() {
-    const result = await request('/auth/register', 'POST', { email: `deployment-${randomUUID()}@example.test`, password: 'Smoke26!Pass' });
+    const credentials = { email: `deployment-${randomUUID()}@example.test`, password: 'Smoke26!Pass' };
+    const result = await request('/auth/register', 'POST', credentials);
     assert.equal(result.status, 201);
-    return result.headers.get('set-cookie').split(';')[0];
+    return { credentials, cookie: result.headers.get('set-cookie').split(';')[0] };
   }
   for (const path of ['/resumes', '/career', '/career/companies', '/membership', '/membership/quota', '/membership/workbench']) assert.equal((await request(path)).status, 401);
   assert.equal((await request('/career/assistant', 'POST', { requirements: '', message: '查找企业' })).status, 401);
   checks.push('private-routes-require-session');
   assert.equal((await request('/admin/overview')).body.error.code, 'ADMIN_NOT_CONFIGURED');
   checks.push('admin-disabled-without-allowlist');
-  const owner = await account(), other = await account(), quotaAccount = await account();
+  const operator = await account(), owner = operator.cookie, { cookie: other } = await account(), { cookie: quotaAccount } = await account();
   const preview = await request('/membership', 'GET', undefined, owner);
   assert.equal(preview.body.data.quota.status, 'preview');
   assert.equal(preview.body.data.quota.remainingPercent, null);
@@ -100,6 +102,35 @@ try {
   assert.deepEqual(workspace.body.data.jobs, catalog.jobs);
   assert.equal(workspace.body.data.externalDeliveryAvailable, false);
   checks.push('bundled-materials-and-portals-separate-from-jobs');
+  adminIds.add(userId);
+  await store.mutate(data => { data.users.find(user => user.id === userId).emailVerified = true; });
+  assert.equal((await request('/admin/career-content', 'GET', undefined, owner)).status, 401);
+  const signedIn = await request('/admin/login', 'POST', operator.credentials);
+  assert.equal(signedIn.status, 200);
+  const admin = signedIn.headers.get('set-cookie').split(';')[0];
+  const { id: materialId, updatedAt: _updatedAt, ...material } = catalog.materials[0];
+  const contentPath = `/admin/career-content/material/${materialId}`;
+  const currentContent = async () => (await request(contentPath, 'GET', undefined, admin)).body.data;
+  const currentWorkspace = async () => (await request('/career', 'GET', undefined, owner)).body.data;
+  const draft = { revision: (await currentContent()).revision, operationId: randomUUID(), content: { ...material, title: '合成发布验收提纲' } };
+  assert.deepEqual((await request(`${contentPath}/draft`, 'POST', draft, admin)).body.data, { version: 1 });
+  assert.deepEqual((await currentWorkspace()).materials, catalog.materials);
+  async function releaseContent(action, sourceVersion) {
+    const input = { action, sourceVersion, revision: (await currentContent()).revision };
+    const review = await request(`${contentPath}/preview`, 'POST', input, admin);
+    assert.equal(review.status, 200);
+    const apply = { ...input, token: review.body.data.token, confirmed: true, operationId: randomUUID() };
+    const result = await request(`${contentPath}/apply`, 'POST', apply, admin);
+    assert.equal(result.status, 200);
+    assert.deepEqual((await request(`${contentPath}/apply`, 'POST', apply, admin)).body.data, result.body.data);
+  }
+  await releaseContent('publish');
+  assert.equal((await currentWorkspace()).materials.find(item => item.id === materialId).title, draft.content.title);
+  assert.deepEqual((await request('/career', 'GET', undefined, quotaAccount)).body.data.materials, []);
+  await releaseContent('restore', 0);
+  assert.deepEqual((await currentWorkspace()).materials, catalog.materials);
+  assert.deepEqual((await currentContent()).history.map(entry => entry.action), ['restore', 'publish', 'draft']);
+  checks.push('admin-reviewed-content-release-idempotent-restore-and-member-visibility');
   const created = await request('/resumes', 'POST', {
     title: '合成部署验收简历', targetRole: '合成测试岗位',
     text: '合成部署验收内容，不对应真实个人。\n项目经历\n整理测试需求与接口约定，核对实际交付并记录验收依据。',

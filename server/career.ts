@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { dirname, join } from 'node:path';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerWorkspace, Resume } from '../shared/types.js';
 import { hasUnresolvedPlaceholders } from './analysis.js';
-import { bundledCareerCatalogPath, loadCareerCatalog, type CareerCatalog } from './career-catalog.js';
+import { careerCatalogLocation, loadCareerCatalog, publishedCareerCatalog, type CareerCatalog } from './career-catalog.js';
 import { careerId, careerObject, careerRevision, validateApplicationCreate, validateApplicationUpdate, validateCareerJobInput, type StoredCareerApplication, type StoredCareerJob } from './career-validation.js';
 import { HttpError, invalid, notFound } from './errors.js';
 import { JsonStore, type Database, type StoredResume } from './store.js';
@@ -20,8 +19,9 @@ export class CareerService {
   readonly catalogPath: string;
   private readonly fallbackPath?: string;
   constructor(readonly store: JsonStore, readonly userId: string, catalogPath?: string) {
-    this.catalogPath = catalogPath ?? join(dirname(store.path), 'career-catalog.json');
-    this.fallbackPath = catalogPath === undefined ? bundledCareerCatalogPath : undefined;
+    const location = careerCatalogLocation(store.path, catalogPath);
+    this.catalogPath = location.path;
+    this.fallbackPath = location.fallback;
   }
   private catalog() { return loadCareerCatalog(this.catalogPath, this.fallbackPath); }
   private findJob(database: Database, catalog: CareerCatalog, id: string): CareerJob {
@@ -39,7 +39,8 @@ export class CareerService {
     if (job.availability !== 'open' || (job.deadline && job.deadline < today)) throw new HttpError(409, 'JOB_UNAVAILABLE', '该岗位已关闭或超过截止日期，不能继续建立或确认投递。');
   }
   async workspace(): Promise<CareerWorkspace> {
-    const [database, catalog] = await Promise.all([this.store.read(), this.catalog()]);
+    const [database, base] = await Promise.all([this.store.read(), this.catalog()]);
+    const catalog = publishedCareerCatalog(base, database.careerContent);
     const personal = database.careerJobs.filter(item => item.userId === this.userId).map(publicJob);
     const jobIds = new Set(personal.map(item => item.id));
     const jobs = [...personal, ...catalog.jobs.filter(item => !jobIds.has(item.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

@@ -1,16 +1,16 @@
-import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse } from '../shared/types.js';
+import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
 import { workbenchFeatureNames, workbenchFeatures } from '../shared/workbench.js';
+import { button, element, formatTime } from './dom.js';
+import { renderCareerContent } from './career-content.js';
 import './style.css';
 
-const titles = { overview: '运营概览', users: '用户与会员', tasks: '诊断与用量' } as const;
+const titles = { overview: '运营概览', users: '用户与会员', tasks: '诊断与用量', content: '求职内容' } as const;
 type Section = keyof typeof titles;
 const planNames = { free: '免费', basic: '初级', premium: '高级' };
 const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级' };
 const statusNames = { queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const usageNames = { reserved: '已预占', dispatched: '已派发', pending: '待核对', settled: '已结算', released: '已释放' };
-const timeFormat = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'short' });
-const formatTime = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? timeFormat.format(new Date(value)) : '—';
 
 const login = document.querySelector<HTMLElement>('#login')!;
 const loginForm = document.querySelector<HTMLFormElement>('#login-form')!;
@@ -30,6 +30,7 @@ let section: Section = 'overview';
 let userQuery: AdminUserQuery = {};
 let taskQuery: AdminTaskQuery = {};
 let generation = 0;
+let contentEditor: ReturnType<typeof renderCareerContent> | undefined;
 
 class RequestError extends Error {
   constructor(readonly status: number, readonly code: string | undefined, message: string) { super(message); }
@@ -46,20 +47,6 @@ async function api<T>(path: string, payload?: object): Promise<T> {
   throw new RequestError(response.status, error?.code, error?.message ?? '管理接口暂时不可用，请稍后重试。');
 }
 
-function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string) {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (className) node.className = className;
-  return node;
-}
-
-function button(label: string, action: () => void, className?: string) {
-  const node = element('button', label, className);
-  node.type = 'button';
-  node.addEventListener('click', action);
-  return node;
-}
-
 function errorMessage(error: unknown) {
   return error instanceof RequestError ? error.message : '连接失败，请重试。';
 }
@@ -69,6 +56,7 @@ function showLogin(message: string, disabled = false) {
   initialStatus.hidden = true;
   app.hidden = true;
   result.replaceChildren();
+  contentEditor = undefined;
   login.hidden = false;
   loginForm.hidden = disabled;
   loginForm.reset();
@@ -76,13 +64,15 @@ function showLogin(message: string, disabled = false) {
 }
 
 function open(next: Section) {
+  if (contentEditor && !contentEditor.canLeave()) return;
+  contentEditor = undefined;
   section = next;
   for (const item of nav) {
     if (item.dataset.section === section) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   }
   document.querySelector('#section-title')!.textContent = titles[section];
-  filters.hidden = section === 'overview';
+  filters.hidden = section !== 'users' && section !== 'tasks';
   document.querySelector('#search-label')!.textContent = section === 'tasks' ? '任务 ID、用户 ID 或错误码' : '用户 ID、完整邮箱或手机号';
   document.querySelector<HTMLElement>('#task-status-label')!.hidden = section !== 'tasks';
   document.querySelector<HTMLElement>('#usage-status-label')!.hidden = section !== 'tasks';
@@ -105,10 +95,21 @@ async function refresh() {
       const users = await api<AdminPage<AdminUser>>('users/search', userQuery);
       if (current !== generation) return;
       renderUsers(users);
-    } else {
+    } else if (section === 'tasks') {
       const tasks = await api<AdminPage<AdminTask>>('tasks/search', taskQuery);
       if (current !== generation) return;
       renderTasks(tasks);
+    } else {
+      const content = await api<CareerContentSummary[]>('career-content');
+      if (current !== generation) return;
+      contentEditor = renderCareerContent(result, content, api, error => {
+        if (error instanceof RequestError && error.status === 401) {
+          showLogin('管理会话已失效，请重新登录。');
+        } else if (error instanceof RequestError && error.code === 'ADMIN_FORBIDDEN') {
+          showLogin(error.message);
+        }
+        return errorMessage(error);
+      });
     }
     login.hidden = true;
     initialStatus.hidden = true;
@@ -225,7 +226,10 @@ setupSelect(statusSelect, adminTaskStatuses, statusNames);
 setupSelect(usageSelect, adminUsageStatuses, usageNames);
 
 for (const item of nav) item.addEventListener('click', () => open(item.dataset.section as Section));
-document.querySelector('#refresh')!.addEventListener('click', () => void refresh());
+document.querySelector('#refresh')!.addEventListener('click', () => open(section));
+window.addEventListener('beforeunload', event => {
+  if (contentEditor?.hasChanges()) { event.preventDefault(); event.returnValue = ''; }
+});
 search.addEventListener('submit', event => {
   event.preventDefault();
   const query = queryInput.value.trim();
@@ -255,6 +259,7 @@ loginForm.addEventListener('submit', async event => {
 
 const logout = document.querySelector<HTMLButtonElement>('#logout')!;
 logout.addEventListener('click', async () => {
+  if (contentEditor && !contentEditor.canLeave()) return;
   logout.disabled = true;
   try {
     await api('logout', {});

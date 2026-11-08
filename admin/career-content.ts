@@ -1,0 +1,265 @@
+import type {
+  ApplyCareerContent, CareerContentAction, CareerContentDetail, CareerContentDraft, CareerContentKind,
+  CareerContentReceipt, CareerContentReview, CareerContentSummary, CareerContentValue, ReviewCareerContent, SaveCareerContentDraft,
+} from '../shared/types.js';
+import { inputLimits } from '../shared/limits.js';
+import { button, element, formatTime } from './dom.js';
+
+const kindNames = { material: '复习资料', portal: '招聘入口' };
+const actionNames = { draft: '保存草稿', publish: '发布', withdraw: '下架', restore: '回滚' };
+type Target = Pick<CareerContentSummary, 'kind' | 'id'>;
+type Request = <T>(path: string, payload?: object) => Promise<T>;
+
+interface Field { name: string; label: string; max?: number; optional?: boolean; multiline?: boolean; type?: string }
+const fields: Record<CareerContentKind, Field[]> = {
+  material: [
+    { name: 'title', label: '资料标题', max: 160 }, { name: 'major', label: '专业', max: 100 },
+    { name: 'role', label: '对应岗位', max: 120, optional: true }, { name: 'summary', label: '摘要', max: 1000, optional: true, multiline: true },
+    { name: 'content', label: '正文（纯文本）', max: 100000, multiline: true },
+    { name: 'sourceLabel', label: '资料来源', max: 200 }, { name: 'sourceUrl', label: '来源链接', max: 2000, optional: true, type: 'url' },
+  ],
+  portal: [
+    { name: 'organization', label: '机构名称', max: 160 },
+    { name: 'majors', label: '适用专业（每行一个，最多 30 个）', max: 3030, multiline: true },
+    { name: 'audience', label: '适用人群', max: 120 },
+    { name: 'description', label: '入口说明（纯文本）', max: 2000, multiline: true },
+    { name: 'sourceUrl', label: '官方 HTTPS 入口', max: 2000, type: 'url' }, { name: 'checkedAt', label: '入口核查日期', type: 'date' },
+  ],
+};
+
+function fieldValue(value: CareerContentValue | null, key: string) {
+  if (!value || !Object.hasOwn(value, key)) return '';
+  const field = (value as unknown as Record<string, string | string[]>)[key];
+  return Array.isArray(field) ? field.join('\n') : field;
+}
+
+function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: CareerContentValue | null): CareerContentDraft {
+  const input = Object.fromEntries(new FormData(form)) as Record<string, string>;
+  const sourceUrl = input.sourceUrl.trim();
+  if (kind === 'material') {
+    const { title, major, role, summary, content, sourceLabel } = input;
+    return { title, major, role, summary, content, sourceLabel, ...(sourceUrl ? { sourceUrl } : {}) };
+  }
+  const { organization, audience, description, majors, checkedAt } = input;
+  const originalDate = fieldValue(source, 'checkedAt');
+  return { organization, audience, description, sourceUrl, majors: majors.split('\n').map(value => value.trim()).filter(Boolean),
+    checkedAt: originalDate.slice(0, 10) === checkedAt ? originalDate : `${checkedAt}T00:00:00+08:00` };
+}
+
+function contentPreview(label: string, kind: CareerContentKind, value: CareerContentValue | null) {
+  const panel = element('section', undefined, 'content-preview');
+  panel.append(element('h3', label));
+  if (!value) panel.append(element('p', '工作台不展示此条目。', 'help'));
+  else {
+    const entries = element('dl');
+    for (const field of fields[kind]) {
+      entries.append(element('dt', field.label), element('dd', fieldValue(value, field.name) || '—'));
+    }
+    panel.append(entries);
+  }
+  return panel;
+}
+
+export function renderCareerContent(root: HTMLElement, initial: CareerContentSummary[], request: Request, reportError: (error: unknown) => string) {
+  let rows = initial;
+  let kind: CareerContentKind = 'material';
+  let current: Target | null = null;
+  let dirty = false;
+  let busy = false;
+
+  const wrapper = element('div', undefined, 'content-workspace');
+  const library = element('aside', undefined, 'content-panel');
+  const editor = element('section', undefined, 'content-panel');
+  const feedback = element('p', '', 'help');
+  feedback.setAttribute('role', 'status');
+  const query = element('input');
+  query.type = 'search';
+  query.placeholder = '搜索标题或机构';
+  query.setAttribute('aria-label', '搜索求职内容');
+  const selector = element('select');
+  selector.setAttribute('aria-label', '求职内容类型');
+  for (const [key, label] of Object.entries(kindNames)) selector.add(new Option(label, key));
+  const catalog = element('div', undefined, 'content-list');
+  const controls = element('div', undefined, 'content-actions');
+  const add = button('新建草稿', () => {
+    if (!canLeave()) return;
+    if (!globalThis.crypto?.randomUUID) {
+      feedback.textContent = '请通过 HTTPS 打开后台后新建草稿。';
+      return;
+    }
+    current = { kind, id: `admin-${crypto.randomUUID()}` };
+    renderList();
+    showEditor(current);
+  }, 'primary');
+  controls.append(selector, add);
+  library.append(controls, query, catalog);
+  wrapper.append(library, editor);
+  root.append(feedback, wrapper);
+
+  const canLeave = () => !busy && (!dirty || window.confirm('当前编辑尚未保存，是否放弃这些修改？'));
+
+  function renderList() {
+    const needle = query.value.trim().toLowerCase();
+    const matching = rows.filter(row => row.kind === kind && (!needle || row.title.toLowerCase().includes(needle) || row.id.toLowerCase().includes(needle)));
+    catalog.replaceChildren();
+    for (const row of matching) {
+      const item = button('', () => void select(row), 'content-list-item');
+      item.append(element('strong', row.title), element('small', [row.live ? '已展示' : '未展示', ...(row.hasDraft ? ['有草稿'] : [])].join(' · ')));
+      if (current?.id === row.id && current.kind === row.kind) item.setAttribute('aria-current', 'true');
+      catalog.append(item);
+    }
+    if (!matching.length) catalog.append(element('p', '没有符合条件的内容。', 'help'));
+  }
+
+  async function run(action: () => Promise<void>) {
+    if (busy) return;
+    busy = true;
+    // Block interactive changes while a request is in flight, while retaining form state.
+    wrapper.inert = true;
+    feedback.textContent = '处理中…';
+    try { await action(); }
+    catch (error) { feedback.textContent = reportError(error); }
+    finally { busy = false; wrapper.inert = false; }
+  }
+
+  async function select(target: Target) {
+    if (!canLeave()) return;
+    await run(async () => {
+      const detail = await request<CareerContentDetail>(route(target));
+      current = target;
+      renderList();
+      showEditor(target, detail);
+      feedback.textContent = '';
+    });
+  }
+
+  const route = ({ kind, id }: Target) => `career-content/${kind}/${id}`;
+
+  async function reload(target: Target) {
+    const [items, detail] = await Promise.all([
+      request<CareerContentSummary[]>('career-content'), request<CareerContentDetail>(route(target)),
+    ]);
+    rows = items;
+    renderList();
+    showEditor(target, detail);
+  }
+
+  async function afterWrite(target: Target, message: string) {
+    try {
+      await reload(target);
+      feedback.textContent = message;
+    } catch (error) {
+      feedback.textContent = `${message} 刷新失败。${reportError(error)}`;
+    }
+  }
+
+  function showEditor(target: Target, detail?: CareerContentDetail) {
+    dirty = false;
+    feedback.textContent = '';
+    const source = detail?.draft ?? detail?.live ?? null;
+    const form = element('form', undefined, 'content-form');
+    form.method = 'post';
+    const preview = element('div', undefined, 'content-review');
+    const history = element('div', undefined, 'content-history');
+    const formActions = element('div', undefined, 'content-actions');
+    const reviewActions = element('div', undefined, 'content-actions');
+    const path = route(target);
+    let pendingSave: { fingerprint: string; id: string } | undefined;
+    for (const field of fields[target.kind]) {
+      const label = element('label');
+      const control = field.multiline ? element('textarea') : element('input');
+      label.append(element('span', field.label), control);
+      control.name = field.name;
+      control.required = !field.optional;
+      if (field.max) control.maxLength = field.max;
+      if (control instanceof HTMLInputElement) control.type = field.type ?? 'text';
+      if (control instanceof HTMLTextAreaElement) control.rows = field.name === 'content' ? 9 : 3;
+      const value = fieldValue(source, field.name);
+      control.value = field.type === 'date' ? value.slice(0, 10) : value;
+      form.append(label);
+    }
+    const save = element('button', '保存草稿', 'primary');
+    save.type = 'submit';
+    formActions.append(save);
+    form.append(formActions);
+    form.addEventListener('input', () => { dirty = true; preview.replaceChildren(); });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const content = draftInput(target.kind, form, source);
+      const fingerprint = JSON.stringify(content);
+      if (pendingSave?.fingerprint !== fingerprint) pendingSave = { fingerprint, id: crypto.randomUUID() };
+      const payload: SaveCareerContentDraft = { revision: detail?.revision ?? null, content, operationId: pendingSave.id };
+      if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > inputLimits.bodyBytes) {
+        feedback.textContent = '请求内容超过 256 KB，请缩短正文后再保存。';
+        return;
+      }
+      void run(async () => {
+        const receipt = await request<CareerContentReceipt>(`${path}/draft`, payload);
+        dirty = false;
+        await afterWrite(target, `草稿已保存，操作版本 ${receipt.version}。可继续预览发布。`);
+      });
+    });
+
+    function review(action: CareerContentAction, sourceVersion?: number) {
+      if (!detail) return;
+      if (dirty) { feedback.textContent = '请先保存当前编辑，再预览已保存的版本。'; return; }
+      const payload: ReviewCareerContent = { revision: detail.revision, action, ...(sourceVersion === undefined ? {} : { sourceVersion }) };
+      void run(async () => {
+        const result = await request<CareerContentReview>(`${path}/preview`, payload);
+        const comparison = element('div', undefined, 'content-comparison');
+        comparison.append(contentPreview('当前对会员展示', target.kind, result.live), contentPreview('本次操作后', target.kind, result.proposed));
+        const confirmation = element('label', undefined, 'content-confirmation');
+        const checkbox = element('input');
+        checkbox.type = 'checkbox';
+        confirmation.append(checkbox, element('span', action === 'withdraw' ? '我已核对当前内容，确认从工作台下架。'
+          : '我已核对来源与对照内容，确认在工作台展示。'));
+        const operationId = crypto.randomUUID();
+        const confirm = button(`确认${actionNames[action]}`, () => {
+          if (!checkbox.checked) return;
+          const apply: ApplyCareerContent = { ...payload, token: result.token, operationId, confirmed: true };
+          void run(async () => {
+            const receipt = await request<CareerContentReceipt>(`${path}/apply`, apply);
+            await afterWrite(target, `${actionNames[action]}成功，操作版本 ${receipt.version}。`);
+          });
+        }, 'primary');
+        confirm.disabled = true;
+        checkbox.addEventListener('change', () => { confirm.disabled = !checkbox.checked; });
+        const actions = element('div', undefined, 'content-actions');
+        actions.append(confirm, button('取消预览', () => preview.replaceChildren()));
+        preview.replaceChildren(element('h3', `${actionNames[action]}预览`), comparison, confirmation, actions);
+        feedback.textContent = '校验通过，请核对对照内容。';
+        preview.scrollIntoView({ block: 'nearest' });
+      });
+    }
+
+    if (detail?.draft) reviewActions.append(button('预览发布', () => review('publish'), 'primary'));
+    if (detail?.live) reviewActions.append(button('预览下架', () => review('withdraw')));
+    if (detail?.baselineAvailable && detail.activeVersion !== null) reviewActions.append(button('预览恢复原目录版本', () => review('restore', 0)));
+    history.append(element('h3', '操作历史'));
+    if (!detail?.history.length) history.append(element('p', '暂无后台操作记录。', 'help'));
+    else {
+      const log = element('ol');
+      for (const entry of detail.history) {
+        const row = element('li');
+        row.append(element('strong', `版本 ${entry.version} · ${actionNames[entry.action]}`),
+          element('small', `${formatTime(entry.at)} · 管理员 ${entry.actorId}${entry.sourceVersion === undefined ? '' : ` · 恢复来源 ${entry.sourceVersion}`}`));
+        if ((entry.action === 'publish' || entry.action === 'restore') && entry.version !== detail.activeVersion) {
+          row.append(button('预览回滚至此版本', () => review('restore', entry.version), 'link'));
+        }
+        log.append(row);
+      }
+      history.append(log);
+    }
+    const label = detail?.live ? '已在工作台展示' : '当前未展示';
+    const advice = target.kind === 'portal' ? '请核实入口归属、链接和核查日期。入口只供查阅招聘渠道。' : '填写资料来源与正文，保存后可在发布预览中与当前版本对照。';
+    editor.replaceChildren(element('h2', `${detail ? '编辑' : '新建'}${kindNames[target.kind]}`),
+      element('p', `${label}${detail?.draft ? ' · 有已保存草稿' : ''}`, 'help'), element('p', advice, 'help'),
+      form, reviewActions, preview, history);
+  }
+
+  query.addEventListener('input', renderList);
+  selector.addEventListener('change', () => { kind = selector.value === 'portal' ? 'portal' : 'material'; renderList(); });
+  renderList();
+  editor.append(element('h2', '选择资料或新建草稿'), element('p', '保存草稿后可预览发布。确认后，新版本会显示在高级会员工作台。', 'help'));
+  return { canLeave, hasChanges: () => dirty || busy };
+}

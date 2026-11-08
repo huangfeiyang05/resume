@@ -10,6 +10,9 @@ import type { BillingPricing } from './payment-config.js';
 import { AnalysisJobs } from './jobs.js';
 import { adminSessionTtlMs, AuthService } from './auth.js';
 import { adminOverview, adminTasks, adminUsers, parseAdminQuery } from './admin.js';
+import { AdminCareerContent } from './admin-career-content.js';
+import { careerContentKind } from './career-content-storage.js';
+import { careerId } from './career-validation.js';
 import { isIP } from 'node:net';
 import { CareerService } from './career.js';
 import { exportResume } from './exports.js';
@@ -107,6 +110,7 @@ function sessionToken(request: IncomingMessage) {
 /** The HTTP boundary always authenticates business requests before selecting a user's scope. */
 export function createApiServer(baseService = new ResumeService(new JsonStore()), options: ApiServerOptions = {}) {
   const auth = options.auth ?? new AuthService(baseService.store);
+  const careerContent = new AdminCareerContent(baseService.store, options.careerCatalogPath);
   const jobs = new AnalysisJobs(baseService);
   const payments = new PaymentService({
     store: baseService.store, quota: jobs.quota, ...(options.pricing ? { pricing: options.pricing } : {}),
@@ -162,7 +166,24 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     if (!allowed.has(user.id) || !user.emailVerified || !user.hasPassword) {
       throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
     }
-    if (path === '/overview' && method === 'GET') {
+    const contentRoute = path.match(/^\/career-content\/([^/]+)\/([A-Za-z0-9_-]+)(?:\/(draft|preview|apply))?$/);
+    if (path === '/career-content' && method === 'GET') {
+      json(response, 200, { data: await careerContent.list() });
+    } else if (contentRoute) {
+      const target = { kind: careerContentKind(contentRoute[1]), id: careerId(contentRoute[2]) };
+      const operation = contentRoute[3];
+      if (!operation && method === 'GET') {
+        json(response, 200, { data: await careerContent.detail(target) });
+      } else if (operation && method === 'POST') {
+        if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+          throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
+        }
+        const input = await body(request);
+        const data = operation === 'draft' ? await careerContent.saveDraft(target, input, user.id)
+          : operation === 'preview' ? await careerContent.preview(target, input) : await careerContent.apply(target, input, user.id);
+        json(response, 200, { data });
+      } else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+    } else if (path === '/overview' && method === 'GET') {
       json(response, 200, { data: adminOverview(await baseService.store.read(), Date.now()) });
     } else if ((path === '/users/search' || path === '/tasks/search') && method === 'POST') {
       const query = parseAdminQuery(await body(request), path === '/users/search' ? 'users' : 'tasks');
