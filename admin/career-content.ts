@@ -1,8 +1,9 @@
 import type {
-  ApplyCareerContent, CareerContentAction, CareerContentDetail, CareerContentDraft, CareerContentKind,
+  ApplyCareerContent, CareerAttachment, CareerContentAction, CareerContentDetail, CareerContentDraft, CareerContentKind,
   CareerContentReceipt, CareerContentReview, CareerContentSummary, CareerContentValue, ReviewCareerContent, SaveCareerContentDraft,
 } from '../shared/types.js';
 import { inputLimits } from '../shared/limits.js';
+import { careerFileFallbackText, careerFileFormat, careerFileLimits, isCareerAttachment } from '../shared/career-attachment.js';
 import { button, element, formatTime } from './dom.js';
 
 const kindNames = { material: '复习资料', portal: '招聘入口' };
@@ -33,17 +34,49 @@ function fieldValue(value: CareerContentValue | null, key: string) {
   return Array.isArray(field) ? field.join('\n') : field;
 }
 
-function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: CareerContentValue | null): CareerContentDraft {
+function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: CareerContentValue | null, attachment?: CareerAttachment): CareerContentDraft {
   const input = Object.fromEntries(new FormData(form)) as Record<string, string>;
   const sourceUrl = input.sourceUrl.trim();
   if (kind === 'material') {
     const { title, major, role, summary, content, sourceLabel } = input;
-    return { title, major, role, summary, content, sourceLabel, ...(sourceUrl ? { sourceUrl } : {}) };
+    return { title, major, role, summary, content, sourceLabel, ...(sourceUrl ? { sourceUrl } : {}), ...(attachment ? { attachment } : {}) };
   }
   const { organization, audience, description, majors, checkedAt } = input;
   const originalDate = fieldValue(source, 'checkedAt');
   return { organization, audience, description, sourceUrl, majors: majors.split('\n').map(value => value.trim()).filter(Boolean),
     checkedAt: originalDate.slice(0, 10) === checkedAt ? originalDate : `${checkedAt}T00:00:00+08:00` };
+}
+
+function attachmentLink(file: CareerAttachment) {
+  const link = element('a', `${file.fileName}（${Math.ceil(file.bytes / 1024)} KB）`);
+  link.href = `/api/v1/admin/career-files/${file.id}.${file.format}`;
+  link.download = file.fileName;
+  return link;
+}
+
+class AttachmentUploadError extends Error {}
+
+async function uploadAttachment(file: File, request: Request, progress: (sent: number) => void) {
+  if (!careerFileFormat(file.name) || !file.name.includes('.') || file.size < 1 || file.size > careerFileLimits.bytes) {
+    throw new AttachmentUploadError('请选择 10 MB 以内的 PDF 或 Word（.docx）文件。');
+  }
+  const uploadId = crypto.randomUUID();
+  try {
+    for (let offset = 0, index = 0; offset < file.size; offset += careerFileLimits.chunkBytes, index++) {
+      const bytes = new Uint8Array(await file.slice(offset, offset + careerFileLimits.chunkBytes).arrayBuffer());
+      let binary = '';
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      const result = await request<{ receivedBytes: number }>('career-files/chunk', { uploadId, index, data: btoa(binary) });
+      if (result.receivedBytes !== offset + bytes.length) throw new AttachmentUploadError('文件分片未完整保存，请重新上传。');
+      progress(result.receivedBytes);
+    }
+    const attachment = await request<unknown>('career-files/finish', { uploadId, fileName: file.name, bytes: file.size });
+    if (!isCareerAttachment(attachment) || attachment.bytes !== file.size) throw new AttachmentUploadError('文件校验结果无效，请重新上传。');
+    return attachment;
+  } catch (error) {
+    await request('career-files/cancel', { uploadId }).catch(() => undefined);
+    throw error;
+  }
 }
 
 function contentPreview(label: string, kind: CareerContentKind, value: CareerContentValue | null) {
@@ -52,7 +85,13 @@ function contentPreview(label: string, kind: CareerContentKind, value: CareerCon
   if (!value) panel.append(element('p', '工作台不展示此条目。', 'help'));
   else {
     const entries = element('dl');
+    if ('attachment' in value && value.attachment) {
+      const file = element('dd');
+      file.append(attachmentLink(value.attachment));
+      entries.append(element('dt', '资料文件'), file);
+    }
     for (const field of fields[kind]) {
+      if (field.name === 'content' && 'attachment' in value && value.attachment && value.content === careerFileFallbackText) continue;
       entries.append(element('dt', field.label), element('dd', fieldValue(value, field.name) || '—'));
     }
     panel.append(entries);
@@ -157,6 +196,7 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
     dirty = false;
     feedback.textContent = '';
     const source = detail?.draft ?? detail?.live ?? null;
+    let attachment = source && 'attachment' in source ? source.attachment : undefined;
     const form = element('form', undefined, 'content-form');
     form.method = 'post';
     const preview = element('div', undefined, 'content-review');
@@ -170,22 +210,71 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
       const control = field.multiline ? element('textarea') : element('input');
       label.append(element('span', field.label), control);
       control.name = field.name;
-      control.required = !field.optional;
+      control.required = !field.optional && !(field.name === 'content' && attachment);
       if (field.max) control.maxLength = field.max;
       if (control instanceof HTMLInputElement) control.type = field.type ?? 'text';
       if (control instanceof HTMLTextAreaElement) control.rows = field.name === 'content' ? 9 : 3;
       const value = fieldValue(source, field.name);
-      control.value = field.type === 'date' ? value.slice(0, 10) : value;
+      control.value = field.type === 'date' ? value.slice(0, 10)
+        : field.name === 'content' && attachment && value === careerFileFallbackText ? '' : value;
       form.append(label);
+    }
+    if (target.kind === 'material') {
+      const label = element('label');
+      const picker = element('input');
+      picker.type = 'file';
+      picker.accept = '.pdf,.docx';
+      label.append(element('span', '上传 PDF 或 Word（.docx），最大 10 MB'), picker);
+      const fileInfo = element('div', undefined, 'content-actions');
+      const textBody = form.querySelector<HTMLTextAreaElement>('[name=content]')!;
+      function showAttachment() {
+        textBody.required = !attachment;
+        fileInfo.replaceChildren();
+        if (attachment) fileInfo.append(attachmentLink(attachment), button('移除附件', () => {
+          attachment = undefined;
+          dirty = true;
+          preview.replaceChildren();
+          showAttachment();
+        }));
+        else fileInfo.append(element('span', '纯文本资料可直接填写正文。', 'help'));
+      }
+      picker.addEventListener('change', () => {
+        const file = picker.files?.[0];
+        picker.value = '';
+        if (!file) return;
+        void run(async () => {
+          try {
+            attachment = await uploadAttachment(file, request, sent => {
+              feedback.textContent = `上传中 ${Math.floor(sent / file.size * 100)}%`;
+            });
+          } catch (error) {
+            if (error instanceof AttachmentUploadError) {
+              feedback.textContent = error.message;
+              return;
+            }
+            throw error;
+          }
+          dirty = true;
+          preview.replaceChildren();
+          showAttachment();
+          feedback.textContent = '文件已上传，保存草稿后可预览发布。';
+        });
+      });
+      showAttachment();
+      form.prepend(label, fileInfo);
     }
     const save = element('button', '保存草稿', 'primary');
     save.type = 'submit';
     formActions.append(save);
     form.append(formActions);
-    form.addEventListener('input', () => { dirty = true; preview.replaceChildren(); });
+    form.addEventListener('input', event => {
+      if (event.target instanceof HTMLInputElement && event.target.type === 'file') return;
+      dirty = true;
+      preview.replaceChildren();
+    });
     form.addEventListener('submit', event => {
       event.preventDefault();
-      const content = draftInput(target.kind, form, source);
+      const content = draftInput(target.kind, form, source, attachment);
       const fingerprint = JSON.stringify(content);
       if (pendingSave?.fingerprint !== fingerprint) pendingSave = { fingerprint, id: crypto.randomUUID() };
       const payload: SaveCareerContentDraft = { revision: detail?.revision ?? null, content, operationId: pendingSave.id };

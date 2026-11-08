@@ -1,4 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { pipeline } from 'node:stream/promises';
+import { CareerFiles } from './career-files.js';
+import { careerFileTypes, type CareerFileFormat } from '../shared/career-attachment.js';
 import { HttpError } from './errors.js';
 import { JsonStore } from './store.js';
 import { ResumeService } from './service.js';
@@ -32,6 +35,20 @@ function json(response: ServerResponse, status: number, value: unknown) {
 function text(response: ServerResponse, status: number, value: string) {
   response.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   response.end(value);
+}
+
+async function sendCareerFile(response: ServerResponse, files: CareerFiles, id: string, format: CareerFileFormat, fileName?: string, size?: number) {
+  const { handle, bytes } = await files.file(id, format, size);
+  try {
+    const name = fileName ? `; filename*=UTF-8''${encodeURIComponent(fileName).replace(/['()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)}` : '';
+    response.writeHead(200, {
+      'Content-Type': careerFileTypes[format], 'Content-Length': bytes, 'Content-Disposition': `attachment${name}`,
+      'Content-Security-Policy': 'sandbox', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+      Vary: 'Cookie, Authorization',
+    });
+    await pipeline(handle.createReadStream(), response);
+  } catch { response.destroy(); }
+  finally { await handle.close().catch(() => undefined); }
 }
 
 async function rawBody(request: IncomingMessage, allowEmpty = false): Promise<string> {
@@ -110,7 +127,8 @@ function sessionToken(request: IncomingMessage) {
 /** The HTTP boundary always authenticates business requests before selecting a user's scope. */
 export function createApiServer(baseService = new ResumeService(new JsonStore()), options: ApiServerOptions = {}) {
   const auth = options.auth ?? new AuthService(baseService.store);
-  const careerContent = new AdminCareerContent(baseService.store, options.careerCatalogPath);
+  const careerFiles = new CareerFiles(baseService.store.path);
+  const careerContent = new AdminCareerContent(baseService.store, options.careerCatalogPath, careerFiles);
   const jobs = new AnalysisJobs(baseService);
   const payments = new PaymentService({
     store: baseService.store, quota: jobs.quota, ...(options.pricing ? { pricing: options.pricing } : {}),
@@ -165,6 +183,21 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     const { user } = await auth.authenticate(token, 'admin');
     if (!allowed.has(user.id) || !user.emailVerified || !user.hasPassword) {
       throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
+    }
+    const uploadedFile = path.match(/^\/career-files\/([a-f0-9]{64})\.(pdf|docx)$/);
+    if (uploadedFile && method === 'GET') {
+      await sendCareerFile(response, careerFiles, uploadedFile[1], uploadedFile[2] as CareerFileFormat);
+      return;
+    }
+    if (method === 'POST' && ['/career-files/chunk', '/career-files/finish', '/career-files/cancel'].includes(path)) {
+      if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+        throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
+      }
+      const input = await body(request);
+      const data = path.endsWith('/chunk') ? careerFiles.chunk(input, user.id)
+        : path.endsWith('/finish') ? await careerFiles.finish(input, user.id) : careerFiles.cancel(input, user.id);
+      json(response, 200, { data });
+      return;
     }
     const contentRoute = path.match(/^\/career-content\/([^/]+)\/([A-Za-z0-9_-]+)(?:\/(draft|preview|apply))?$/);
     if (path === '/career-content' && method === 'GET') {
@@ -341,6 +374,11 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
           jobs: [], materials: [], portals: [], favoriteJobIds: [], applications: [],
         };
         json(response, 200, { data: workspace });
+      } else if ((match = path.match(/^\/api\/v1\/career\/materials\/([A-Za-z0-9_-]+)\/file\/([a-f0-9]{64})$/))) {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await assertWorkbenchFeature(service.store, service.userId, 'studyMaterials');
+        const file = await career.materialFile(careerId(match[1]), match[2]);
+        await sendCareerFile(response, careerFiles, file.id, file.format, file.fileName, file.bytes);
       } else if (path === '/api/v1/career/companies') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const input = validateCompanySearchParams(url.searchParams);

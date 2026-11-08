@@ -11,6 +11,9 @@ import { createApiServer } from '../server/http.js';
 import { QuotaService } from '../server/quota.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
+import { renderResumeFile } from '../server/export-renderer.js';
+import { careerFileLimits, careerFileTypes } from '../shared/career-attachment.js';
+import type { CareerAttachment } from '../shared/types.js';
 
 const existingMaterial = {
   id: 'sample-guide', title: '原目录提纲', major: '计算机与软件', role: '', summary: '', content: '旧版正文。',
@@ -137,6 +140,92 @@ test('admin drafts, reviewed releases and restores are atomic, auditable and vis
   assert.equal((await reloaded.workspace()).portals[0].organization, portalData.organization);
   const persisted = await new JsonStore(databasePath).read();
   assert.equal(persisted.careerContent[0].changes.length, 6);
+
+  const pdf = await renderResumeFile({ id: 'fixture', title: '合成资料', targetRole: '', text: '测试文档。',
+    createdAt: existingMaterial.updatedAt, updatedAt: existingMaterial.updatedAt, revision: 1 }, 'pdf', 'minimal');
+  const word = await readFile(new URL('../src/static/resume-templates/classic-onyx.docx', import.meta.url));
+  const files = '/admin/career-files';
+  async function upload(fileName: string, bytes: Buffer) {
+    const uploadId = randomUUID();
+    for (let offset = 0, index = 0; offset < bytes.length; offset += careerFileLimits.chunkBytes, index++) {
+      const chunk = bytes.subarray(offset, offset + careerFileLimits.chunkBytes);
+      const payload = { uploadId, index, data: chunk.toString('base64') };
+      const sent = await write(`${files}/chunk`, payload);
+      assert.equal(sent.status, 200);
+      assert.deepEqual((await write(`${files}/chunk`, payload)).body.data, { receivedBytes: offset + chunk.length });
+    }
+    const body = { uploadId, fileName, bytes: bytes.length };
+    const finished = await write(`${files}/finish`, body);
+    assert.equal(finished.status, 200, JSON.stringify(finished.body));
+    assert.deepEqual((await write(`${files}/finish`, body)).body.data, finished.body.data);
+    return finished.body.data as CareerAttachment;
+  }
+  const invalidUploadId = randomUUID();
+  const badBytes = Buffer.from('<html>文件内容有误</html>');
+  const badChunk = { uploadId: invalidUploadId, index: 0, data: badBytes.toString('base64') };
+  assert.equal((await request(`${files}/chunk`, reader, badChunk)).status, 401);
+  assert.equal((await write(`${files}/chunk`, { ...badChunk, index: 1 })).status, 404);
+  assert.equal((await write(`${files}/chunk`, badChunk)).status, 200);
+  assert.equal((await write(`${files}/chunk`, { ...badChunk, data: 'd3Jvbmc=' })).status, 409);
+  assert.equal((await write(`${files}/finish`, { uploadId: invalidUploadId, bytes: badBytes.length, fileName: '假资料.pdf' })).status, 400);
+  assert.equal((await write(`${files}/finish`, { uploadId: invalidUploadId, bytes: badBytes.length, fileName: '假资料.docx' })).status, 400);
+  assert.equal((await write(`${files}/cancel`, { uploadId: invalidUploadId })).status, 200);
+
+  // A PDF comment after its header leaves the transport larger than one proxy-safe chunk.
+  const headerEnd = pdf.indexOf(10) + 1;
+  const comment = Buffer.from(`%${'x'.repeat(careerFileLimits.chunkBytes)}\n`);
+  const tail = pdf.subarray(headerEnd).toString('latin1');
+  // Shift the PDF's cross-reference offsets to account for the inserted comment.
+  const adjusted = tail.replace(/^(\d{10}) 00000 n/gm, (_line, offset: string) =>
+    `${String(Number(offset) + comment.length).padStart(10, '0')} 00000 n`)
+    .replace(/startxref\n(\d+)/, (_line, offset: string) => `startxref\n${Number(offset) + comment.length}`);
+  const multiChunkPdf = Buffer.concat([pdf.subarray(0, headerEnd), comment, Buffer.from(adjusted, 'latin1')]);
+  const originalFile = await upload('复习提纲.pdf', multiChunkPdf);
+  const replacement = await upload('复习提纲.docx', word);
+  const adminFile = (file: CareerAttachment) => `${files}/${file.id}.${file.format}`;
+  const publicFile = (file: CareerAttachment) => `/career/materials/${existingMaterial.id}/file/${file.id}`;
+  const download = (route: string, cookie?: string) => fetch(origin + route, { headers: cookie ? { Cookie: cookie } : {} });
+  const downloadOriginal = await download(adminFile(originalFile), admin);
+  assert.equal(downloadOriginal.status, 200);
+  assert.deepEqual(Buffer.from(await downloadOriginal.arrayBuffer()), multiChunkPdf);
+  assert.equal((await download(adminFile(originalFile), reader)).status, 401);
+  assert.equal((await download(publicFile(originalFile), reader)).status, 404);
+
+  const saveFile = async (attachment: CareerAttachment) => write(`${material}/draft`,
+    newDraft((await inspect()).revision, { ...editableMaterial, content: '', attachment }));
+  const publishFile = async () => write(`${material}/apply`,
+    await preview(material, { revision: (await inspect()).revision, action: 'publish' }));
+  assert.equal((await saveFile({ ...originalFile, id: '0'.repeat(64) })).status, 404);
+  assert.equal((await saveFile(originalFile)).status, 200);
+  assert.equal((await download(publicFile(originalFile), reader)).status, 404);
+  const fileRelease = await publishFile();
+  assert.equal(fileRelease.status, 200);
+  assert.equal((await download(publicFile(originalFile))).status, 401);
+  assert.equal((await download(publicFile(originalFile), operatorNormal)).status, 403);
+  const pdfDownload = await download(publicFile(originalFile), reader);
+  assert.equal(pdfDownload.status, 200);
+  assert.equal(pdfDownload.headers.get('content-type'), careerFileTypes.pdf);
+  assert.match(pdfDownload.headers.get('cache-control')!, /no-store/);
+  assert.deepEqual(Buffer.from(await pdfDownload.arrayBuffer()), multiChunkPdf);
+  assert.equal((await saveFile(replacement)).status, 200);
+  assert.equal((await download(publicFile(replacement), reader)).status, 404);
+  assert.equal((await publishFile()).status, 200);
+  assert.equal((await download(publicFile(originalFile), reader)).status, 404);
+  const wordDownload = await download(publicFile(replacement), reader);
+  assert.equal(wordDownload.status, 200);
+  assert.equal(wordDownload.headers.get('content-type'), careerFileTypes.docx);
+  assert.deepEqual(Buffer.from(await wordDownload.arrayBuffer()), word);
+  const nativeDownload = await fetch(origin + publicFile(replacement), { headers: { Authorization: `Bearer ${subscriber.token}` } });
+  assert.equal(nativeDownload.status, 200);
+  assert.deepEqual(Buffer.from(await nativeDownload.arrayBuffer()), word);
+  const restoreAttachment = await preview(material, { revision: (await inspect()).revision,
+    action: 'restore', sourceVersion: fileRelease.body.data.version });
+  assert.equal((await write(`${material}/apply`, restoreAttachment)).status, 200);
+  assert.deepEqual((await new CareerService(new JsonStore(databasePath), subscriberId, catalogPath).workspace()).materials[0].attachment, originalFile);
+  assert.equal((await download(publicFile(replacement), reader)).status, 404);
+  const off = await preview(material, { revision: (await inspect()).revision, action: 'withdraw' });
+  assert.equal((await write(`${material}/apply`, off)).status, 200);
+  assert.equal((await download(publicFile(originalFile), reader)).status, 404);
 
   await writeFile(catalogPath, '{invalid');
   assert.equal((await request(content, admin)).body.error.code, 'CAREER_CATALOG_UNAVAILABLE');

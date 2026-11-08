@@ -1,4 +1,5 @@
 import type { Resume } from './types.js';
+import type { CareerAttachment } from './career-attachment.js';
 
 export type ApplicationStatus = 'planned' | 'applied' | 'interview' | 'offer' | 'rejected' | 'withdrawn';
 
@@ -26,6 +27,7 @@ export interface CareerMaterial {
   summary: string;
   /** Plain text: never execute uploaded text or render it as trusted HTML. */
   content: string;
+  attachment?: CareerAttachment;
   sourceLabel: string;
   sourceUrl?: string;
   updatedAt: string;

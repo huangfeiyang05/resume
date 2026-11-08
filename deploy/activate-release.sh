@@ -14,6 +14,7 @@ readonly STATE_DIR=/var/lib/resume-youfang/.data
 readonly DATA_FILE=/var/lib/resume-youfang/.data/resumes.json
 readonly CATALOG_FILE=/var/lib/resume-youfang/.data/career-catalog.json
 readonly COMPANY_FILE=/var/lib/resume-youfang/.data/company-catalog.json
+readonly CAREER_FILES=/var/lib/resume-youfang/.data/career-files
 readonly BACKUP_ROOT=/var/backups/resume-youfang
 readonly NODE=/opt/nodejs/bin/node
 readonly SERVICE=resume-youfang
@@ -133,6 +134,7 @@ flock -n 9 || abort
 [[ $(current_target) == "$PREVIOUS_DIR" ]] || abort
 [[ ! -e $BACKUP_DIR && ! -L $BACKUP_DIR && ! -L $BACKUP_ROOT ]] || abort
 [[ ! -L $STATE_DIR && ( ! -e $STATE_DIR || -d $STATE_DIR ) ]] || abort
+[[ ! -L $CAREER_FILES && ( ! -e $CAREER_FILES || -d $CAREER_FILES ) ]] || abort
 for path in "$DATA_FILE" "$CATALOG_FILE" "$COMPANY_FILE"; do
   [[ ! -L $path && ( ! -e $path || -f $path ) ]] || abort
 done
@@ -168,7 +170,16 @@ import { readFile, stat } from 'node:fs/promises';
 try {
   const [directory, database, companies] = process.argv.slice(2);
   const { JsonStore } = await import(pathToFileURL(`${directory}/api/server/store.js`).href);
-  await new JsonStore(database).read();
+  const data = await new JsonStore(database).read();
+  if (Object.keys(data.careerAttachments ?? {}).length) {
+    const { CareerFiles } = await import(pathToFileURL(`${directory}/api/server/career-files.js`).href);
+    const files = new CareerFiles(database);
+    const attachments = new Map(Object.values(data.careerAttachments).map(item => [item.id, item]));
+    for (const attachment of attachments.values()) {
+      const { handle } = await files.file(attachment.id, attachment.format, attachment.bytes);
+      await handle.close();
+    }
+  }
   try {
     if ((await stat(companies)).size > 20 * 1024 * 1024) process.exit(1);
     const { validateCompanyCatalog } = await import(pathToFileURL(`${directory}/api/server/company-validation.js`).href);
@@ -194,6 +205,7 @@ backup_created=1
 data_present=false
 catalog_present=false
 companies_present=false
+files_present=false
 if [[ -f $DATA_FILE && ! -L $DATA_FILE ]]; then
   install -m 0600 -o root -g root -- "$DATA_FILE" "$BACKUP_DIR/resumes.json" >/dev/null 2>&1
   data_present=true
@@ -206,8 +218,17 @@ if [[ -f $COMPANY_FILE && ! -L $COMPANY_FILE ]]; then
   install -m 0600 -o root -g root -- "$COMPANY_FILE" "$BACKUP_DIR/company-catalog.json" >/dev/null 2>&1
   companies_present=true
 fi
-printf '{"releaseId":"%s","previous":"%s","gitCommit":"%s","dataFilePresent":%s,"catalogFilePresent":%s,"companyFilePresent":%s}\n' \
-  "$release_id" "$previous_id" "$expected_commit" "$data_present" "$catalog_present" "$companies_present" >"$BACKUP_DIR/manifest.json"
+if [[ -d $CAREER_FILES && ! -L $CAREER_FILES ]]; then
+  install -d -m 0700 -o root -g root -- "$BACKUP_DIR/career-files"
+  for file in "$CAREER_FILES"/*; do
+    [[ ${file##*/} =~ ^[a-f0-9]{64}\.(pdf|docx)$ ]] || continue
+    [[ -f $file && ! -L $file ]] || abort
+    install -m 0600 -o root -g root -- "$file" "$BACKUP_DIR/career-files/${file##*/}"
+  done
+  files_present=true
+fi
+printf '{"releaseId":"%s","previous":"%s","gitCommit":"%s","dataFilePresent":%s,"catalogFilePresent":%s,"companyFilePresent":%s,"careerFilesPresent":%s}\n' \
+  "$release_id" "$previous_id" "$expected_commit" "$data_present" "$catalog_present" "$companies_present" "$files_present" >"$BACKUP_DIR/manifest.json"
 
 stage=activate
 [[ $(current_target) == "$PREVIOUS_DIR" ]] || abort

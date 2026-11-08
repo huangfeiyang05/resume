@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { ApplicationCreateInput, ApplicationStatus, ApplicationUpdateInput, CareerApplication, CareerJob, CareerJobInput, CareerMaterial, CareerRecruitmentPortal, CareerWorkspace, Resume } from '../../shared/types';
 import { ApiError, request } from './api';
+import { isCareerAttachment } from '../../shared/career-attachment';
 
 export const applicationStatusLabels: Record<ApplicationStatus, string> = {
   planned: '待投递', applied: '已投递', interview: '面试中', offer: '收到录用', rejected: '未通过', withdrawn: '已撤回',
@@ -27,7 +28,8 @@ function job(value: unknown): value is CareerJob {
 function material(value: unknown): value is CareerMaterial {
   return record(value) && text(value.id, 100) && !!value.id
     && ['title', 'major', 'role', 'summary', 'content', 'sourceLabel'].every(key => text(value[key], key === 'content' ? 200_000 : 50_000))
-    && instant(value.updatedAt) && sourceUrl(value.sourceUrl);
+    && instant(value.updatedAt) && sourceUrl(value.sourceUrl)
+    && (value.attachment === undefined || isCareerAttachment(value.attachment));
 }
 function portal(value: unknown): value is CareerRecruitmentPortal {
   return record(value) && text(value.id, 100) && !!value.id

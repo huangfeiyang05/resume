@@ -1,4 +1,5 @@
-import type { Analysis, AnalysisInput, AnalysisJob, Health, ApplySuggestionInput, ApplySuggestionResult, Resume, ResumeExportFile, ResumeExportInput, ResumeInput, ResumeUpdateInput, ResumeVersionSummary, ResumeVersion, RestoreResumeInput, RestoreResumeResult } from '../../shared/types';
+import type { Analysis, AnalysisInput, AnalysisJob, Health, ApplySuggestionInput, ApplySuggestionResult, CareerAttachment, Resume, ResumeExportFile, ResumeExportInput, ResumeInput, ResumeUpdateInput, ResumeVersionSummary, ResumeVersion, RestoreResumeInput, RestoreResumeResult } from '../../shared/types';
+import { careerFileTypes, isCareerAttachment } from '../../shared/career-attachment';
 
 const base = import.meta.env?.VITE_API_BASE_URL || '';
 export class ApiError extends Error {
@@ -16,6 +17,67 @@ let transportRevision = 0;
 const unauthorizedListeners = new Set<() => void>();
 export function setAuthToken(token: string) { authToken = token; ++transportRevision; }
 export function onUnauthorized(listener: () => void) { unauthorizedListeners.add(listener); return () => unauthorizedListeners.delete(listener); }
+
+export async function openCareerMaterialFile(materialId: string, file: CareerAttachment): Promise<'download-started' | 'document-opened'> {
+  if (!isCareerAttachment(file) || !/^[A-Za-z0-9_-]{1,100}$/.test(materialId)) throw new Error('资料文件无效，请刷新后重试。');
+  const url = `${base}/api/v1/career/materials/${encodeURIComponent(materialId)}/file/${file.id}`;
+  const revision = transportRevision;
+  function check(status: number) {
+    if (revision !== transportRevision) throw new Error('账号会话已变化，请重新打开资料。');
+    if (status === 200) return;
+    if (status === 401) {
+      for (const listener of unauthorizedListeners) listener();
+      throw new Error('登录已失效，请重新登录后打开资料。');
+    }
+    if (status === 403) throw new Error('资料文件需要有效高级会员权益，请刷新权限后重试。');
+    if (status === 404) throw new Error('资料文件已更新或下架，请重新读取工作台。');
+    throw new Error('资料文件暂时无法读取，请稍后重试。');
+  }
+  // #ifdef H5
+  if (typeof window === 'undefined') throw new Error('请在浏览器中下载资料。');
+  const response = await fetch(url, { credentials: 'same-origin', redirect: 'error', signal: AbortSignal.timeout(30000) })
+    .catch(() => { throw new Error('资料文件下载失败，请检查网络后重试。'); });
+  check(response.status);
+  if (response.headers.get('content-type')?.split(';')[0] !== careerFileTypes[file.format]) {
+    throw new Error('资料响应格式有误，请刷新后重试。');
+  }
+  const blob = await response.blob().catch(() => { throw new Error('资料文件下载未完成，请稍后重试。'); });
+  check(response.status);
+  if (blob.size !== file.bytes) throw new Error('资料文件下载未完成，请稍后重试。');
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = file.fileName;
+  document.body.appendChild(link);
+  try { link.click(); }
+  finally { link.remove(); window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10000); }
+  return 'download-started';
+  // #endif
+  // #ifdef MP-WEIXIN
+  if (!/^https:\/\//i.test(url)) throw new Error('微信版资料下载需要已配置的 HTTPS 接口，请使用网页端。');
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url, timeout: 30000, header: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      success(result) {
+        try {
+          check(result.statusCode);
+          if (!result.tempFilePath) throw new Error('资料文件下载未完成，请稍后重试。');
+          uni.openDocument({
+            filePath: result.tempFilePath, fileType: file.format, showMenu: false,
+            success: () => resolve('document-opened'), fail: () => reject(new Error('微信暂时无法打开资料文件，可通过网页端下载。')),
+          });
+        } catch (error) { reject(error); }
+      },
+      fail: () => reject(new Error('资料文件下载失败，请检查网络后重试。')),
+    });
+  });
+  // #endif
+  // #ifndef H5
+  // #ifndef MP-WEIXIN
+  throw new Error('当前平台无法打开资料文件。');
+  // #endif
+  // #endif
+}
 
 export function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', data?: unknown, options: { notifyUnauthorized?: boolean } = {}): Promise<T> {
   const revision = transportRevision;

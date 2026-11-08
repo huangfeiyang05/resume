@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { CareerJob, CareerMaterial, CareerRecruitmentPortal } from '../shared/types.js';
 import { careerObject, validateCatalogJob, validateCatalogMaterial, validateRecruitmentPortal } from './career-validation.js';
-import { projectCareerContent, type StoredCareerContent } from './career-content-storage.js';
+import { projectCareerContent, type CareerAttachmentIndex, type StoredCareerContent } from './career-content-storage.js';
 
 export const bundledCareerCatalogPath = fileURLToPath(new URL('./assets/career/catalog.json', import.meta.url));
 const catalogMaxBytes = 2 * 1024 * 1024;
@@ -40,12 +40,12 @@ export function careerCatalogFits({ jobs, materials, portals }: CareerCatalog) {
     && Buffer.byteLength(JSON.stringify({ version: 2, jobs, materials, portals })) <= catalogMaxBytes;
 }
 
-export function publishedCareerCatalog(base: CareerCatalog, entries: StoredCareerContent[]): CareerCatalog {
+export function publishedCareerCatalog(base: CareerCatalog, entries: StoredCareerContent[], attachments: CareerAttachmentIndex = {}): CareerCatalog {
   if (base.state === 'unavailable' || !entries.length) return base;
   const materials = new Map(base.materials.map(item => [item.id, item]));
   const portals = new Map(base.portals.map(item => [item.id, item]));
   for (const entry of entries) {
-    const { published } = projectCareerContent(entry);
+    const { published } = projectCareerContent(entry, attachments);
     if (published === undefined) continue;
     if (entry.kind === 'material') {
       if (published && 'title' in published) materials.set(entry.id, published);

@@ -112,9 +112,19 @@ try {
   const contentPath = `/admin/career-content/material/${materialId}`;
   const currentContent = async () => (await request(contentPath, 'GET', undefined, admin)).body.data;
   const currentWorkspace = async () => (await request('/career', 'GET', undefined, owner)).body.data;
-  const draft = { revision: (await currentContent()).revision, operationId: randomUUID(), content: { ...material, title: '合成发布验收提纲' } };
+  const document = await readFile(join(releaseRoot, 'www/static/resume-templates/classic-onyx.docx'));
+  const uploadId = randomUUID();
+  const chunk = { uploadId, index: 0, data: document.toString('base64') };
+  assert.equal((await request('/admin/career-files/chunk', 'POST', chunk, admin)).body.data.receivedBytes, document.length);
+  const uploaded = await request('/admin/career-files/finish', 'POST', { uploadId, fileName: '合成复习资料.docx', bytes: document.length }, admin);
+  assert.equal(uploaded.status, 200);
+  const attachment = uploaded.body.data;
+  const filePath = `/career/materials/${materialId}/file/${attachment.id}`;
+  const draft = { revision: (await currentContent()).revision, operationId: randomUUID(),
+    content: { ...material, title: '合成发布验收提纲', content: '', attachment } };
   assert.deepEqual((await request(`${contentPath}/draft`, 'POST', draft, admin)).body.data, { version: 1 });
   assert.deepEqual((await currentWorkspace()).materials, catalog.materials);
+  assert.equal((await request(filePath, 'GET', undefined, owner)).status, 404);
   async function releaseContent(action, sourceVersion) {
     const input = { action, sourceVersion, revision: (await currentContent()).revision };
     const review = await request(`${contentPath}/preview`, 'POST', input, admin);
@@ -126,8 +136,13 @@ try {
   }
   await releaseContent('publish');
   assert.equal((await currentWorkspace()).materials.find(item => item.id === materialId).title, draft.content.title);
+  assert.equal((await request(filePath, 'GET', undefined, quotaAccount)).status, 403);
+  const savedFile = await fetch(`${base}${filePath}`, { headers: { Cookie: owner } });
+  assert.equal(savedFile.status, 200);
+  assert.deepEqual(Buffer.from(await savedFile.arrayBuffer()), document);
   assert.deepEqual((await request('/career', 'GET', undefined, quotaAccount)).body.data.materials, []);
   await releaseContent('restore', 0);
+  assert.equal((await request(filePath, 'GET', undefined, owner)).status, 404);
   assert.deepEqual((await currentWorkspace()).materials, catalog.materials);
   assert.deepEqual((await currentContent()).history.map(entry => entry.action), ['restore', 'publish', 'draft']);
   checks.push('admin-reviewed-content-release-idempotent-restore-and-member-visibility');

@@ -38,9 +38,18 @@ export class CareerService {
     const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
     if (job.availability !== 'open' || (job.deadline && job.deadline < today)) throw new HttpError(409, 'JOB_UNAVAILABLE', '该岗位已关闭或超过截止日期，不能继续建立或确认投递。');
   }
-  async workspace(): Promise<CareerWorkspace> {
+  private async publishedCatalog() {
     const [database, base] = await Promise.all([this.store.read(), this.catalog()]);
-    const catalog = publishedCareerCatalog(base, database.careerContent);
+    return { database, catalog: publishedCareerCatalog(base, database.careerContent, database.careerAttachments) };
+  }
+  async materialFile(id: string, fileId: string) {
+    const { catalog } = await this.publishedCatalog();
+    const attachment = catalog.materials.find(item => item.id === id)?.attachment;
+    if (!attachment || attachment.id !== fileId) return notFound('当前资料文件');
+    return attachment;
+  }
+  async workspace(): Promise<CareerWorkspace> {
+    const { database, catalog } = await this.publishedCatalog();
     const personal = database.careerJobs.filter(item => item.userId === this.userId).map(publicJob);
     const jobIds = new Set(personal.map(item => item.id));
     const jobs = [...personal, ...catalog.jobs.filter(item => !jobIds.has(item.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

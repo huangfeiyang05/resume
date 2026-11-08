@@ -38,7 +38,7 @@ class RequestError extends Error {
 
 async function api<T>(path: string, payload?: object): Promise<T> {
   const response = await fetch(`/api/v1/admin/${path}`, {
-    credentials: 'same-origin', cache: 'no-store',
+    credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(30000),
     ...(payload === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
   });
   const json = await response.json().catch(() => undefined) as ApiResponse<T> | { error?: { code: string; message: string } } | undefined;

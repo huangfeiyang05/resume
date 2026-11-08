@@ -1,6 +1,6 @@
 node_modules/
 dist/
-# Local resumes, career/company catalogues, import originals/reports/backups, application snapshots and reference originals.
+# Local resumes, career/company catalogues, career-files attachments, import reports/backups and reference originals.
 .data/
 # Editable and exported resume artifacts may contain personal information.
 outputs/

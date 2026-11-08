@@ -86,6 +86,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf dist/resume-youfang.ta
 | `/opt/nodejs` | Node.js 官方运行时 |
 | `/var/lib/resume-youfang/.data/resumes.json` | 版本 3 的业务数据，包括账号、简历、诊断、个人求职记录，以及管理后台的内容草稿、发布历史和审计，独立于程序版本 |
 | `/var/lib/resume-youfang/.data/career-catalog.json` | 可选自定义底稿。存在时替换打包底稿，缺失时使用随服务发布的原创公开资料，后台按条目发布时不改写此文件 |
+| `/var/lib/resume-youfang/.data/career-files/` | 私有复习资料附件，按格式和内容摘要去重，代码发布时随账号数据备份。保留原件以支持回滚 |
 | `/var/lib/resume-youfang/.data/company-catalog.json` | 经审核的企业招聘参考资料，经有效会话与高级会员权限校验后提供查询；仅单独授权的数据导入写入，不随代码包或 Git 上传，代码发布时只读校验并受限备份 |
 | `/etc/resume-youfang/runtime.env` | 可选服务器配置，不提交 Git，不放静态目录 |
 | `/etc/nginx/sites-available/resume-youfang` | 生效的站点配置 |
@@ -94,6 +95,8 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf dist/resume-youfang.ta
 | 本机 `.deployment/` | 本机部署记录和受限配置，目录忽略且权限受限 |
 
 API 以独立系统账户 `resume-youfang` 运行，仅监听 `127.0.0.1:3001`。Nginx 提供 H5 和同源 `/api/` 反向代理；80 端口用于证书验证及重定向，443 端口提供 HTTPS。云服务器防火墙需允许公网 TCP 80、443，API 端口无需开放。
+
+复习附件通过管理员接口分片上传，沿用现有 256 KB 请求限制。小程序打开文件使用 API 的同一 HTTPS 域名，需在微信后台配置为 downloadFile 合法域名。文件和历史版本保留在服务端，当前容量上限为 512 MiB 和 2,000 个文件，发布前保留受限附件备份。
 
 H5 API 构建应保留 `VITE_API_BASE_URL` 为空，使用当前站点的同源地址，避免根域名页面跨域调用 `www` 域名。微信包需要单独指定公开 API 地址再构建：
 

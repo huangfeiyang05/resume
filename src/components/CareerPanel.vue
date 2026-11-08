@@ -2,8 +2,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobInput, CareerRecruitmentPortal, CompanyRecord, Resume, WorkbenchFeature } from '../../shared/types';
 import { inputLimits } from '../../shared/limits';
+import { careerFileFallbackText } from '../../shared/career-attachment';
 import { workbenchFeatureNames, workbenchRequiredPlan } from '../../shared/workbench';
-import { api } from '../services/api';
+import { api, openCareerMaterialFile } from '../services/api';
 import { applicationStatusLabels, applicationTransitions, jobAcceptingPlans, useCareerWorkspace } from '../services/career';
 import { useWorkbenchAccess } from '../services/workbenchAccess';
 import { createCareerHistory } from '../services/careerAssistantHistory';
@@ -40,6 +41,7 @@ const selectedJobId = ref(''), selectedApplicationId = ref(''), selectedMaterial
 const activeJob = computed(() => jobs.value.find(item => item.id === selectedJobId.value));
 const activeApplication = computed(() => applications.value.find(item => item.id === selectedApplicationId.value));
 const activeMaterial = computed(() => materials.value.find(item => item.id === selectedMaterialId.value));
+const openingMaterialFile = ref(false), materialFileNotice = ref('');
 const jobQuery = ref(''), materialQuery = ref(''), major = ref(''), materialMajor = ref('');
 const favoritesOnly = ref(false), applicationFilter = ref<ApplicationStatus | '' | 'active'>('');
 const localError = ref('');
@@ -144,7 +146,23 @@ function showApplication(item: CareerApplication) {
   selectedResumeId.value = item.resumeSnapshot.id; resumeReviewed.value = false;
   modal.value = 'application'; resetError(); void refreshResumes();
 }
-function showMaterial(id: string) { if (!requestFeature('studyMaterials')) return; selectedMaterialId.value = id; modal.value = 'material'; resetError(); }
+function showMaterial(id: string) { if (!requestFeature('studyMaterials')) return; selectedMaterialId.value = id; materialFileNotice.value = ''; modal.value = 'material'; resetError(); }
+async function openMaterialFile() {
+  const item = activeMaterial.value;
+  if (!item?.attachment || openingMaterialFile.value || !requestFeature('studyMaterials')) return;
+  const stillCurrent = () => !disposed && modal.value === 'material' && activeMaterial.value?.id === item.id;
+  openingMaterialFile.value = true;
+  materialFileNotice.value = '';
+  resetError();
+  try {
+    const result = await openCareerMaterialFile(item.id, item.attachment);
+    if (result === 'download-started' && stillCurrent()) materialFileNotice.value = '已开始下载，可在浏览器下载列表中查看。';
+  } catch (error) {
+    if (stillCurrent()) localError.value = error instanceof Error ? error.message : '资料文件暂时无法打开。';
+  } finally {
+    openingMaterialFile.value = false;
+  }
+}
 function showJobForm() { if (!requestFeature('companyJobs')) return; companyView.value = 'jobs'; modal.value = 'job-form'; resetError(); }
 async function refreshWorkspace() {
   if (busy.value) return;
@@ -418,7 +436,17 @@ function copySource(value?: string) {
     </AppModal>
 
     <AppModal v-if="modal === 'material' && activeMaterial && a.canUse('studyMaterials')" :title="activeMaterial.title" :subtitle="`${activeMaterial.major} · ${activeMaterial.role}`" wide @close="closeModal">
-      <text class="career-material-summary">{{ activeMaterial.summary }}</text><text class="career-prose career-material-content">{{ activeMaterial.content }}</text><view class="career-source-box"><text>来源：{{ activeMaterial.sourceLabel }} · 整理 / 更新 {{ date(activeMaterial.updatedAt) }}</text><button v-if="activeMaterial.sourceUrl" class="text-button" @click="copySource(activeMaterial.sourceUrl)" role="button" tabindex="0">复制来源链接<AppIcon name="copy" :size="14" /></button></view><view v-if="visibleError" class="career-alert" role="alert">{{ visibleError }}</view>
+      <text class="career-material-summary">{{ activeMaterial.summary }}</text>
+      <view v-if="activeMaterial.attachment" class="career-source-box">
+        <text>{{ activeMaterial.attachment.fileName }} · {{ Math.ceil(activeMaterial.attachment.bytes / 1024) }} KB</text>
+        <button class="text-button" :disabled="openingMaterialFile" @click="openMaterialFile" role="button" tabindex="0">
+          {{ openingMaterialFile ? '正在读取文件…' : '打开资料文件' }}
+        </button>
+        <text v-if="materialFileNotice" role="status">{{ materialFileNotice }}</text>
+      </view>
+      <text v-if="!activeMaterial.attachment || activeMaterial.content !== careerFileFallbackText" class="career-prose career-material-content">{{ activeMaterial.content }}</text>
+      <view class="career-source-box"><text>来源：{{ activeMaterial.sourceLabel }} · 整理 / 更新 {{ date(activeMaterial.updatedAt) }}</text><button v-if="activeMaterial.sourceUrl" class="text-button" @click="copySource(activeMaterial.sourceUrl)" role="button" tabindex="0">复制来源链接<AppIcon name="copy" :size="14" /></button></view>
+      <view v-if="visibleError" class="career-alert" role="alert">{{ visibleError }}</view>
     </AppModal>
 
     <AppModal v-if="modal === 'confirm' && a.canUse(confirmation === 'delete-job' ? 'companyJobs' : 'applications')" :title="confirmation === 'status' ? '确认手动更新进度' : confirmation === 'delete-job' ? '删除这个个人岗位？' : '删除这条投递记录？'"  @close="cancelConfirmation">

@@ -2,6 +2,7 @@ import { careerContentKinds, type CareerContentAction, type CareerContentKind, t
 import { careerId, careerObject, validateCatalogMaterial, validateRecruitmentPortal } from './career-validation.js';
 import { invalid } from './errors.js';
 import { quotaIdentifier, quotaInstant } from './quota-storage.js';
+import { isCareerAttachment, type CareerAttachment } from '../shared/career-attachment.js';
 
 interface Operation { operationId: string; requestHash: string; actorId: string; at: string }
 export type CareerContentChange = Operation & (
@@ -16,6 +17,7 @@ export interface StoredCareerContent {
   baseline: CareerContentValue | null;
   changes: CareerContentChange[];
 }
+export type CareerAttachmentIndex = Record<string, CareerAttachment>;
 
 export const careerHistoryMaxBytes = 16 * 1024 * 1024;
 export const careerContentHashPattern = /^[a-f0-9]{64}$/;
@@ -39,14 +41,15 @@ export function careerContentValue(kind: CareerContentKind, id: string, value: u
   return item;
 }
 
-export function projectCareerContent(entry?: StoredCareerContent) {
+export function projectCareerContent(entry?: StoredCareerContent, attachments: CareerAttachmentIndex = {}) {
   let draft: CareerContentValue | null = null;
   let activeVersion: number | null = null;
   const versions = new Map<number, CareerContentValue | null>([[0, entry?.baseline ?? null]]);
   entry?.changes.forEach((change, index) => {
     switch (change.action) {
       case 'draft':
-        draft = change.content;
+        draft = Object.hasOwn(attachments, change.operationId)
+          ? { ...change.content, attachment: attachments[change.operationId] } : change.content;
         return;
       case 'publish':
         if (!draft) throw new Error('Missing career content draft.');
@@ -68,6 +71,18 @@ export function projectCareerContent(entry?: StoredCareerContent) {
     activeVersion = index + 1;
   });
   return { draft, activeVersion, versions, published: activeVersion === null ? undefined : versions.get(activeVersion) ?? null };
+}
+
+/** Store references separately so older releases can still read the text representation and audit. */
+export function normalizeCareerAttachments(value: unknown, entries: StoredCareerContent[]): CareerAttachmentIndex {
+  if (value === undefined) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid career file references.');
+  const eligible = new Set(entries.filter(entry => entry.kind === 'material').flatMap(entry =>
+    entry.changes.filter(change => change.action === 'draft').map(change => change.operationId)));
+  return Object.fromEntries(Object.entries(value).map(([key, attachment]) => {
+    if (!eligible.has(key) || !isCareerAttachment(attachment)) throw new Error('Invalid career file reference.');
+    return [key, attachment];
+  }));
 }
 
 export function normalizeCareerContent(value: unknown): StoredCareerContent[] {
