@@ -20,7 +20,7 @@ test('admin allowlist is server-side and rejects malformed entries', () => {
   assert.throws(() => parseAdminUserIds('operator@example.test'), /ADMIN_USER_IDS/);
 });
 
-test('admin HTTP isolates sessions and exposes paginated, redacted snapshots of actual business state', async t => {
+test('admin HTTP isolates sessions and exposes account contacts and paginated business summaries', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'youfang-admin-'));
   const store = new JsonStore(join(directory, 'fixture.json'));
   let now = Date.now();
@@ -136,8 +136,8 @@ test('admin HTTP isolates sessions and exposes paginated, redacted snapshots of 
   const lookup = await call('users/search', { query: 'OTHER@example.test' });
   const [user] = lookup.body.data.items;
   assert.equal(lookup.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(user.email, { masked: 'o***@e***', verified: true });
-  assert.equal(user.phoneMasked, '139****5678');
+  assert.deepEqual(user.email, { address: otherCredentials.email, verified: true });
+  assert.equal(user.phone, '13912345678');
   assert.equal(user.membership.latestEvent, 'purchase');
   assert.equal(user.workbench.features.companyJobs, true);
   assert.deepEqual(user.quota, await quota.current(otherId));
@@ -180,8 +180,11 @@ test('admin HTTP isolates sessions and exposes paginated, redacted snapshots of 
   const tasks = await call('tasks/search', { query: 'model_invalid_output', status: 'failed', usageStatus: 'pending' });
   assert.deepEqual(tasks.body.data.items, [{ id: taskId, userId: otherId, engine: 'bailian', status: 'failed', errorCode: 'MODEL_INVALID_OUTPUT',
     resumeRevision: 1, createdAt: iso, updatedAt: iso, usageStatus: 'pending' }]);
-  for (const secret of [otherCredentials.email, '13912345678', privateText, privateJD, 'tokenHash', 'passwordHash', 'reservedTokens', 'inputHash']) {
+  for (const secret of [privateText, privateJD, 'tokenHash', 'passwordHash', 'reservedTokens', 'inputHash']) {
     assert.ok(!JSON.stringify([lookup.body, tasks.body]).includes(secret));
+  }
+  for (const contact of [otherCredentials.email, '13912345678']) {
+    assert.ok(!JSON.stringify([orders.body, tasks.body]).includes(contact));
   }
   assert.equal((await call('tasks/search', { usageStatus: 'unknown' })).status, 400);
   assert.equal((await call('tasks/search', { query: operatorId })).body.data.total, 0);

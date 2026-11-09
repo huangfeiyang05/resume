@@ -1,6 +1,7 @@
 import { createSign, createVerify } from 'node:crypto';
 import type { AlipayPaymentParams } from '../shared/payment.js';
 import type { AlipayConfig } from './payment-config.js';
+import type { GatewayRefundStatus, RefundGateway, RefundTarget } from './refund-gateway.js';
 
 export interface AlipayPaymentInput {
   mode: 'page' | 'wap';
@@ -24,7 +25,7 @@ export interface AlipayNotification {
   paidAt: string;
 }
 
-export interface AlipayGateway {
+export interface AlipayGateway extends Partial<RefundGateway> {
   /** Returns a signed Alipay cashier URL for the H5 browser to open. */
   createPayment(input: AlipayPaymentInput): Promise<AlipayPayment>;
   /** Verifies the RSA2 signature of an asynchronous notification and returns trusted fields. */
@@ -48,6 +49,10 @@ function amountText(amountCents: number): string {
   return (amountCents / 100).toFixed(2);
 }
 
+function sameAmount(value: unknown, amountCents: number) {
+  return typeof value === 'string' && /^\d{1,9}(?:\.\d{1,2})?$/.test(value) && Math.round(Number(value) * 100) === amountCents;
+}
+
 /** Alipay signs/verifies raw values (not URL-encoded), sorted by key. Requests include sign_type; notifications exclude it. */
 function signableContent(params: Record<string, string>, includeSignType: boolean): string {
   return Object.keys(params)
@@ -66,7 +71,8 @@ function alipayNotificationSignContent(params: Record<string, string>): string {
 }
 
 export class AlipayClient implements AlipayGateway {
-  constructor(readonly config: AlipayConfig, private readonly now: () => Date = () => new Date()) {}
+  constructor(readonly config: AlipayConfig, private readonly now: () => Date = () => new Date(),
+    private readonly fetchImpl: typeof fetch = fetch) {}
 
   private sign(params: Record<string, string>): string {
     return createSign('RSA-SHA256').update(alipaySignContent(params), 'utf8').sign(this.config.privateKeyPem, 'base64');
@@ -79,6 +85,57 @@ export class AlipayClient implements AlipayGateway {
     } catch {
       return false;
     }
+  }
+
+  private async refundApi(method: 'alipay.trade.query' | 'alipay.trade.refund' | 'alipay.trade.fastpay.refund.query', biz: Record<string, string>) {
+    const params: Record<string, string> = { app_id: this.config.appId, method, format: 'JSON', charset: 'utf-8',
+      sign_type: 'RSA2', timestamp: beijingDateTime(this.now()), version: '1.0', biz_content: JSON.stringify(biz) };
+    params.sign = this.sign(params);
+    let raw: string;
+    try {
+      const response = await this.fetchImpl(this.config.gateway, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8_000),
+        headers: { Accept: 'application/json' }, body: new URLSearchParams(params) });
+      if (!response.ok) throw new Error();
+      raw = await response.text();
+    } catch { throw new AlipayError('ALIPAY_REFUND_UNAVAILABLE', '暂时无法核对支付宝退款结果。'); }
+    // Signatures cover the original response object, including its JSON escaping.
+    const envelope = raw.match(/^\s*\{\s*"([a-z_]+)"\s*:\s*(\{[\s\S]*\})\s*,\s*"sign"\s*:\s*"([A-Za-z0-9+/=]+)"\s*\}\s*$/);
+    if (!envelope || ![method.replaceAll('.', '_') + '_response', 'error_response'].includes(envelope[1])
+      || !createVerify('RSA-SHA256').update(envelope[2], 'utf8').verify(this.config.alipayPublicKeyPem, envelope[3], 'base64')) {
+      throw new AlipayError('ALIPAY_REFUND_SIGNATURE_INVALID', '支付宝退款响应验签失败。');
+    }
+    try { return JSON.parse(envelope[2]) as Record<string, unknown>; }
+    catch { throw new AlipayError('ALIPAY_REFUND_INVALID', '支付宝退款响应格式无效。'); }
+  }
+
+  async submitRefund(target: RefundTarget): Promise<GatewayRefundStatus> {
+    const trade = { out_trade_no: target.outTradeNo, trade_no: target.transactionId };
+    const payment = await this.refundApi('alipay.trade.query', trade);
+    if (payment.code !== '10000' || !['TRADE_SUCCESS', 'TRADE_FINISHED'].includes(String(payment.trade_status))
+      || payment.out_trade_no !== trade.out_trade_no || payment.trade_no !== trade.trade_no || !sameAmount(payment.total_amount, target.amountCents)) {
+      throw new AlipayError('ALIPAY_REFUND_PAYMENT_MISMATCH', '支付宝订单状态、交易号或金额未通过核对。');
+    }
+    const row = await this.refundApi('alipay.trade.refund', {
+      ...trade, out_request_no: target.id, refund_amount: amountText(target.amountCents),
+    });
+    if (row.code !== '10000') throw new AlipayError('ALIPAY_REFUND_UNCONFIRMED', '支付宝退款结果暂未确认，请核对后重试。');
+    if (row.out_trade_no !== trade.out_trade_no || row.trade_no !== trade.trade_no) {
+      throw new AlipayError('ALIPAY_REFUND_MISMATCH', '支付宝退款结果与原订单不匹配。');
+    }
+    return row.fund_change === 'Y' && sameAmount(row.refund_fee, target.amountCents) ? 'succeeded' : 'processing';
+  }
+
+  async queryRefund(target: RefundTarget): Promise<GatewayRefundStatus | 'not-found'> {
+    const row = await this.refundApi('alipay.trade.fastpay.refund.query', {
+      out_trade_no: target.outTradeNo, trade_no: target.transactionId, out_request_no: target.id,
+    });
+    if (row.code !== '10000') throw new AlipayError('ALIPAY_REFUND_UNCONFIRMED', '支付宝退款状态暂未确认。');
+    if (row.refund_status === undefined || row.refund_status === '') return 'not-found';
+    if (row.out_trade_no !== target.outTradeNo || row.trade_no !== target.transactionId || row.out_request_no !== target.id
+      || !sameAmount(row.refund_amount, target.amountCents) || !sameAmount(row.total_amount, target.amountCents)) {
+      throw new AlipayError('ALIPAY_REFUND_MISMATCH', '支付宝退款查询结果与原订单不匹配。');
+    }
+    return row.refund_status === 'REFUND_SUCCESS' ? 'succeeded' : 'unknown';
   }
 
   async createPayment(input: AlipayPaymentInput): Promise<AlipayPayment> {

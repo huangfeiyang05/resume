@@ -1,10 +1,12 @@
-import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser } from '../shared/types.js';
+import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, PaymentChannel } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
 import { paymentChannels, paymentOrderStatuses } from '../shared/payment.js';
 import { invalid } from './errors.js';
-import { summarizePaymentOrder } from './payment-storage.js';
+import { membershipAt, membershipPeriods } from './membership-periods.js';
+import { paymentActivation, summarizePaymentOrder } from './payment-storage.js';
 import { summarizeQuota } from './quota.js';
 import { quotaIdentifier, quotaWeekMilliseconds, type StoredAiUsage } from './quota-storage.js';
+import { summarizeRefund } from './refund-storage.js';
 import { workbenchAccessForMembership } from './workbench-access.js';
 import type { Database } from './store.js';
 
@@ -63,7 +65,7 @@ export function adminOverview(database: Database, now: number): AdminOverview {
       return now - quotaWeekMilliseconds <= createdAt && createdAt <= now;
     }).length,
     activeMembers: database.memberships.filter(record => userIds.has(record.userId)
-      && workbenchAccessForMembership(record, now).planId !== 'free').length,
+      && membershipAt(membershipPeriods(record, database.refunds, now), now)).length,
     failedTasks: database.analysisTasks.filter(task => task.job.status === 'failed').length,
     pendingUsage: database.aiUsage.filter(row => row.status === 'pending').length,
   };
@@ -77,35 +79,39 @@ export function adminUsers(database: Database, query: string, page: number, now:
   const usageByUser = new Map(users.items.map(user => [user.id, [] as StoredAiUsage[]]));
   for (const row of database.aiUsage) usageByUser.get(row.userId)?.push(row);
   return { ...users, items: users.items.map(user => {
-    const membership = memberships.get(user.id);
-    const [name, domain] = user.email?.split('@') ?? [];
+    const history = memberships.get(user.id);
+    const periods = membershipPeriods(history, database.refunds, now);
+    const membership = membershipAt(periods, now) ?? periods.at(-1);
     return {
       id: user.id, createdAt: user.createdAt,
-      email: name && domain ? { masked: `${name[0]}***@${domain[0]}***`, verified: user.emailVerified } : null,
-      phoneMasked: user.phone ? `${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : null,
+      email: user.email ? { address: user.email, verified: user.emailVerified } : null,
+      phone: user.phone ?? null,
       wechat: !!user.wechatOpenid,
       membership: membership ? { planId: membership.planId, startsAt: membership.startsAt, expiresAt: membership.expiresAt,
-        latestEvent: membership.activations.at(-1)!.kind } : null,
+        latestEvent: membership.kind } : null,
       workbench: workbenchAccessForMembership(membership, now),
-      quota: summarizeQuota({ memberships: membership ? [membership] : [], aiUsage: usageByUser.get(user.id)! }, user.id, now),
+      quota: summarizeQuota({ memberships: history ? [history] : [], refunds: database.refunds, aiUsage: usageByUser.get(user.id)! }, user.id, now),
     };
   }) };
 }
 
-export function adminOrders(database: Database, { page, query, userId, status, channel }: ReturnType<typeof parseAdminOrderQuery>): AdminPage<AdminOrder> {
+export function adminOrders(database: Database, { page, query, userId, status, channel }: ReturnType<typeof parseAdminOrderQuery>,
+  refundAvailable?: (channel: PaymentChannel) => boolean): AdminPage<AdminOrder> {
   const orders = paginate(database.orders.filter(order =>
     (!userId || order.userId === userId) && (!status || order.status === status) && (!channel || order.channel === channel)
     && (!query || order.id === query || order.userId === query || order.outTradeNo === query))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id)), page);
   const activations = new Map(database.memberships.map(membership => [membership.userId, membership.activations]));
+  const refunds = new Map(database.refunds.map(refund => [refund.orderId, refund]));
   return { ...orders, items: orders.items.map(order => {
-    const { paymentEventId, paidAt } = order;
-    const provider = order.channel.startsWith('alipay-') ? 'alipay' : 'wechat';
-    const event = paymentEventId && paidAt ? activations.get(order.userId)?.find(activation =>
-      activation.verifiedEventId === paymentEventId && activation.idempotencyKey === `${provider}:${paymentEventId}`
-      && activation.planId === order.planId && Date.parse(activation.verifiedPaymentAt) === Date.parse(paidAt)) : undefined;
+    const event = paymentActivation(order, activations.get(order.userId));
+    const refund = refunds.get(order.id);
     return { ...summarizePaymentOrder(order), userId: order.userId,
-      membershipActivation: event ? { kind: event.kind, startsAt: event.startsAt, expiresAt: event.expiresAt } : null };
+      membershipActivation: event ? { kind: event.kind, startsAt: event.startsAt, expiresAt: event.expiresAt } : null,
+      ...(refund ? { refund: summarizeRefund(refund) } : {}),
+      ...(event && order.status === 'paid' && order.transactionId === order.paymentEventId && refundAvailable?.(order.channel)
+        ? { refundable: true as const } : {}),
+    };
   }) };
 }
 

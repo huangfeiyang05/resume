@@ -36,13 +36,36 @@ export interface AdminOrder extends PaymentOrder {
   userId: string;
   /** The verified membership event for this payment, regardless of current membership. */
   membershipActivation: { kind: MembershipEventKind; startsAt: string; expiresAt: string } | null;
+  refundable?: true;
+  refund?: AdminRefund;
+}
+
+export const refundStatuses = ['requested', 'processing', 'unknown', 'succeeded', 'closed', 'abnormal'] as const;
+export interface AdminRefund {
+  id: string;
+  status: typeof refundStatuses[number];
+  amountCents: number;
+  requestedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  confirmedAt?: string;
+}
+export interface AdminRefundPreview {
+  id: string;
+  orderId: string;
+  userId: string;
+  channel: PaymentChannel;
+  amountCents: number;
+  before: WorkbenchAccess;
+  after: WorkbenchAccess;
+  remaining: { planId: PaidPlanId; startsAt: string; expiresAt: string }[];
 }
 
 export interface AdminUser {
   id: string;
   createdAt: string;
-  email: { masked: string; verified: boolean } | null;
-  phoneMasked: string | null;
+  email: { address: string; verified: boolean } | null;
+  phone: string | null;
   wechat: boolean;
   membership: {
     planId: PaidPlanId;

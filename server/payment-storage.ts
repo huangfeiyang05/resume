@@ -1,6 +1,7 @@
 import { paymentChannels, paymentOrderStatuses, type PaymentChannel, type PaymentOrder, type PaymentOrderStatus } from '../shared/payment.js';
 import type { PaidPlanId } from '../shared/membership.js';
 import { randomBytes } from 'node:crypto';
+import type { MembershipActivation } from './quota-storage.js';
 
 export const orderTtlMilliseconds = 2 * 60 * 60 * 1000;
 
@@ -17,6 +18,14 @@ export interface StoredPaymentOrder extends PaymentOrder {
 }
 
 export interface PaymentStorage { orders: StoredPaymentOrder[] }
+
+export function paymentActivation(order: StoredPaymentOrder, events: readonly MembershipActivation[] = []) {
+  const { paymentEventId, paidAt } = order;
+  if (!paymentEventId || !paidAt) return undefined;
+  const provider = order.channel.startsWith('alipay-') ? 'alipay' : 'wechat';
+  return events.find(event => event.verifiedEventId === paymentEventId && event.idempotencyKey === `${provider}:${paymentEventId}`
+    && event.planId === order.planId && Date.parse(event.verifiedPaymentAt) === Date.parse(paidAt));
+}
 
 export function summarizePaymentOrder(order: StoredPaymentOrder): PaymentOrder {
   return {

@@ -7,6 +7,7 @@ import { JsonStore } from './store.js';
 import { ResumeService } from './service.js';
 import { limits, validateVersionRevision } from './validation.js';
 import { PaymentService } from './payments.js';
+import { AdminRefunds } from './refunds.js';
 import type { WechatPayGateway } from './wechat-pay.js';
 import type { AlipayGateway } from './alipay.js';
 import type { BillingPricing } from './payment-config.js';
@@ -163,6 +164,9 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     ...(options.paymentMchid ? { mchid: options.paymentMchid } : {}),
     ...(options.paymentNotifyUrl ? { notifyUrl: options.paymentNotifyUrl } : {}),
   });
+  const refunds = new AdminRefunds(baseService.store, {
+    wechat: options.paymentGateway, alipay: options.paymentAlipay, notifyUrl: options.paymentNotifyUrl,
+  });
   // Shared company reference data requires a currently effective trusted membership.
   const companies = new CompanyCatalogRepository(options.companyCatalogPath ?? join(dirname(baseService.store.path), 'company-catalog.json'));
   const companyBatches = new CompanyBatches(companies);
@@ -269,12 +273,16 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       } else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
     } else if (path === '/overview' && method === 'GET') {
       json(response, 200, { data: adminOverview(await baseService.store.read(), Date.now()) });
-    } else if (path === '/orders/search' && method === 'POST') {
+    } else if (method === 'POST' && ['/orders/search', '/orders/refund-preview', '/orders/refund-apply', '/orders/refund-refresh'].includes(path)) {
       if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
         throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
       }
-      const query = parseAdminOrderQuery(await body(request));
-      json(response, 200, { data: adminOrders(await baseService.store.read(), query) });
+      const input = await body(request);
+      const data = path === '/orders/search' ? adminOrders(await baseService.store.read(), parseAdminOrderQuery(input), channel => refunds.available(channel))
+        : path === '/orders/refund-preview' ? await refunds.preview(input, user.id)
+        : path === '/orders/refund-apply' ? await refunds.apply(input, user.id)
+        : await refunds.refresh(input);
+      json(response, 200, { data });
     } else if ((path === '/users/search' || path === '/tasks/search') && method === 'POST') {
       const query = parseAdminQuery(await body(request), path === '/users/search' ? 'users' : 'tasks');
       const database = await baseService.store.read();
@@ -284,7 +292,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       throw new HttpError(404, 'NOT_FOUND', '管理接口不存在。');
     }
   }
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname.replace(/\/$/, '');
@@ -299,6 +307,12 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const raw = await rawBody(request);
         json(response, 200, await payments.applyNotification(request.headers, raw)); return;
+      }
+      if (path === '/api/v1/billing/wechat/refund-notify') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await refunds.wechatNotification(request.headers, await rawBody(request));
+        response.writeHead(204).end();
+        return;
       }
       if (path === '/api/v1/billing/alipay/notify') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
@@ -534,4 +548,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       }
     }
   });
+  server.on('listening', () => { void refunds.recover().catch(() => console.error('[resume-api] refund recovery unavailable')); });
+  server.on('close', () => refunds.stop());
+  return server;
 }

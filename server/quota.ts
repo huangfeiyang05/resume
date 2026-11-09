@@ -1,9 +1,10 @@
 import type { PaidPlanId } from '../shared/types.js';
 import { HttpError } from './errors.js';
 import { calculateMembershipPeriod } from './membership.js';
+import { membershipAt, membershipPeriods } from './membership-periods.js';
 import {
   normalizeQuotaStorage, normalizeTokenUsage, quotaIdentifier, quotaInstant, quotaWeekMilliseconds, weeklyTokenLimits,
-  type MembershipActivation, type QuotaStorage, type StoredAiUsage, type StoredMembership, type TokenUsage,
+  type MembershipActivation, type MembershipBasis, type QuotaStorage, type StoredAiUsage, type StoredMembership, type TokenUsage,
 } from './quota-storage.js';
 
 /** Structural store boundary keeps quota persistence independent of the other local JSON domains. */
@@ -44,15 +45,15 @@ function rowFor(storage: QuotaStorage, userId: string, taskId: string): StoredAi
   if (!row) return fail(404, 'QUOTA_TASK_NOT_FOUND', '额度任务不存在。');
   return row;
 }
-function cycleFor(membership: StoredMembership, instant: number) {
+function cycleFor(membership: MembershipBasis, instant: number) {
   const anchor = Date.parse(membership.quotaAnchorAt);
   const start = anchor + Math.floor((instant - anchor) / quotaWeekMilliseconds) * quotaWeekMilliseconds;
   return { startsAt: new Date(start).toISOString(), endsAt: new Date(Math.min(start + quotaWeekMilliseconds, Date.parse(membership.expiresAt))).toISOString() };
 }
-function counts(storage: QuotaStorage, membership: StoredMembership, cycleStartsAt: string) {
+function counts(storage: QuotaStorage, membership: MembershipBasis, userId: string, cycleStartsAt: string) {
   let used = 0, reserved = 0;
   for (const row of storage.aiUsage) {
-    if (row.userId !== membership.userId || row.mode !== 'metered' || row.quotaAnchorAt !== membership.quotaAnchorAt || row.cycleStartsAt !== cycleStartsAt) continue;
+    if (row.userId !== userId || row.mode !== 'metered' || row.quotaAnchorAt !== membership.quotaAnchorAt || row.cycleStartsAt !== cycleStartsAt) continue;
     if (row.status === 'settled') used += row.usage!.totalTokens;
     else if (outstanding(row)) reserved += row.reservedTokens;
   }
@@ -61,14 +62,16 @@ function counts(storage: QuotaStorage, membership: StoredMembership, cycleStarts
 }
 
 export function summarizeQuota(storage: QuotaStorage, userId: string, instant: number): QuotaSummary {
-  const membership = storage.memberships.find(record => record.userId === userId);
+  const history = storage.memberships.find(record => record.userId === userId);
   const pending = storage.aiUsage.some(row => row.userId === userId && outstanding(row));
-  if (!membership) return { status: 'preview', remainingPercent: null, resetsAt: null, expiresAt: null, pending };
-  if (instant < Date.parse(membership.startsAt) || instant >= Date.parse(membership.expiresAt)) {
-    return { status: 'inactive', remainingPercent: null, resetsAt: null, expiresAt: membership.expiresAt, pending };
+  if (!history) return { status: 'preview', remainingPercent: null, resetsAt: null, expiresAt: null, pending };
+  const periods = membershipPeriods(history, storage.refunds ?? [], instant);
+  const membership = membershipAt(periods, instant);
+  if (!membership) {
+    return { status: 'inactive', remainingPercent: null, resetsAt: null, expiresAt: periods.at(-1)?.expiresAt ?? null, pending };
   }
   const cycle = cycleFor(membership, instant);
-  const { used } = counts(storage, membership, cycle.startsAt);
+  const { used } = counts(storage, membership, userId, cycle.startsAt);
   const limit = weeklyTokenLimits[membership.planId];
   return { status: 'active', remainingPercent: Math.ceil(Math.max(0, limit - used) / limit * 100),
     resetsAt: cycle.endsAt, expiresAt: membership.expiresAt, pending };
@@ -78,9 +81,11 @@ export function summarizeQuota(storage: QuotaStorage, userId: string, instant: n
 export class QuotaService {
   constructor(readonly store: QuotaStore, private readonly now: () => Date = () => new Date()) {}
 
-  async getMembershipRecord(userId: string): Promise<StoredMembership | null> {
+  async getMembershipRecord(userId: string): Promise<MembershipBasis | null> {
     validId(userId);
-    return (await this.store.read()).memberships.find(record => record.userId === userId) ?? null;
+    const storage = await this.store.read(), now = this.now().getTime();
+    const periods = membershipPeriods(storage.memberships.find(record => record.userId === userId), storage.refunds ?? [], now);
+    return membershipAt(periods, now) ?? periods.at(-1) ?? null;
   }
 
   async current(userId: string): Promise<QuotaSummary> {
@@ -99,12 +104,13 @@ export class QuotaService {
         return previous;
       }
       const instant = this.now().getTime(), createdAt = new Date(instant).toISOString();
-      const membership = storage.memberships.find(record => record.userId === userId);
-      if (membership && (instant < Date.parse(membership.startsAt) || instant >= Date.parse(membership.expiresAt))) return fail(403, 'MEMBERSHIP_EXPIRED', '会员已到期，暂不能发起新的 AI 调用。');
+      const history = storage.memberships.find(record => record.userId === userId);
+      const membership = membershipAt(membershipPeriods(history, storage.refunds ?? [], instant), instant);
+      if (history && !membership) return fail(403, 'MEMBERSHIP_EXPIRED', '会员当前未生效，暂不能发起新的 AI 调用。');
       if (storage.aiUsage.some(row => row.userId === userId && outstanding(row))) return fail(429, 'QUOTA_TASK_PENDING', '已有 AI 调用正在处理或等待用量核对，请稍后重试。');
       const cycle = membership ? cycleFor(membership, instant) : null;
       if (membership && cycle) {
-        const { used, reserved } = counts(storage, membership, cycle.startsAt);
+        const { used, reserved } = counts(storage, membership, userId, cycle.startsAt);
         if (reserveTokens > weeklyTokenLimits[membership.planId] - used - reserved) return fail(429, 'AI_QUOTA_EXHAUSTED', '本周剩余额度不足，请在额度刷新后重试。');
       }
       const row: StoredAiUsage = {
@@ -218,19 +224,26 @@ export class QuotaService {
         }
       }
       const previous = storage.memberships.find(record => record.userId === input.userId);
-      if (previous && Date.parse(input.verifiedPaymentAt) < Date.parse(previous.activations.at(-1)!.verifiedPaymentAt)) return fail(409, 'MEMBERSHIP_EVENT_OUT_OF_ORDER', '会员事件时间早于已处理事件。');
+      const paidAt = Date.parse(input.verifiedPaymentAt);
+      if (previous && paidAt < Date.parse(previous.activations.at(-1)!.verifiedPaymentAt)) return fail(409, 'MEMBERSHIP_EVENT_OUT_OF_ORDER', '会员事件时间早于已处理事件。');
+      const refunds = storage.refunds ?? [];
+      const hasRefund = refunds.some(refund => refund.userId === input.userId && refund.confirmedAt && Date.parse(refund.confirmedAt) <= paidAt);
+      const base = hasRefund ? membershipPeriods(previous, refunds, paidAt).at(-1) : previous;
+      const basis: MembershipBasis | null = base ? {
+        planId: base.planId, startsAt: base.startsAt, expiresAt: base.expiresAt, quotaAnchorAt: base.quotaAnchorAt,
+      } : null;
       const period = calculateMembershipPeriod({ planId: input.planId, verifiedPaymentAt: input.verifiedPaymentAt,
-        ...(previous ? { current: { planId: previous.planId, expiresAt: previous.expiresAt } } : {}) });
-      const quotaAnchorAt = period.kind === 'purchase' ? period.startsAt : previous!.quotaAnchorAt;
+        ...(basis ? { current: basis } : {}) });
+      const quotaAnchorAt = period.kind === 'purchase' ? period.startsAt : basis!.quotaAnchorAt;
       const activation: MembershipActivation = { verifiedEventId: input.verifiedEventId, idempotencyKey: input.idempotencyKey,
-        verifiedPaymentAt: input.verifiedPaymentAt, ...period, quotaAnchorAt };
+        verifiedPaymentAt: input.verifiedPaymentAt, ...period, quotaAnchorAt, ...(hasRefund ? { basis } : {}) };
       const record: StoredMembership = { userId: input.userId, planId: input.planId,
-        startsAt: period.kind === 'renewal' ? previous!.startsAt : period.startsAt, expiresAt: period.expiresAt,
+        startsAt: period.kind === 'renewal' ? basis!.startsAt : period.startsAt, expiresAt: period.expiresAt,
         quotaAnchorAt, updatedAt: this.now().toISOString(), activations: [...(previous?.activations ?? []), activation] };
       if (previous) storage.memberships[storage.memberships.indexOf(previous)] = record;
       else storage.memberships.push(record);
       // Keep the same strict schema used when the process next loads the ledger.
-      normalizeQuotaStorage(storage);
+      normalizeQuotaStorage(storage, refunds);
       return activation;
     });
   }

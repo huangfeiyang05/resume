@@ -9,7 +9,8 @@ import { normalizeCareerAttachments, normalizeCareerContent, type CareerMediaSto
 import { normalizeResumeHistory, type StoredResumeVersion, type StoredResumeRestore } from './resume-history.js';
 import { normalizeAnalysisTasks, type AnalysisTaskStorage } from './job-storage.js';
 import { normalizeQuotaStorage, type QuotaStorage } from './quota-storage.js';
-import { normalizePaymentStorage, type PaymentStorage } from './payment-storage.js';
+import { normalizePaymentStorage, paymentActivation, type PaymentStorage } from './payment-storage.js';
+import { normalizeRefunds, type StoredRefund } from './refund-storage.js';
 
 export const legacyWorkspaceId = 'legacy-local-workspace';
 export interface StoredUser extends AuthUser { passwordHash?: string; wechatOpenid?: string }
@@ -35,7 +36,8 @@ export interface StoredPhoneChallenge extends Omit<StoredEmailChallenge, 'email'
 }
 
 export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStorage, PaymentStorage, CareerMediaStorage {
-  version: 3;
+  version: 3 | 4;
+  refunds: StoredRefund[];
   users: StoredUser[];
   sessions: StoredSession[];
   emailChallenges: StoredEmailChallenge[];
@@ -72,14 +74,14 @@ export class JsonStore {
   protected async loadFile(): Promise<Database> {
     try {
       const parsed = JSON.parse(await readFile(this.path, 'utf8'));
-      if (!parsed || ![1, 2, 3].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
+      if (!parsed || ![1, 2, 3, 4].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
         throw new Error('Unsupported or malformed local database.');
       }
       // Old shared data is retained in a quarantined workspace, never claimed by the first signup.
       if (parsed.version === 1) {
         const resumes = parsed.resumes.map((resume: Resume) => ({ ...resume, userId: legacyWorkspaceId }));
         return {
-        version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {},
+        version: 3, refunds: [], users: [], sessions: [], emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {},
         ...normalizeCareerStorage({}),
         ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}),
         ...normalizeResumeHistory({}, resumes),
@@ -102,7 +104,7 @@ export class JsonStore {
         throw new Error('Unsupported or malformed account database.');
       }
       if (parsed.version === 2) {
-        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {} };
+        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, refunds: [], users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {} };
       }
       if (!Array.isArray(parsed.emailChallenges)
         || parsed.users.some((user: StoredUser) => typeof user.emailVerified !== 'boolean')
@@ -138,10 +140,21 @@ export class JsonStore {
       const careerAttachments = normalizeCareerAttachments(parsed.careerAttachments, careerContent);
       const careerVideos = normalizeCareerAttachments(parsed.careerVideos, careerContent, true);
       if (Object.keys(careerVideos).some(key => Object.hasOwn(careerAttachments, key))) throw new Error('Duplicate career media reference.');
-      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), careerContent, careerAttachments, careerVideos };
+      const payment = normalizePaymentStorage(parsed);
+      const refunds = normalizeRefunds(parsed.refunds, payment.orders);
+      if (parsed.version === 3 && refunds.length) throw new Error('Refund records require database version 4.');
+      const quota = normalizeQuotaStorage(parsed, refunds);
+      if (refunds.length) {
+        const orders = new Map(payment.orders.map(order => [order.id, order]));
+        const activations = new Map(quota.memberships.map(row => [row.userId, row.activations]));
+        if (refunds.some(row => !paymentActivation(orders.get(row.orderId)!, activations.get(row.userId)))) {
+          throw new Error('Refund has no matching membership event.');
+        }
+      }
+      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...quota, ...payment, refunds, careerContent, careerAttachments, careerVideos };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return { version: 3, users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [], careerContent: [], careerAttachments: {}, careerVideos: {}, ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
+      return { version: 3, refunds: [], users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [], careerContent: [], careerAttachments: {}, careerVideos: {}, ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
     }
   }
 

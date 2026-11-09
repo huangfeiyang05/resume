@@ -18,7 +18,14 @@ const smsMessages = [];
 const phoneCodes = new PhoneCodeService(store, { enabled: true, async sendCode(input) { smsMessages.push(input); } }, { secret: 'release-fixture-sms-secret-more-than-32-bytes', now: () => fixtureTime });
 const auth = new AuthService(store, { phoneCodes, now: () => fixtureTime, requireEmailVerification: false });
 const adminIds = new Set();
-const server = createApiServer(new ResumeService(store), { secureCookies: false, auth, adminUserIds: adminIds });
+const refundCalls = [];
+const fakeAlipay = {
+  async createPayment() { throw new Error('The release verifier never creates an actual checkout.'); },
+  parseNotification() { throw new Error('The release verifier never uses a real payment notification.'); },
+  async submitRefund(target) { refundCalls.push(target); return 'succeeded'; },
+  async queryRefund() { throw new Error('The synthetic refund completed synchronously.'); },
+};
+const server = createApiServer(new ResumeService(store), { secureCookies: false, auth, adminUserIds: adminIds, paymentAlipay: fakeAlipay });
 const checks = [];
 function fixtureVideo() {
   const box = (type, ...parts) => {
@@ -142,10 +149,35 @@ try {
     id: fixtureOrder.id, userId, planId: 'premium', status: 'paid', channel: 'alipay-wap', amountCents: 4200,
     createdAt: orderTime, paidAt: orderTime, expiresAt: fixtureOrder.expiresAt,
     membershipActivation: { kind: 'renewal', startsAt: renewal.startsAt, expiresAt: renewal.expiresAt },
+    refundable: true,
   }] });
   assert.equal((await request(ordersPath, 'POST', { ...orderLookup, userId: quotaUserId }, admin)).body.data.total, 0);
   assert.deepEqual(await readFile(store.path), orderBefore);
   checks.push('admin-order-search-reads-verified-historical-activation-without-mutation');
+
+  const contacts = await request('/admin/users/search', 'POST', { query: userId }, admin);
+  assert.deepEqual(contacts.body.data.items[0].email, { address: operator.credentials.email, verified: true });
+  assert.equal(contacts.body.data.items[0].phone, null);
+  const refundInput = { orderId: fixtureOrder.id };
+  assert.equal((await request('/admin/orders/refund-preview', 'POST', refundInput, owner)).status, 401);
+  const reviewRefund = await request('/admin/orders/refund-preview', 'POST', refundInput, admin);
+  assert.equal(reviewRefund.status, 200);
+  assert.equal(reviewRefund.body.data.amountCents, fixtureOrder.amountCents);
+  assert.equal(reviewRefund.body.data.before.expiresAt, renewal.expiresAt);
+  assert.equal(reviewRefund.body.data.after.expiresAt, premiumAccess.expiresAt);
+  const applyRefund = { ...refundInput, previewId: reviewRefund.body.data.id, confirmed: true };
+  assert.equal((await request('/admin/orders/refund-apply', 'POST', { ...applyRefund, amountCents: 1 }, admin)).status, 400);
+  assert.equal(refundCalls.length, 0);
+  const appliedRefund = await request('/admin/orders/refund-apply', 'POST', applyRefund, admin);
+  assert.equal(appliedRefund.status, 200);
+  assert.equal(appliedRefund.body.data.status, 'succeeded');
+  assert.deepEqual((await request('/admin/orders/refund-apply', 'POST', applyRefund, admin)).body.data, appliedRefund.body.data);
+  assert.deepEqual(refundCalls, [{ id: reviewRefund.body.data.id, outTradeNo: fixtureOrder.outTradeNo,
+    transactionId: tradeId, amountCents: fixtureOrder.amountCents }]);
+  assert.equal((await request('/membership/workbench', 'GET', undefined, owner)).body.data.expiresAt, premiumAccess.expiresAt);
+  assert.equal((await request(ordersPath, 'POST', orderLookup, admin)).body.data.items[0].refund.status, 'succeeded');
+  assert.equal((await new JsonStore(store.path).read()).version, 4);
+  checks.push('admin-full-contacts-reviewed-full-refund-idempotence-and-other-paid-term-retention');
 
   const { id: materialId, updatedAt: _updatedAt, ...material } = catalog.materials[0];
   const contentPath = `/admin/career-content/material/${materialId}`;

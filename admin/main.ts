@@ -1,4 +1,4 @@
-import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
+import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminRefund, AdminRefundPreview, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
 import { paymentChannels, paymentOrderStatuses } from '../shared/payment.js';
 import { workbenchFeatureNames, workbenchFeatures } from '../shared/workbench.js';
@@ -15,6 +15,8 @@ const statusNames = { queued: '排队中', running: '运行中', completed: '已
 const usageNames = { reserved: '已预占', dispatched: '已派发', pending: '待核对', settled: '已结算', released: '已释放' };
 const orderStatuses = { pending: '待支付确认', paid: '已支付', closed: '已关闭', failed: '失败' };
 const channelNames = { jsapi: '微信小程序', native: '微信扫码', 'alipay-page': '支付宝电脑网页', 'alipay-wap': '支付宝手机网页' };
+const refundNames: Record<AdminRefund['status'], string> = { requested: '退款待提交', processing: '退款处理中',
+  unknown: '退款待核对', succeeded: '退款成功', closed: '退款已关闭', abnormal: '渠道退款异常' };
 
 const login = document.querySelector<HTMLElement>('#login')!;
 const loginForm = document.querySelector<HTMLFormElement>('#login-form')!;
@@ -40,6 +42,7 @@ let userQuery: AdminUserQuery = {};
 let orderQuery: AdminOrderQuery = {};
 let taskQuery: AdminTaskQuery = {};
 let generation = 0;
+let refundBusy = false;
 let contentEditor: ReturnType<typeof renderCareerContent> | undefined;
 
 class RequestError extends Error {
@@ -225,17 +228,18 @@ function lines(...values: (Node | string)[]) {
 }
 
 function renderUsers(page: AdminPage<AdminUser>) {
-  table(page, ['用户', '账号绑定', '会员记录', '工作台权限', 'AI 周额度'], user => {
+  table(page, ['用户', '绑定邮箱', '绑定手机号', '会员记录', '工作台权限', 'AI 周额度'], user => {
     const details = element('details');
     details.append(element('summary', `当前生效：${planNames[user.workbench.planId]}`), lines(...workbenchFeatures.map(key =>
       `${workbenchFeatureNames[key]}：${user.workbench.features[key] ? '已解锁' : '未解锁'}`)));
     const remaining = user.quota.remainingPercent;
     return [
       lines(element('code', user.id), `注册：${formatTime(user.createdAt)}`,
+        ...(user.wechat ? ['已绑定微信'] : []),
         button('查看订单', () => { orderQuery = { userId: user.id }; open('orders'); }, 'link'),
         button('查看诊断', () => { taskQuery = { query: user.id }; open('tasks'); }, 'link')),
-      lines(...[user.email ? `${user.email.masked} · ${user.email.verified ? '已验证' : '待验证'}` : '',
-        user.phoneMasked ?? '', user.wechat ? '已绑定微信' : ''].filter(Boolean)),
+      user.email ? lines(user.email.address, user.email.verified ? '已验证' : '待验证') : '未绑定',
+      user.phone ?? '未绑定',
       user.membership ? lines(`${planNames[user.membership.planId]} · ${eventNames[user.membership.latestEvent]}`,
         `生效：${formatTime(user.membership.startsAt)}`, `到期：${formatTime(user.membership.expiresAt)}`) : '无会员记录',
       details,
@@ -248,20 +252,121 @@ function renderUsers(page: AdminPage<AdminUser>) {
 
 function renderOrders(page: AdminPage<AdminOrder>) {
   result.append(element('p', '显示本站保存的订单和对应的会员开通记录。已支付但找不到对应开通记录时显示「待核对」。', 'help'));
-  table(page, ['订单', '套餐与金额', '渠道与状态', '会员到账', '订单时间'], order => {
+  table(page, ['订单', '套餐与金额', '渠道与状态', '会员到账', '订单时间', '退款'], order => {
     const activation = order.membershipActivation;
-    const whole = Math.floor(order.amountCents / 100).toLocaleString('zh-CN');
-    const fraction = String(order.amountCents % 100).padStart(2, '0');
     return [
       lines(element('code', order.id), button(order.userId, () => { userQuery = { query: order.userId }; open('users'); }, 'link')),
-      lines(`${planNames[order.planId]}会员`, `¥${whole}.${fraction}`),
+      lines(`${planNames[order.planId]}会员`, formatAmount(order.amountCents)),
       lines(channelNames[order.channel], orderStatuses[order.status]),
-      activation ? lines(`已记录 · ${eventNames[activation.kind]}`, `周期开始 ${formatTime(activation.startsAt)}`,
-        `周期结束 ${formatTime(activation.expiresAt)}`) : order.status === 'paid' ? '待核对' : '—',
+      order.refund?.status === 'succeeded' ? '本单权益已撤销'
+        : activation ? lines(`已记录 · ${eventNames[activation.kind]}`, `周期开始 ${formatTime(activation.startsAt)}`,
+          `周期结束 ${formatTime(activation.expiresAt)}`) : order.status === 'paid' ? '待核对' : '—',
       lines(`创建 ${formatTime(order.createdAt)}`, ...(order.paidAt ? [`支付 ${formatTime(order.paidAt)}`] : []),
         ...(order.status === 'pending' ? [`支付截止 ${formatTime(order.expiresAt)}`] : [])),
+      renderRefund(order),
     ];
   });
+}
+
+function formatAmount(cents: number) {
+  const whole = Math.floor(cents / 100).toLocaleString('zh-CN');
+  return `¥${whole}.${String(cents % 100).padStart(2, '0')}`;
+}
+
+function renderRefund(order: AdminOrder): Node | string {
+  const refund = order.refund;
+  if (!refund) return order.refundable ? button('退款', () => void reviewRefund(order.id))
+    : order.status === 'paid' ? '暂不可退款' : '—';
+  const view = lines(refundNames[refund.status], `申请 ${formatTime(refund.createdAt)}`,
+    ...(refund.confirmedAt ? [`确认成功 ${formatTime(refund.confirmedAt)}`] : []));
+  if (order.refundable && !['succeeded', 'closed'].includes(refund.status)) {
+    view.append(button('查询退款结果', () => void refreshRefund(order.id), 'link'));
+    if (['requested', 'unknown'].includes(refund.status)) {
+      view.append(button('重试同一退款', () => void refreshRefund(order.id, true), 'link'));
+    }
+  }
+  return view;
+}
+
+async function refreshRefund(orderId: string, retry?: true) {
+  if (refundBusy) return;
+  refundBusy = true;
+  const current = generation;
+  notice.textContent = '正在核对支付渠道…';
+  try {
+    const refund = await api<AdminRefund>('orders/refund-refresh', { orderId, retry });
+    if (current === generation) {
+      await refresh();
+      if (generation === current + 1 && section === 'orders') notice.textContent = refundNames[refund.status];
+    }
+  } catch (error) {
+    if (current === generation) notice.textContent = editorError(error);
+  } finally { refundBusy = false; }
+}
+
+async function reviewRefund(orderId: string) {
+  if (refundBusy) return;
+  refundBusy = true;
+  const current = generation;
+  notice.textContent = '正在生成退款预览…';
+  let preview: AdminRefundPreview;
+  try { preview = await api<AdminRefundPreview>('orders/refund-preview', { orderId }); }
+  catch (error) {
+    if (current === generation) notice.textContent = editorError(error);
+    return;
+  } finally { refundBusy = false; }
+  if (current !== generation) return;
+  notice.textContent = '';
+  const dialog = element('dialog', undefined, 'content-panel refund-dialog');
+  const heading = element('h2', '核对全额退款');
+  heading.id = 'refund-heading';
+  dialog.setAttribute('aria-labelledby', heading.id);
+  const plan = ({ planId, expiresAt }: AdminRefundPreview['before']) =>
+    `${planNames[planId]}会员${expiresAt ? ` · 到期 ${formatTime(expiresAt)}` : ''}`;
+  const remaining = element('ul');
+  for (const period of preview.remaining) remaining.append(element('li',
+    `${planNames[period.planId]}会员 · ${formatTime(period.startsAt)} 至 ${formatTime(period.expiresAt)}`));
+  const feedback = element('p', '', 'help');
+  feedback.setAttribute('role', 'status');
+  const checked = element('input');
+  checked.type = 'checkbox';
+  const acknowledgement = element('label', undefined, 'content-confirmation');
+  acknowledgement.append(checked, element('span', '我已核对退款金额和会员变化。'));
+  const cancel = button('返回', () => dialog.close());
+  const confirm = button('确认原路退款', () => void apply(), 'primary');
+  confirm.disabled = true;
+  checked.addEventListener('change', () => { confirm.disabled = !checked.checked; });
+  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  dialog.addEventListener('cancel', event => { if (refundBusy) event.preventDefault(); });
+  const actions = element('div', undefined, 'content-actions');
+  actions.append(cancel, confirm);
+  dialog.append(heading, element('p', `订单 ${preview.orderId} · 用户 ${preview.userId}`),
+    element('p', `${channelNames[preview.channel]}原路退回 ${formatAmount(preview.amountCents)}`),
+    element('p', `当前 ${plan(preview.before)} → 退款成功后 ${plan(preview.after)}`),
+    ...(preview.remaining.length ? [element('h3', '保留的已付周期'), remaining] : []),
+    acknowledgement, feedback, actions);
+  result.append(dialog);
+  dialog.showModal();
+
+  async function apply() {
+    if (!checked.checked || refundBusy) return;
+    refundBusy = true;
+    checked.disabled = cancel.disabled = confirm.disabled = true;
+    feedback.textContent = '正在提交退款…';
+    try {
+      const refund = await api<AdminRefund>('orders/refund-apply', { orderId, previewId: preview.id, confirmed: true });
+      dialog.close();
+      if (current === generation) {
+        await refresh();
+        if (generation === current + 1 && section === 'orders') notice.textContent = refundNames[refund.status];
+      }
+    } catch (error) {
+      if (current === generation) feedback.textContent = editorError(error);
+    } finally {
+      refundBusy = false;
+      checked.disabled = cancel.disabled = confirm.disabled = false;
+    }
+  }
 }
 
 function renderTasks(page: AdminPage<AdminTask>) {

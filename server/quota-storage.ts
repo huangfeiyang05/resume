@@ -1,5 +1,7 @@
 import type { PaidPlanId } from '../shared/types.js';
 import { calculateMembershipPeriod } from './membership.js';
+import { membershipAt, membershipPeriods } from './membership-periods.js';
+import type { StoredRefund } from './refund-storage.js';
 
 export const quotaWeekMilliseconds = 7 * 24 * 60 * 60 * 1000;
 export const weeklyTokenLimits: Readonly<Record<PaidPlanId, number>> = { basic: 200_000, premium: 800_000 };
@@ -12,23 +14,24 @@ export interface TokenUsage {
   requestId?: string;
 }
 
-export interface MembershipActivation {
-  verifiedEventId: string;
-  idempotencyKey: string;
+export interface MembershipBasis {
   planId: PaidPlanId;
-  verifiedPaymentAt: string;
-  kind: 'purchase' | 'renewal' | 'upgrade';
   startsAt: string;
   expiresAt: string;
   quotaAnchorAt: string;
 }
 
-export interface StoredMembership {
+export interface MembershipActivation extends MembershipBasis {
+  verifiedEventId: string;
+  idempotencyKey: string;
+  verifiedPaymentAt: string;
+  kind: 'purchase' | 'renewal' | 'upgrade';
+  /** Basis at payment time if a prior refund changed the schedule. */
+  basis?: MembershipBasis | null;
+}
+
+export interface StoredMembership extends MembershipBasis {
   userId: string;
-  planId: PaidPlanId;
-  startsAt: string;
-  expiresAt: string;
-  quotaAnchorAt: string;
   updatedAt: string;
   activations: MembershipActivation[];
 }
@@ -59,7 +62,7 @@ export interface StoredAiUsage {
   reconciliations: QuotaReconciliation[];
 }
 
-export interface QuotaStorage { memberships: StoredMembership[]; aiUsage: StoredAiUsage[] }
+export interface QuotaStorage { memberships: StoredMembership[]; aiUsage: StoredAiUsage[]; refunds?: StoredRefund[] }
 
 function malformed(): never { throw new Error('Unsupported or malformed quota database.'); }
 
@@ -92,13 +95,19 @@ export function normalizeTokenUsage(value: unknown): TokenUsage {
 }
 
 function normalizeActivation(value: unknown): MembershipActivation {
-  const item = object(value, ['verifiedEventId', 'idempotencyKey', 'planId', 'verifiedPaymentAt', 'kind', 'startsAt', 'expiresAt', 'quotaAnchorAt']);
+  const item = object(value, ['verifiedEventId', 'idempotencyKey', 'planId', 'verifiedPaymentAt', 'kind', 'startsAt', 'expiresAt', 'quotaAnchorAt'], ['basis']);
   if (!quotaIdentifier(item.verifiedEventId) || !quotaIdentifier(item.idempotencyKey) || !plan(item.planId)
     || !['purchase', 'renewal', 'upgrade'].includes(item.kind as string)
     || ![item.verifiedPaymentAt, item.startsAt, item.expiresAt, item.quotaAnchorAt].every(quotaInstant)
     || Date.parse(item.expiresAt as string) <= Date.parse(item.startsAt as string)
     || Date.parse(item.quotaAnchorAt as string) > Date.parse(item.startsAt as string)
     || Date.parse(item.verifiedPaymentAt as string) > Date.parse(item.startsAt as string)) return malformed();
+  if (item.basis !== undefined && item.basis !== null) {
+    const basis = object(item.basis, ['planId', 'startsAt', 'expiresAt', 'quotaAnchorAt']);
+    if (!plan(basis.planId) || ![basis.startsAt, basis.expiresAt, basis.quotaAnchorAt].every(quotaInstant)
+      || Date.parse(basis.expiresAt as string) <= Date.parse(basis.startsAt as string)
+      || Date.parse(basis.quotaAnchorAt as string) > Date.parse(basis.startsAt as string)) return malformed();
+  }
   return structuredClone(item) as unknown as MembershipActivation;
 }
 
@@ -115,13 +124,16 @@ function normalizeMembership(value: unknown): StoredMembership {
     || activations.some((event, index) => index > 0 && Date.parse(event.verifiedPaymentAt) < Date.parse(activations[index - 1].verifiedPaymentAt))) return malformed();
   let previous: MembershipActivation | undefined, expectedStartsAt: string | undefined;
   for (const event of activations) {
+    if (event.basis !== undefined && !previous) return malformed();
+    const basis = event.basis === undefined ? previous : event.basis;
     let expected;
     try { expected = calculateMembershipPeriod({ planId: event.planId, verifiedPaymentAt: event.verifiedPaymentAt,
-      ...(previous ? { current: { planId: previous.planId, expiresAt: previous.expiresAt } } : {}) }); }
+      ...(basis ? { current: { planId: basis.planId, expiresAt: basis.expiresAt } } : {}) }); }
     catch { return malformed(); }
     if (expected.kind !== event.kind || expected.startsAt !== event.startsAt || expected.expiresAt !== event.expiresAt
-      || event.quotaAnchorAt !== (expected.kind === 'purchase' ? expected.startsAt : previous!.quotaAnchorAt)) return malformed();
+      || event.quotaAnchorAt !== (expected.kind === 'purchase' ? expected.startsAt : basis?.quotaAnchorAt)) return malformed();
     if (event.kind !== 'renewal') expectedStartsAt = event.startsAt;
+    else if (event.basis) expectedStartsAt = event.basis.startsAt;
     previous = event;
   }
   if (expectedStartsAt !== item.startsAt) return malformed();
@@ -168,7 +180,7 @@ function normalizeUsage(value: unknown): StoredAiUsage {
 }
 
 /** Missing old fields are migrated; malformed present fields stop loading instead of granting free usage. */
-export function normalizeQuotaStorage(source: unknown): QuotaStorage {
+export function normalizeQuotaStorage(source: unknown, refunds: readonly StoredRefund[] = []): QuotaStorage {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return malformed();
   const item = source as Record<string, unknown>;
   if ((item.memberships !== undefined && !Array.isArray(item.memberships)) || (item.aiUsage !== undefined && !Array.isArray(item.aiUsage))) return malformed();
@@ -187,14 +199,20 @@ export function normalizeQuotaStorage(source: unknown): QuotaStorage {
     if (row.mode === 'metered') {
       const membership = memberships.find(record => record.userId === row.userId);
       const createdAt = Date.parse(row.createdAt), cycleStart = Date.parse(row.cycleStartsAt!);
-      if (!membership || row.reservedTokens > weeklyTokenLimits[row.planId!]
-        || !membership.activations.some((event, index) => {
+      if (!membership || row.reservedTokens > weeklyTokenLimits[row.planId!]) return malformed();
+      const matchesPeriod = (period: MembershipBasis) => period.planId === row.planId && period.quotaAnchorAt === row.quotaAnchorAt
+        && row.cycleEndsAt === new Date(Math.min(cycleStart + quotaWeekMilliseconds, Date.parse(period.expiresAt))).toISOString();
+      const legacy = membership.activations.some((event, index) => {
           const next = membership.activations[index + 1];
-          return event.planId === row.planId && event.quotaAnchorAt === row.quotaAnchorAt
-            && Date.parse(event.verifiedPaymentAt) <= createdAt && Date.parse(event.expiresAt) > createdAt
-            && (!next || createdAt <= Date.parse(next.verifiedPaymentAt))
-            && row.cycleEndsAt === new Date(Math.min(cycleStart + quotaWeekMilliseconds, Date.parse(event.expiresAt))).toISOString();
-        })) return malformed();
+          return Date.parse(event.verifiedPaymentAt) <= createdAt && Date.parse(event.expiresAt) > createdAt
+            && (!next || createdAt <= Date.parse(next.verifiedPaymentAt)) && matchesPeriod(event);
+      });
+      if (!legacy) {
+        if (!refunds.some(refund => refund.userId === row.userId && refund.confirmedAt
+          && Date.parse(refund.confirmedAt) <= createdAt)) return malformed();
+        const period = membershipAt(membershipPeriods(membership, refunds, createdAt), createdAt);
+        if (!period || !matchesPeriod(period)) return malformed();
+      }
     }
   }
   return { memberships, aiUsage };

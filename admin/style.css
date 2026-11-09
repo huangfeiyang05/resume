@@ -107,3 +107,5 @@ code { font-size: .87em; overflow-wrap: anywhere; }
 .company-manual-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .55rem; }
 .company-manual-preview dt { font-weight: 600; }
 .company-manual-preview dd { margin: .15rem 0 .55rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.refund-dialog { width: min(35rem, calc(100% - 2rem)); color: inherit; overflow-wrap: anywhere; }
+.refund-dialog::backdrop { background: rgb(19 42 35 / .35); }

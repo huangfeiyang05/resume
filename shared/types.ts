@@ -1,7 +1,7 @@
 export type IssueSeverity = 'high' | 'medium' | 'low';
 export type { CompanyBatchEvent, CompanyBatchPreview, CompanyBatchState, CompanyEditDetail, CompanyEditInput, CompanyEditSearchResult } from './company-batch.js';
 export type { CareerAttachment, CareerFileFormat } from './career-attachment.js';
-export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus, AdminOrder, AdminOrderQuery } from './admin.js';
+export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus, AdminOrder, AdminOrderQuery, AdminRefund, AdminRefundPreview } from './admin.js';
 export type { CareerAssistantInput, CareerAssistantResult } from './career-assistant.js';
 export type { CompanySource, CompanyRecord, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
 export type { ResumeExportTemplate } from './resume-layout.js';

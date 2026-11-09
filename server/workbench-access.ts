@@ -2,9 +2,10 @@ import type { WorkbenchAccess, WorkbenchFeature } from '../shared/workbench.js';
 import { workbenchFeatureNames, workbenchPermissions, workbenchRequiredPlan } from '../shared/workbench.js';
 import { HttpError } from './errors.js';
 import type { JsonStore } from './store.js';
-import type { StoredMembership } from './quota-storage.js';
+import { membershipAt, membershipPeriods } from './membership-periods.js';
+import type { MembershipBasis } from './quota-storage.js';
 
-export function workbenchAccessForMembership(membership: StoredMembership | undefined, now: number): WorkbenchAccess {
+export function workbenchAccessForMembership(membership: MembershipBasis | undefined, now: number): WorkbenchAccess {
   const active = membership && Date.parse(membership.startsAt) <= now && now < Date.parse(membership.expiresAt)
     ? membership : undefined;
   const planId = active?.planId ?? 'free';
@@ -15,7 +16,9 @@ export function workbenchAccessForMembership(membership: StoredMembership | unde
 export async function getWorkbenchAccess(store: JsonStore, userId: string, now = new Date()): Promise<WorkbenchAccess> {
   try {
     const database = await store.read();
-    return workbenchAccessForMembership(database.memberships.find(record => record.userId === userId), now.getTime());
+    const instant = now.getTime();
+    const periods = membershipPeriods(database.memberships.find(record => record.userId === userId), database.refunds, instant);
+    return workbenchAccessForMembership(membershipAt(periods, instant), instant);
   } catch {
     // An unavailable ledger is not evidence that the account has no membership.
     throw new HttpError(503, 'WORKBENCH_ACCESS_UNAVAILABLE', '暂时无法查询工作台会员权限，请稍后重试。');

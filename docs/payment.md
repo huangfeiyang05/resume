@@ -49,7 +49,15 @@
 | `server/http.ts` | `/billing/quote`、`/billing/checkout`（`channel=jsapi/native/alipay-page/alipay-wap`）、`/billing/payment-methods`、`/billing/orders/:id`、`/billing/wechat/notify`、`/billing/alipay/notify`、`/auth/wechat/bind` |
 | `tests/payment.test.ts` | 假网关的报价、下单、幂等、微信/支付宝回调验签后入账与重复通知测试 |
 
-订单仍写入版本 3 的 JSON 数据，`orders` 字段缺失时按空数组迁移。这不是 MySQL 事务或多实例生产账本；并发下单、升级、退款和额度结算上线前仍须用数据库事务与幂等键重做。
+订单写入单进程 JSON 数据，`orders` 字段缺失时按空数组迁移。首次保存退款申请时数据格式升为版本 4。多实例运行前需将支付、退款和权益账本迁入事务存储。
+
+## 后台会员退款
+
+已支付且能匹配会员开通记录的订单可由管理员全额退款。预览绑定订单、会员变化和操作人。确认后先持久化独立退款单号，再核对原支付交易和金额并调用原渠道。微信以验签、解密后的回调或验签查询确认结果，支付宝使用验签后的资金变动结果或按退款单号查询。超时重试沿用原退款单号。相关接口见 [微信支付退款开发指引](https://pay.wechatpay.cn/doc/v3/merchant/4013071031)、[支付宝退款接口](https://aipay.alipay.com/docs/subscribe/api-list/other-basic-interfaces/alipay-trade-refund.html) 和 [支付宝退款查询接口](https://aipay.alipay.com/docs/vibe-pay/ai-web-app-payment-qianyi/api-list/alipay-trade-fastpay-refund-query.html)。
+
+渠道确认成功与撤销本单权益共享同一份本地退款状态。其他订单按原周期生效，已结算用量保留。后台对未决结果有限次自动查询，重启后从已保存退款单恢复查询。微信回调路径为 `/api/v1/billing/wechat/refund-notify`，使用现有微信支付回调域名。
+
+首次保存退款后，回退须使用支持版本 4 及退款权益规则的程序。渠道退款结果和业务文件继续保留。发布验收使用隔离账本与模拟渠道，真实出款需要商户侧实单验收。
 
 ## 服务器配置
 
@@ -106,7 +114,7 @@ H5 会员弹窗在支付宝已配置时显示“支付宝支付”按钮。前�
 - 支付宝网页支付需在开放平台签约电脑网站支付、手机网站支付；测试环境可使用支付宝沙箱，但本项目尚未配置沙箱，真实验收需商家账号。`ALIPAY_RETURN_URL` 只负责跳回站点，不能作为发放权益的依据。
 - iOS 小程序端继续屏蔽虚拟会员购买；H5 扫码不受小程序 iOS 限制，但仍需遵守微信支付及平台规则。
 - Native 支付需在商户平台开通产品；商户平台的“Native 支付回调链接”应填 `https://www.youfangcv.site/api/v1/billing/wechat/notify`，与 `WECHAT_PAY_NOTIFY_URL` 保持一致。
-- 退款、关单、账单下载、后台对账尚未实现；当前订单只有前端可查的 `pending/paid/closed/failed` 状态。正式运营前须补后台对账、退款与人工客服流程。
+- 管理后台支持支付订单查询及全额退款。关单、账单下载和跨渠道账单对账列入后续工作。
 - 当前为单进程 JSON 存储，不具备生产级并发/多实例一致性；真实支付前应按 AGENTS.md 的数据一致性要求迁移到持久化数据库并做事务与幂等验收。
 
 ## 验收

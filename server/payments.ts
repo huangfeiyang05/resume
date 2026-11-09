@@ -3,7 +3,8 @@ import type { CheckoutResult, MembershipQuote, NativePaymentParams, PaymentChann
 import type { PaidPlanId, PlanId } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 import type { JsonStore } from './store.js';
-import type { QuotaService } from './quota.js';
+import { summarizeQuota, type QuotaService } from './quota.js';
+import { membershipAt, membershipPeriods } from './membership-periods.js';
 import { defaultPricing, planPricing, type BillingPricing } from './payment-config.js';
 import { newOutTradeNo, orderTtlMilliseconds, summarizePaymentOrder, type StoredPaymentOrder } from './payment-storage.js';
 import { WechatPayError, type NativeOrder, type NotifyPayload, type WechatPayGateway } from './wechat-pay.js';
@@ -74,33 +75,35 @@ export class PaymentService {
   plans() { return listPlans(this.pricing); }
 
   async membership(userId: string) {
-    const quota = await this.quota.current(userId);
-    const record = await this.quota.getMembershipRecord(userId);
-    return membershipState(quota, record?.planId, this.available);
+    const snapshot = await this.store.read();
+    const now = this.now().getTime();
+    const periods = membershipPeriods(snapshot.memberships.find(record => record.userId === userId), snapshot.refunds, now);
+    return membershipState(summarizeQuota(snapshot, userId, now), membershipAt(periods, now)?.planId, this.available);
   }
 
   async quote(userId: string, planId: PlanId): Promise<MembershipQuote> {
     const target = paid(planId);
-    const record = await this.quota.getMembershipRecord(userId);
+    const snapshot = await this.store.read();
     const now = this.now().getTime();
-    const active = record !== null && Date.parse(record.startsAt) <= now && now < Date.parse(record.expiresAt);
-    if (active && record.planId === 'premium' && target === 'basic') {
+    const periods = membershipPeriods(snapshot.memberships.find(record => record.userId === userId), snapshot.refunds, now);
+    const record = periods.at(-1);
+    const active = record && now < Date.parse(record.expiresAt) ? record : undefined;
+    if (active?.planId === 'premium' && target === 'basic') {
       throw new HttpError(409, 'MEMBERSHIP_DOWNGRADE_NOT_SUPPORTED', '高级会员有效期内不能改为初级会员，请在到期后选择。');
     }
     const targetPrice = planPricing(this.pricing, target);
-    const snapshot = await this.store.read();
     const hasPaidBefore = snapshot.orders.some(order => order.userId === userId && order.status === 'paid');
     const promoEligible = !hasPaidBefore && targetPrice.listPriceCents !== undefined && targetPrice.listPriceCents > targetPrice.priceCents;
     const unitPrice = promoEligible ? targetPrice.priceCents : (targetPrice.listPriceCents ?? targetPrice.priceCents);
     let amountCents = unitPrice;
     let kind: MembershipQuote['kind'] = 'purchase';
-    if (active && record.planId === target) kind = 'renewal';
-    else if (active && record.planId === 'basic' && target === 'premium') {
+    if (active?.planId === target) kind = 'renewal';
+    else if (active?.planId === 'basic' && target === 'premium') {
       kind = 'upgrade';
       amountCents = Math.max(0, unitPrice - planPricing(this.pricing, 'basic').priceCents);
     }
     return {
-      planId: target, amountCents, kind, currentPlanId: active ? record.planId : 'free',
+      planId: target, amountCents, kind, currentPlanId: membershipAt(periods, now)?.planId ?? 'free',
       ...(promoEligible && targetPrice.listPriceCents !== undefined ? { listPriceCents: targetPrice.listPriceCents } : {}),
       ...(promoEligible && targetPrice.promotionLabel !== undefined ? { promotionLabel: targetPrice.promotionLabel } : {}),
     };
