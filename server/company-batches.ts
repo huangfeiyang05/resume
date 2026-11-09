@@ -2,19 +2,21 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { careerFileLimits } from '../shared/career-attachment.js';
-import { companyBatchFileLimit, type CompanyBatchEvent, type CompanyBatchPreview, type CompanyBatchState } from '../shared/company-batch.js';
-import type { CompanyRecord } from '../shared/company.js';
-import { careerObject } from './career-validation.js';
-import { CompanyImportError, companySourceLabelHasPrivateData, prepareCompanyImport, type CompanyImportMapping } from './company-import.js';
-import { companyCatalogLimits, validateCompanyCatalog } from './company-validation.js';
+import { companyBatchFileLimit, type CompanyBatchEvent, type CompanyBatchPreview, type CompanyBatchState,
+  type CompanyEditDetail, type CompanyEditSearchResult } from '../shared/company-batch.js';
+import { companyEditableFields, type CompanyRecord } from '../shared/company.js';
+import { careerObject, careerText } from './career-validation.js';
+import { CompanyImportError, companySourceLabelHasPrivateData, companyTextHasPrivateData, prepareCompanyImport, type CompanyImportMapping } from './company-import.js';
+import { companyCatalogLimits, validateCompanyCatalog, validateCompanyId, validateCompanyRecord } from './company-validation.js';
 import { CompanyCatalogRepository } from './company-catalog.js';
+import { normalizeCompanyText } from './company-search.js';
 import { HttpError, invalid, notFound } from './errors.js';
 
 const lifetime = 20 * 60_000;
 const maxSnapshots = 32;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hashPattern = /^[0-9a-f]{64}$/;
-const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+const hash = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex');
 type Journal = { events: CompanyBatchEvent[]; pending?: CompanyBatchEvent };
 type Pending = { actorId: string; expires: number; event: CompanyBatchEvent; next: Buffer | null };
 type Upload = { id: string; actorId: string; chunks: Buffer[]; size: number; expires: number };
@@ -34,7 +36,9 @@ function validateEvent(value: unknown): value is CompanyBatchEvent {
     && typeof row.at === 'string' && Number.isFinite(Date.parse(row.at))
     && typeof row.sourceTitle === 'string' && row.sourceTitle.length <= 200
     && typeof row.sourceHash === 'string' && hashPattern.test(row.sourceHash)
-    && revision(row.before) && revision(row.after) && row.before !== row.after && count(row.beforeCount) && count(row.afterCount);
+    && revision(row.before) && revision(row.after) && row.before !== row.after && count(row.beforeCount) && count(row.afterCount)
+    && (row.editedCompanyId === undefined || (row.beforeCount === row.afterCount
+      && typeof row.editedCompanyId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(row.editedCompanyId)));
 }
 
 async function privateFile(path: string, maximum: number): Promise<Buffer | undefined> {
@@ -61,6 +65,15 @@ const nameKey = (value: string) => value.normalize('NFKC').trim().toLowerCase();
 function contentKey({ id: _id, sources: _sources, updatedAt: _updatedAt, ...record }: CompanyRecord) {
   return JSON.stringify(Object.entries(record).sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => [key, Array.isArray(value) ? [...value].sort() : value]));
+}
+
+function compareCompany(before: CompanyRecord, after: CompanyRecord): NonNullable<CompanyBatchPreview['edit']> {
+  const fields = companyEditableFields.flatMap(key => {
+    const oldValue = before[key] ?? null;
+    const newValue = after[key] ?? null;
+    return JSON.stringify(oldValue) === JSON.stringify(newValue) ? [] : [{ key, before: oldValue, after: newValue }];
+  });
+  return { companyId: before.id, name: before.name, fields };
 }
 
 export class CompanyBatches {
@@ -134,6 +147,70 @@ export class CompanyBatches {
     return { count: current.records.length, history: [...events].reverse(), canRollback: events.at(-1)?.after === current.revision };
   }
 
+  async searchForEdit(body: unknown): Promise<CompanyEditSearchResult> {
+    const input = careerObject(body, ['q', 'page']);
+    const query = normalizeCompanyText(careerText(input.q, '企业名称或别名', 200, true));
+    if (typeof input.page !== 'number' || !Number.isSafeInteger(input.page) || input.page < 1) invalid('页码必须为正整数。');
+    const { records } = await this.current();
+    const matches = query ? records.filter(record => [record.name, ...record.aliases]
+      .some(name => normalizeCompanyText(name).includes(query))) : records;
+    const pageSize = 20;
+    const page = Math.min(input.page, Math.max(1, Math.ceil(matches.length / pageSize)));
+    const items = matches.slice((page - 1) * pageSize, page * pageSize)
+      .map(({ id, name, locations, recruitmentTypes, cohorts, sources }) => ({
+        id, name, locations: locations.slice(0, 4), recruitmentTypes: recruitmentTypes.slice(0, 4),
+        cohorts: cohorts.slice(0, 4), sourceTitle: sources[0].title,
+      }));
+    return { items, total: matches.length, page, pageSize };
+  }
+
+  async editDetail(value: unknown): Promise<CompanyEditDetail> {
+    const id = validateCompanyId(value);
+    const { records, revision } = await this.current();
+    const record = records.find(item => item.id === id) ?? notFound('企业资料');
+    return { record, catalogRevision: revision };
+  }
+
+  async previewEdit(body: unknown, actorId: string): Promise<CompanyBatchPreview> {
+    const input = careerObject(body, ['companyId', 'catalogRevision', 'sourceTitle', 'changes']);
+    const companyId = validateCompanyId(input.companyId);
+    if (typeof input.catalogRevision !== 'string' || !hashPattern.test(input.catalogRevision)) invalid('企业目录版本无效。');
+    const sourceTitle = careerText(input.sourceTitle, '修改依据', 200);
+    if (/[\u0000-\u001f\u007f]/.test(sourceTitle) || companySourceLabelHasPrivateData(sourceTitle.normalize('NFKC'))) {
+      invalid('修改依据只填写通用来源名称，请移除网址和联系方式。');
+    }
+    const changes = careerObject(input.changes, [...companyEditableFields]);
+    const current = await this.current();
+    if (current.revision !== input.catalogRevision) {
+      throw new HttpError(409, 'COMPANY_BATCH_STALE', '企业目录已更新，请重新选择该记录并核对后再预览。');
+    }
+    const before = current.records.find(record => record.id === companyId) ?? notFound('企业资料');
+    const candidate = { ...before, ...changes, updatedAt: new Date().toISOString() };
+    if (changes.recruitmentUrl === null) delete candidate.recruitmentUrl;
+    const after = validateCompanyRecord(candidate);
+    const edit = compareCompany(before, after);
+    const { fields } = edit;
+    if (!fields.length) invalid('企业资料没有变化，请修改后再预览。');
+    for (const { key, after: value } of fields) {
+      const values = Array.isArray(value) ? value : [value ?? ''];
+      if (values.some(text => /^\s*=/.test(text.normalize('NFKC')))) invalid('企业资料不能含表格公式。');
+      if (key !== 'recruitmentUrl' && values.some(text => companyTextHasPrivateData(text.normalize('NFKC')))) {
+        invalid('企业资料不能包含联系人、电话、邮箱等联系方式。');
+      }
+    }
+    const content = contentKey(after);
+    if (content !== contentKey(before) && current.records.some(record => record.id !== companyId && contentKey(record) === content)) {
+      throw new HttpError(409, 'COMPANY_BATCH_DUPLICATE', '修改后与目录中另一条记录完全相同，请核对后再预览。');
+    }
+    const sourceHash = hash(JSON.stringify({ companyId, revision: current.revision, sourceTitle, fields }));
+    const next = this.encode(current.records.map(record => record.id === companyId ? after : record));
+    return this.stage(actorId, current.revision, sourceHash, next, { id: null, action: 'publish', sourceTitle,
+      beforeCount: current.records.length, afterCount: current.records.length, inputRows: 0, duplicateRows: 0,
+      existingRecords: 0, sameNameRecords: 0, unmappedColumns: 0, excludedContactColumns: 0, reviewCount: 0,
+      reviewRows: [], sample: [], edit,
+    });
+  }
+
   async preview(body: unknown, actorId: string): Promise<CompanyBatchPreview> {
     const input = careerObject(body, ['id', 'bytes', 'format', 'sourceTitle', 'sheet', 'headerRow', 'mapping']);
     const id = validId(input.id), upload = this.upload;
@@ -170,7 +247,9 @@ export class CompanyBatches {
       incoming.add(key);
       return true;
     });
-    if (added.some(record => ids.has(record.id))) throw new HttpError(409, 'COMPANY_BATCH_ID_CONFLICT', '目录存在标识冲突，请核对原始资料。');
+    if (added.some(record => ids.has(record.id))) {
+      throw new HttpError(409, 'COMPANY_BATCH_ID_CONFLICT', '导入记录与现有记录的标识冲突，请核对目录是否已修改该记录。');
+    }
     const sameName = (record: CompanyRecord) => names.has(nameKey(record.name)) || conflicts.has(record.id);
     const describe = (record: CompanyRecord) => ({
       name: record.name, rows: record.sources.flatMap(source => source.rows), recruitmentTypes: record.recruitmentTypes, sameName: sameName(record),
@@ -214,11 +293,18 @@ export class CompanyBatches {
     if (latest.before && (!previous || hash(previous) !== latest.before)) {
       throw new HttpError(503, 'COMPANY_BATCH_SNAPSHOT_INVALID', '无法读取回滚所需的上一版目录。');
     }
-    const restoredCount = previous ? validateCompanyCatalog(JSON.parse(previous.toString('utf8'))).records.length : 0;
+    const restored = previous ? validateCompanyCatalog(JSON.parse(previous.toString('utf8'))).records : [];
+    let edit: CompanyBatchPreview['edit'];
+    if (latest.editedCompanyId) {
+      const before = current.records.find(record => record.id === latest.editedCompanyId);
+      const after = restored.find(record => record.id === latest.editedCompanyId);
+      if (!before || !after) throw new HttpError(503, 'COMPANY_BATCH_SNAPSHOT_INVALID', '回滚快照中缺少要恢复的企业记录。');
+      edit = compareCompany(before, after);
+    }
     return this.stage(actorId, current.revision, latest.sourceHash, previous ?? null, { id: null, action: 'rollback',
-      sourceTitle: latest.sourceTitle, beforeCount: current.records.length, afterCount: restoredCount,
+      sourceTitle: latest.sourceTitle, beforeCount: current.records.length, afterCount: restored.length,
       inputRows: 0, duplicateRows: 0, existingRecords: 0, sameNameRecords: 0, unmappedColumns: 0,
-      excludedContactColumns: 0, reviewCount: 0, reviewRows: [], sample: [] });
+      excludedContactColumns: 0, reviewCount: 0, reviewRows: [], sample: [], ...(edit ? { edit } : {}) });
   }
 
   private encode(records: CompanyRecord[]) {
@@ -233,6 +319,7 @@ export class CompanyBatches {
     this.pending = { actorId, expires: now + lifetime, next, event: {
       id, action: summary.action, actorId, at: new Date(now).toISOString(), sourceTitle: summary.sourceTitle,
       sourceHash, before, after: next ? hash(next) : '', beforeCount: summary.beforeCount, afterCount: summary.afterCount,
+      ...(summary.edit ? { editedCompanyId: summary.edit.companyId } : {}),
     } };
     return { ...summary, id };
   }
@@ -259,10 +346,12 @@ export class CompanyBatches {
       }
       const pending = this.pending;
       if (!pending || pending.event.id !== id || pending.actorId !== actorId || pending.expires <= Date.now()) notFound('批次预览');
-      if (pending.event.before !== current.revision) throw new HttpError(409, 'COMPANY_BATCH_STALE', '企业目录已变化，请重新预览。');
+      const stale = () => new HttpError(409, 'COMPANY_BATCH_STALE', pending.event.action === 'publish' && pending.event.editedCompanyId
+        ? '企业目录已更新，请重新选择该记录并核对后再预览。' : '企业目录已变化，请重新预览。');
+      if (pending.event.before !== current.revision) throw stale();
       if (events.length >= 200) throw new HttpError(409, 'COMPANY_BATCH_HISTORY_FULL', '企业批次历史已达上限，请联系维护人员。');
       const previous = await privateFile(this.catalog.path, companyCatalogLimits.bytes);
-      if ((previous ? hash(previous) : '') !== current.revision) throw new HttpError(409, 'COMPANY_BATCH_STALE', '企业目录已变化，请重新预览。');
+      if ((previous ? hash(previous) : '') !== current.revision) throw stale();
       await mkdir(this.directory, { recursive: true, mode: 0o700 });
       if (previous) {
         const path = join(this.directory, `${current.revision}.json`);

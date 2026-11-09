@@ -251,6 +251,44 @@ try {
   assert.equal((await request('/career/assistant', 'POST', assistantInput, owner)).status, 409);
   assert.equal((await request('/analyses', 'POST', { resumeId: original.id, resumeRevision: 1 }, owner)).status, 409);
   checks.push('local-assistant-owned-resume-no-mutation-and-revision-guard');
+
+  // Restore the synthetic manual record after the empty-catalogue checks.
+  const restoreManual = await request(`${batchPath}/rollback-preview`, 'POST', {}, admin);
+  assert.equal(restoreManual.status, 200);
+  assert.equal((await request(`${batchPath}/apply`, 'POST', { id: restoreManual.body.data.id, confirmed: true }, admin)).status, 200);
+  const editSearchPath = `${batchPath}/records/search`;
+  const editQuery = { q: manual.aliases, page: 1 };
+  assert.equal((await request(editSearchPath, 'POST', editQuery, owner)).status, 401);
+  const matches = await request(editSearchPath, 'POST', editQuery, admin);
+  assert.equal(matches.status, 200);
+  assert.equal(matches.body.data.total, 1);
+  const companyId = matches.body.data.items[0].id;
+  const editDetailPath = `${batchPath}/records/${companyId}`;
+  assert.equal((await request(editDetailPath)).status, 401);
+  const detail = await request(editDetailPath, 'GET', undefined, admin);
+  assert.equal(detail.status, 200);
+  const { record, catalogRevision } = detail.body.data;
+  const editInput = { companyId, catalogRevision, sourceTitle: '合成更正依据', changes: { locations: ['宁波'] } };
+  assert.equal((await request(`${batchPath}/edit-preview`, 'POST', editInput, owner)).status, 401);
+  const edit = await request(`${batchPath}/edit-preview`, 'POST', editInput, admin);
+  assert.equal(edit.status, 200);
+  assert.deepEqual(edit.body.data.edit.fields, [{ key: 'locations', before: ['杭州'], after: ['宁波'] }]);
+  const memberDetail = `/career/companies/${companyId}`;
+  assert.deepEqual((await request(memberDetail, 'GET', undefined, owner)).body.data, record);
+  const confirmEdit = { id: edit.body.data.id, confirmed: true };
+  const edited = await request(`${batchPath}/apply`, 'POST', confirmEdit, admin);
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.data.editedCompanyId, companyId);
+  assert.deepEqual((await request(`${batchPath}/apply`, 'POST', confirmEdit, admin)).body.data, edited.body.data);
+  assert.equal((await request(`${batchPath}/edit-preview`, 'POST', editInput, admin)).status, 409);
+  const changed = (await request(memberDetail, 'GET', undefined, owner)).body.data;
+  assert.deepEqual(changed, { ...record, locations: ['宁波'], updatedAt: changed.updatedAt });
+  const undoEdit = await request(`${batchPath}/rollback-preview`, 'POST', {}, admin);
+  assert.deepEqual(undoEdit.body.data.edit.fields, [{ key: 'locations', before: ['宁波'], after: ['杭州'] }]);
+  assert.equal((await request(`${batchPath}/apply`, 'POST', { id: undoEdit.body.data.id, confirmed: true }, admin)).status, 200);
+  assert.deepEqual((await request(memberDetail, 'GET', undefined, owner)).body.data, record);
+  checks.push('company-single-edit-admin-only-diff-revision-idempotence-and-rollback');
+
   assert.equal((await request(path, 'PUT', { title: '过期请求', revision: 1 }, owner)).status, 409);
   assert.equal((await request(`${path}/versions`, 'GET', undefined, other)).status, 404);
   const restore = { revision: 2, confirmed: true, idempotencyKey: `deploy-${randomUUID()}` };

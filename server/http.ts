@@ -214,7 +214,13 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       json(response, 200, { data: await companyBatches.state() });
       return;
     }
-    if (method === 'POST' && ['/company-batches/chunk', '/company-batches/preview', '/company-batches/report', '/company-batches/rollback-preview', '/company-batches/apply'].includes(path)) {
+    const companyToEdit = path.match(/^\/company-batches\/records\/([A-Za-z0-9_-]+)$/);
+    if (companyToEdit && method === 'GET') {
+      json(response, 200, { data: await companyBatches.editDetail(companyToEdit[1]) });
+      return;
+    }
+    if (method === 'POST' && ['/company-batches/chunk', '/company-batches/preview', '/company-batches/report', '/company-batches/rollback-preview',
+      '/company-batches/apply', '/company-batches/records/search', '/company-batches/edit-preview'].includes(path)) {
       if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
         throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
       }
@@ -223,6 +229,8 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         : path.endsWith('/preview') ? await companyBatches.preview(input, user.id)
         : path.endsWith('/report') ? companyBatches.reviewReport(input, user.id)
         : path.endsWith('/rollback-preview') ? await companyBatches.previewRollback(input, user.id)
+        : path.endsWith('/search') ? await companyBatches.searchForEdit(input)
+        : path.endsWith('/edit-preview') ? await companyBatches.previewEdit(input, user.id)
         : await companyBatches.apply(input, user.id);
       json(response, 200, { data });
       return;

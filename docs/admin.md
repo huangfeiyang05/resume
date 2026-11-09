@@ -33,4 +33,8 @@
 
 ## 企业资料
 
-在「企业资料」可选择上传 CSV／JSON 或直接填写单条记录。填写企业名称和通用来源后预览，经校验并确认后发布。可在预览阶段下载完整审核报告，也可回滚最新批次。操作与数据边界见 [企业资料库](company-library.md#后台批量导入)。
+在「企业资料」可选择上传 CSV／JSON、直接填写或修改已有记录。新增时填写企业名称和通用来源，核对预览后确认发布。上传和直接填写的预览可下载完整审核报告。
+
+修改已有记录时，按企业名称或别名搜索，用招聘批次、届别、工作地点和来源区分同名记录。选择一条后填写修改依据，预览变更字段的前后差异，再确认修改。可回滚当前目录对应的最新后台操作。操作与数据边界见 [企业资料库](company-library.md#后台批量导入)。
+
+修改接口使用 `POST /api/v1/admin/company-batches/records/search` 分页搜索，`GET /api/v1/admin/company-batches/records/{id}` 返回记录及目录修订，`POST /api/v1/admin/company-batches/edit-preview` 校验修订并生成对照，`POST /api/v1/admin/company-batches/apply` 确认发布。全部接口使用独立管理会话。

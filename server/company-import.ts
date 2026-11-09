@@ -2,13 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join, resolve } from 'node:path';
-import type { CompanyCatalogFile, CompanyRecord } from '../shared/company.js';
+import { companyEditableFields, type CompanyCatalogFile, type CompanyRecord } from '../shared/company.js';
 import { validateCompanyCatalog, validateCompanyRecord } from './company-validation.js';
 import { companyUrlContainsPrivateData } from './company-privacy.js';
 
 const maxBytes = 20 * 1024 * 1024;
 const maxRows = 25_000;
-export const companyImportFields = ['name', 'aliases', 'industries', 'nature', 'locations', 'directions', 'educationLevels', 'recruitmentTypes', 'cohorts', 'summary', 'recruitmentUrl'] as const;
+export const companyImportFields = companyEditableFields;
 export type CompanyImportField = typeof companyImportFields[number];
 export type CompanyImportMapping = Partial<Record<CompanyImportField, string>>;
 export class CompanyImportError extends Error {
@@ -38,7 +38,7 @@ function urlHasContact(value: string): boolean {
   return companyUrlContainsPrivateData(value);
 }
 
-function textHasContact(value: string): boolean {
+export function companyTextHasPrivateData(value: string): boolean {
   const urls = value.match(/https?:\/\/[^\s<>"']+/g) ?? [];
   if (urls.some(urlHasContact)) return true;
   // Numeric vacancy IDs inside a valid web address are not phone numbers.
@@ -46,7 +46,7 @@ function textHasContact(value: string): boolean {
 }
 
 export function companySourceLabelHasPrivateData(value: string): boolean {
-  return textHasContact(value) || /https?:\/\//i.test(value);
+  return companyTextHasPrivateData(value) || /https?:\/\//i.test(value);
 }
 
 interface ImportTable { headers: string[]; rows: Array<{ row: number; cells: string[] }>; rowNumberBasis: 'table-row' | 'json-array-index' | 'explicit-row-number' }
@@ -217,7 +217,7 @@ export function prepareCompanyImport(input: PrepareCompanyImportInput): { catalo
   for (const row of table.rows) {
     if (row.cells.every(cell => !clean(cell))) { report.blankRows.push(row.row); continue; }
     const cells = Object.fromEntries(companyImportFields.map(field => [field, clean(row.cells[indexes.get(field) ?? -1] ?? '')])) as Record<CompanyImportField, string>;
-    const contactFields = companyImportFields.filter(field => field === 'recruitmentUrl' ? urlHasContact(cells[field]) : textHasContact(cells[field]));
+    const contactFields = companyImportFields.filter(field => field === 'recruitmentUrl' ? urlHasContact(cells[field]) : companyTextHasPrivateData(cells[field]));
     if (contactFields.length) { report.reviewRows.push({ row: row.row, code: 'CONTACT_CONTENT', fields: contactFields }); continue; }
     const formulaFields = companyImportFields.filter(field => /^\s*[=]/.test(cells[field]));
     if (formulaFields.length) { report.reviewRows.push({ row: row.row, code: 'FORMULA_CONTENT', fields: formulaFields }); continue; }

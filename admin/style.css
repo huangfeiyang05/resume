@@ -100,6 +100,7 @@ code { font-size: .87em; overflow-wrap: anywhere; }
 .company-batch-workspace { display: grid; gap: .8rem; }
 .company-batch-workspace h2 { font-size: 1.2rem; }
 .company-batch-workspace textarea { font: inherit; width: 100%; padding: .5rem; border: 1px solid var(--border); border-radius: .45rem; }
+.company-batch-workspace .content-form > button { justify-self: start; }
 .company-batch-workspace details label { margin: .4rem 0; }
 .company-batch-workspace li { margin-bottom: .35rem; overflow-wrap: anywhere; }
 .company-batch-fields { display: grid; gap: .55rem; min-width: 0; padding: 0; margin: 0; border: 0; }

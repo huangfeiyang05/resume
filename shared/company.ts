@@ -27,6 +27,9 @@ export interface CompanyRecord {
   sources: CompanySource[];
 }
 
+export const companyEditableFields = ['name', 'aliases', 'industries', 'nature', 'locations', 'directions', 'educationLevels', 'recruitmentTypes', 'cohorts', 'summary', 'recruitmentUrl'] as const;
+export type CompanyEditableField = typeof companyEditableFields[number];
+
 export const companyFilterKeys = ['industries', 'natures', 'locations', 'directions', 'educationLevels', 'recruitmentTypes', 'cohorts'] as const;
 export type CompanyFilterKey = typeof companyFilterKeys[number];
 export type CompanyFilters = Record<CompanyFilterKey, string[]>;

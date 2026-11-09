@@ -1,5 +1,5 @@
 export type IssueSeverity = 'high' | 'medium' | 'low';
-export type { CompanyBatchEvent, CompanyBatchPreview, CompanyBatchState } from './company-batch.js';
+export type { CompanyBatchEvent, CompanyBatchPreview, CompanyBatchState, CompanyEditDetail, CompanyEditInput, CompanyEditSearchResult } from './company-batch.js';
 export type { CareerAttachment, CareerFileFormat } from './career-attachment.js';
 export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus } from './admin.js';
 export type { CareerAssistantInput, CareerAssistantResult } from './career-assistant.js';
