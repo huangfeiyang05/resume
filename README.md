@@ -48,6 +48,8 @@ H5 使用 HttpOnly、SameSite 的会话 Cookie，线上加上 Secure；不把 H5
 
 网页后台入口为 `/admin/`。提供运营概览、用户与会员、诊断与用量只读查询，以及复习资料和官方招聘入口的草稿、预览、发布、下架、回滚和操作记录。复习资料支持 10 MB 以内的 PDF／Word（.docx）和 30 MB 以内的 H.264 MP4 视频，原件写入 Git 忽略的 `.data/career-files/`，随资料版本保留。管理员以已验证的邮箱和密码单独登录，授权来自服务端的 `ADMIN_USER_IDS`，留空时入口保持锁定。使用方法见 [管理后台说明](docs/admin.md)。
 
+在「用户与会员 → 支付订单」可按订单号或账号只读查询本站订单，对照支付状态和该笔订单的会员开通记录。
+
 ## 邮件服务配置
 
 邮件发送由服务端 SMTP 适配器承接，前端不持有 SMTP 授权码或发信密钥。当前 163 配置使用 `smtp.163.com:465` 和 TLS；用户名为完整发信邮箱，认证凭据为客户端授权码。配置项为 `MAIL_ENABLED`、`MAIL_PROVIDER=smtp`、`SMTP_HOST`、`SMTP_PORT`、`SMTP_SECURE`、`SMTP_USER`、`SMTP_PASSWORD`、`MAIL_FROM` 和 `MAIL_CODE_SECRET`，详见 [部署说明](docs/deployment.md)。

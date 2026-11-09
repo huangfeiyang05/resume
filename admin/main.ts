@@ -1,17 +1,20 @@
-import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
+import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
+import { paymentChannels, paymentOrderStatuses } from '../shared/payment.js';
 import { workbenchFeatureNames, workbenchFeatures } from '../shared/workbench.js';
 import { button, element, formatTime } from './dom.js';
 import { renderCareerContent } from './career-content.js';
 import { renderCompanyBatches } from './company-batches.js';
 import './style.css';
 
-const titles = { overview: '运营概览', users: '用户与会员', tasks: '诊断与用量', content: '求职内容', companies: '企业资料' } as const;
+const titles = { overview: '运营概览', users: '用户与会员', orders: '用户与会员', tasks: '诊断与用量', content: '求职内容', companies: '企业资料' } as const;
 type Section = keyof typeof titles;
 const planNames = { free: '免费', basic: '初级', premium: '高级' };
 const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级' };
 const statusNames = { queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const usageNames = { reserved: '已预占', dispatched: '已派发', pending: '待核对', settled: '已结算', released: '已释放' };
+const orderStatuses = { pending: '待支付确认', paid: '已支付', closed: '已关闭', failed: '失败' };
+const channelNames = { jsapi: '微信小程序', native: '微信扫码', 'alipay-page': '支付宝电脑网页', 'alipay-wap': '支付宝手机网页' };
 
 const login = document.querySelector<HTMLElement>('#login')!;
 const loginForm = document.querySelector<HTMLFormElement>('#login-form')!;
@@ -23,12 +26,18 @@ const search = document.querySelector<HTMLFormElement>('#search-form')!;
 const queryInput = search.querySelector<HTMLInputElement>('[name=query]')!;
 const statusSelect = search.querySelector<HTMLSelectElement>('[name=status]')!;
 const usageSelect = search.querySelector<HTMLSelectElement>('[name=usageStatus]')!;
+const orderStatusSelect = search.querySelector<HTMLSelectElement>('[name=orderStatus]')!;
+const orderChannelSelect = search.querySelector<HTMLSelectElement>('[name=orderChannel]')!;
+const userViews = document.querySelector<HTMLElement>('#user-views')!;
+const viewButtons = userViews.querySelectorAll<HTMLButtonElement>('[data-user-view]');
+const orderScope = document.querySelector<HTMLElement>('#order-scope')!;
 const nav = document.querySelectorAll<HTMLButtonElement>('nav [data-section]');
 const notice = document.querySelector<HTMLElement>('#notice')!;
 const result = document.querySelector<HTMLElement>('#result')!;
 
 let section: Section = 'overview';
 let userQuery: AdminUserQuery = {};
+let orderQuery: AdminOrderQuery = {};
 let taskQuery: AdminTaskQuery = {};
 let generation = 0;
 let contentEditor: ReturnType<typeof renderCareerContent> | undefined;
@@ -73,18 +82,41 @@ function open(next: Section) {
   if (contentEditor && !contentEditor.canLeave()) return;
   contentEditor = undefined;
   section = next;
+  const menu = section === 'orders' ? 'users' : section;
   for (const item of nav) {
-    if (item.dataset.section === section) item.setAttribute('aria-current', 'page');
+    if (item.dataset.section === menu) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   }
+  userViews.hidden = menu !== 'users';
+  for (const item of viewButtons) {
+    const active = item.dataset.userView === section;
+    item.classList.toggle('primary', active);
+    item.setAttribute('aria-pressed', String(active));
+  }
   document.querySelector('#section-title')!.textContent = titles[section];
-  filters.hidden = section !== 'users' && section !== 'tasks';
-  document.querySelector('#search-label')!.textContent = section === 'tasks' ? '任务 ID、用户 ID 或错误码' : '用户 ID、完整邮箱或手机号';
+  filters.hidden = menu !== 'users' && section !== 'tasks';
+  orderScope.replaceChildren();
+  orderScope.hidden = true;
+  const scope = section === 'orders' ? orderQuery.userId : undefined;
+  if (scope) {
+    orderScope.hidden = false;
+    orderScope.append(element('span', `仅查询用户 ${scope} 的订单`, 'help'), button('查看全部订单', () => {
+      orderQuery = {};
+      open('orders');
+    }));
+  }
+  document.querySelector('#search-label')!.textContent = section === 'tasks' ? '任务 ID、用户 ID 或错误码'
+    : section === 'orders' ? scope ? '订单 ID 或商户订单号' : '订单 ID、用户 ID 或商户订单号'
+    : '用户 ID、完整邮箱或手机号';
   document.querySelector<HTMLElement>('#task-status-label')!.hidden = section !== 'tasks';
   document.querySelector<HTMLElement>('#usage-status-label')!.hidden = section !== 'tasks';
-  queryInput.value = (section === 'tasks' ? taskQuery.query : userQuery.query) ?? '';
+  document.querySelector<HTMLElement>('#order-status-label')!.hidden = section !== 'orders';
+  document.querySelector<HTMLElement>('#order-channel-label')!.hidden = section !== 'orders';
+  queryInput.value = (section === 'tasks' ? taskQuery.query : section === 'orders' ? orderQuery.query : userQuery.query) ?? '';
   statusSelect.value = taskQuery.status ?? '';
   usageSelect.value = taskQuery.usageStatus ?? '';
+  orderStatusSelect.value = orderQuery.status ?? '';
+  orderChannelSelect.value = orderQuery.channel ?? '';
   void refresh();
 }
 
@@ -101,6 +133,10 @@ async function refresh() {
       const users = await api<AdminPage<AdminUser>>('users/search', userQuery);
       if (current !== generation) return;
       renderUsers(users);
+    } else if (section === 'orders') {
+      const orders = await api<AdminPage<AdminOrder>>('orders/search', orderQuery);
+      if (current !== generation) return;
+      renderOrders(orders);
     } else if (section === 'tasks') {
       const tasks = await api<AdminPage<AdminTask>>('tasks/search', taskQuery);
       if (current !== generation) return;
@@ -170,6 +206,7 @@ function table<T>(page: AdminPage<T>, columns: string[], render: (row: T) => (No
   const last = Math.max(1, Math.ceil(page.total / page.pageSize));
   const go = (number: number) => {
     if (section === 'users') userQuery = { ...userQuery, page: number };
+    else if (section === 'orders') orderQuery = { ...orderQuery, page: number };
     else taskQuery = { ...taskQuery, page: number };
     void refresh();
   };
@@ -195,6 +232,7 @@ function renderUsers(page: AdminPage<AdminUser>) {
     const remaining = user.quota.remainingPercent;
     return [
       lines(element('code', user.id), `注册：${formatTime(user.createdAt)}`,
+        button('查看订单', () => { orderQuery = { userId: user.id }; open('orders'); }, 'link'),
         button('查看诊断', () => { taskQuery = { query: user.id }; open('tasks'); }, 'link')),
       lines(...[user.email ? `${user.email.masked} · ${user.email.verified ? '已验证' : '待验证'}` : '',
         user.phoneMasked ?? '', user.wechat ? '已绑定微信' : ''].filter(Boolean)),
@@ -204,6 +242,24 @@ function renderUsers(page: AdminPage<AdminUser>) {
       lines(remaining === null ? (user.quota.status === 'inactive' ? '当前无有效会员' : '尚未启用') : `剩余 ${remaining}%`,
         ...(user.quota.resetsAt ? [`${user.quota.resetsAt === user.quota.expiresAt ? '本期有效至' : '刷新'}：${formatTime(user.quota.resetsAt)}`] : []),
         ...(user.quota.pending ? ['有处理中或待核对用量'] : [])),
+    ];
+  });
+}
+
+function renderOrders(page: AdminPage<AdminOrder>) {
+  result.append(element('p', '显示本站保存的订单和对应的会员开通记录。已支付但找不到对应开通记录时显示「待核对」。', 'help'));
+  table(page, ['订单', '套餐与金额', '渠道与状态', '会员到账', '订单时间'], order => {
+    const activation = order.membershipActivation;
+    const whole = Math.floor(order.amountCents / 100).toLocaleString('zh-CN');
+    const fraction = String(order.amountCents % 100).padStart(2, '0');
+    return [
+      lines(element('code', order.id), button(order.userId, () => { userQuery = { query: order.userId }; open('users'); }, 'link')),
+      lines(`${planNames[order.planId]}会员`, `¥${whole}.${fraction}`),
+      lines(channelNames[order.channel], orderStatuses[order.status]),
+      activation ? lines(`已记录 · ${eventNames[activation.kind]}`, `周期开始 ${formatTime(activation.startsAt)}`,
+        `周期结束 ${formatTime(activation.expiresAt)}`) : order.status === 'paid' ? '待核对' : '—',
+      lines(`创建 ${formatTime(order.createdAt)}`, ...(order.paidAt ? [`支付 ${formatTime(order.paidAt)}`] : []),
+        ...(order.status === 'pending' ? [`支付截止 ${formatTime(order.expiresAt)}`] : [])),
     ];
   });
 }
@@ -227,8 +283,16 @@ function setupSelect<T extends string>(select: HTMLSelectElement, values: readon
 }
 setupSelect(statusSelect, adminTaskStatuses, statusNames);
 setupSelect(usageSelect, adminUsageStatuses, usageNames);
+setupSelect(orderStatusSelect, paymentOrderStatuses, orderStatuses);
+setupSelect(orderChannelSelect, paymentChannels, channelNames);
 
 for (const item of nav) item.addEventListener('click', () => open(item.dataset.section as Section));
+for (const item of viewButtons) item.addEventListener('click', () => {
+  const next = item.dataset.userView as 'users' | 'orders';
+  if (section === next) return;
+  if (next === 'orders') orderQuery = {};
+  open(next);
+});
 document.querySelector('#refresh')!.addEventListener('click', () => open(section));
 window.addEventListener('beforeunload', event => {
   if (contentEditor?.hasChanges()) { event.preventDefault(); event.returnValue = ''; }
@@ -237,6 +301,9 @@ search.addEventListener('submit', event => {
   event.preventDefault();
   const query = queryInput.value.trim();
   if (section === 'users') userQuery = { query };
+  else if (section === 'orders') orderQuery = { userId: orderQuery.userId, query,
+    status: paymentOrderStatuses.find(value => value === orderStatusSelect.value),
+    channel: paymentChannels.find(value => value === orderChannelSelect.value) };
   else taskQuery = { query, status: adminTaskStatuses.find(value => value === statusSelect.value),
     usageStatus: adminUsageStatuses.find(value => value === usageSelect.value) };
   void refresh();
@@ -267,6 +334,7 @@ logout.addEventListener('click', async () => {
   try {
     await api('logout', {});
     userQuery = {};
+    orderQuery = {};
     taskQuery = {};
     queryInput.value = '';
     showLogin('已退出管理员会话。');

@@ -38,11 +38,18 @@
         <div><p class="eyebrow">运营管理</p><h1 id="section-title"></h1></div>
         <button type="button" id="refresh">刷新</button>
       </header>
+      <div id="user-views" class="content-actions" role="group" aria-label="用户与会员查询" hidden>
+        <button type="button" data-user-view="users">用户列表</button>
+        <button type="button" data-user-view="orders">支付订单</button>
+      </div>
       <div id="filters" hidden>
+        <div id="order-scope" class="content-actions" hidden></div>
         <form id="search-form" method="post">
           <label><span id="search-label"></span><input name="query" maxlength="254" autocomplete="off"></label>
           <label id="task-status-label">任务状态<select name="status"></select></label>
           <label id="usage-status-label">用量状态<select name="usageStatus"></select></label>
+          <label id="order-status-label" hidden>支付状态<select name="orderStatus"></select></label>
+          <label id="order-channel-label" hidden>支付渠道<select name="orderChannel"></select></label>
           <button type="submit" class="primary">查询</button>
         </form>
       </div>

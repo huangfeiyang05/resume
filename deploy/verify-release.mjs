@@ -123,6 +123,30 @@ try {
   const signedIn = await request('/admin/login', 'POST', operator.credentials);
   assert.equal(signedIn.status, 200);
   const admin = signedIn.headers.get('set-cookie').split(';')[0];
+  const ordersPath = '/admin/orders/search';
+  const orderTime = new Date().toISOString();
+  const tradeId = 'synthetic-alipay-transaction';
+  const renewal = await quota.activateMembership({ userId, planId: 'premium', verifiedPaymentAt: orderTime,
+    verifiedEventId: tradeId, idempotencyKey: `alipay:${tradeId}` });
+  const fixtureOrder = { id: randomUUID(), userId, planId: 'premium', status: 'paid', channel: 'alipay-wap',
+    amountCents: 4200, createdAt: orderTime, paidAt: orderTime,
+    expiresAt: new Date(Date.parse(orderTime) + 2 * 60 * 60_000).toISOString(),
+    outTradeNo: 'YF20261109000000000001', description: '合成验收订单', transactionId: tradeId, paymentEventId: tradeId };
+  await store.mutate(data => data.orders.push(fixtureOrder));
+  const orderBefore = await readFile(store.path);
+  const orderLookup = { query: fixtureOrder.outTradeNo, status: 'paid', channel: 'alipay-wap' };
+  assert.equal((await request(ordersPath, 'POST', orderLookup, owner)).status, 401);
+  const checkedOrder = await request(ordersPath, 'POST', orderLookup, admin);
+  assert.equal(checkedOrder.status, 200);
+  assert.deepEqual(checkedOrder.body.data, { page: 1, pageSize: 20, total: 1, items: [{
+    id: fixtureOrder.id, userId, planId: 'premium', status: 'paid', channel: 'alipay-wap', amountCents: 4200,
+    createdAt: orderTime, paidAt: orderTime, expiresAt: fixtureOrder.expiresAt,
+    membershipActivation: { kind: 'renewal', startsAt: renewal.startsAt, expiresAt: renewal.expiresAt },
+  }] });
+  assert.equal((await request(ordersPath, 'POST', { ...orderLookup, userId: quotaUserId }, admin)).body.data.total, 0);
+  assert.deepEqual(await readFile(store.path), orderBefore);
+  checks.push('admin-order-search-reads-verified-historical-activation-without-mutation');
+
   const { id: materialId, updatedAt: _updatedAt, ...material } = catalog.materials[0];
   const contentPath = `/admin/career-content/material/${materialId}`;
   const currentContent = async () => (await request(contentPath, 'GET', undefined, admin)).body.data;

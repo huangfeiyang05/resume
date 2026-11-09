@@ -1,4 +1,4 @@
-import type { PaymentChannel, PaymentOrder, PaymentOrderStatus } from '../shared/payment.js';
+import { paymentChannels, paymentOrderStatuses, type PaymentChannel, type PaymentOrder, type PaymentOrderStatus } from '../shared/payment.js';
 import type { PaidPlanId } from '../shared/membership.js';
 import { randomBytes } from 'node:crypto';
 
@@ -18,8 +18,13 @@ export interface StoredPaymentOrder extends PaymentOrder {
 
 export interface PaymentStorage { orders: StoredPaymentOrder[] }
 
-const statuses: PaymentOrderStatus[] = ['pending', 'paid', 'closed', 'failed'];
-const channels: PaymentChannel[] = ['jsapi', 'native', 'alipay-page', 'alipay-wap'];
+export function summarizePaymentOrder(order: StoredPaymentOrder): PaymentOrder {
+  return {
+    id: order.id, planId: order.planId, amountCents: order.amountCents, status: order.status, channel: order.channel,
+    createdAt: order.createdAt, expiresAt: order.expiresAt, ...(order.paidAt ? { paidAt: order.paidAt } : {}),
+  };
+}
+
 const plans: PaidPlanId[] = ['basic', 'premium'];
 const tradeNumber = /^[A-Za-z0-9_-]{20,32}$/;
 
@@ -46,10 +51,10 @@ function normalizeOrder(value: unknown): StoredPaymentOrder {
     ['id', 'userId', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'outTradeNo', 'description'],
     ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'transactionId', 'paymentEventId', 'channel']);
   const channel = item.channel === undefined ? 'jsapi' : item.channel;
-  if (!channels.includes(channel as PaymentChannel)) return malformed();
+  if (!paymentChannels.includes(channel as PaymentChannel)) return malformed();
   if (!identifier(item.id) || !identifier(item.userId) || !plans.includes(item.planId as PaidPlanId)
     || !Number.isSafeInteger(item.amountCents) || (item.amountCents as number) <= 0
-    || !statuses.includes(item.status as PaymentOrderStatus)
+    || !paymentOrderStatuses.includes(item.status as PaymentOrderStatus)
     || !instant(item.createdAt) || !instant(item.expiresAt)
     || Date.parse(item.expiresAt as string) <= Date.parse(item.createdAt as string)
     || typeof item.outTradeNo !== 'string' || !tradeNumber.test(item.outTradeNo)

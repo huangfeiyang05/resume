@@ -5,7 +5,7 @@ import { HttpError, invalid } from './errors.js';
 import type { JsonStore } from './store.js';
 import type { QuotaService } from './quota.js';
 import { defaultPricing, planPricing, type BillingPricing } from './payment-config.js';
-import { newOutTradeNo, orderTtlMilliseconds, type StoredPaymentOrder } from './payment-storage.js';
+import { newOutTradeNo, orderTtlMilliseconds, summarizePaymentOrder, type StoredPaymentOrder } from './payment-storage.js';
 import { WechatPayError, type NativeOrder, type NotifyPayload, type WechatPayGateway } from './wechat-pay.js';
 import { AlipayError, type AlipayGateway, type AlipayPayment } from './alipay.js';
 import qrcode from 'qrcode-generator';
@@ -26,12 +26,6 @@ export interface PaymentServiceOptions {
 function paid(planId: unknown): PaidPlanId {
   if (typeof planId !== 'string' || !['basic', 'premium'].includes(planId)) throw new HttpError(400, 'INVALID_PLAN', '请选择有效的付费方案。');
   return planId as PaidPlanId;
-}
-function publicOrder(order: StoredPaymentOrder): PaymentOrder {
-  return {
-    id: order.id, planId: order.planId, amountCents: order.amountCents, status: order.status, channel: order.channel,
-    createdAt: order.createdAt, expiresAt: order.expiresAt, ...(order.paidAt ? { paidAt: order.paidAt } : {}),
-  };
 }
 function mapGatewayError(error: unknown): never {
   if (error instanceof WechatPayError) throw new HttpError(error.status, error.code, error.message);
@@ -192,14 +186,14 @@ export class PaymentService {
     });
     if (channel === 'alipay-page' || channel === 'alipay-wap') {
       if (!alipayPayment) throw new HttpError(502, 'ALIPAY_RESPONSE_INVALID', '支付宝未返回收银台地址，请稍后重试。');
-      return { order: publicOrder(updated), alipay: { redirectUrl: alipayPayment.redirectUrl } };
+      return { order: summarizePaymentOrder(updated), alipay: { redirectUrl: alipayPayment.redirectUrl } };
     }
     if (channel === 'native') {
       if (!codeUrl) throw new HttpError(502, 'WECHAT_RESPONSE_INVALID', '微信支付未返回扫码链接，请稍后重试。');
-      return { order: publicOrder(updated), native: await nativeParams(order, codeUrl) };
+      return { order: summarizePaymentOrder(updated), native: await nativeParams(order, codeUrl) };
     }
     if (!payment) throw new HttpError(502, 'WECHAT_RESPONSE_INVALID', '微信支付未返回支付参数，请稍后重试。');
-    return { order: publicOrder(updated), payment };
+    return { order: summarizePaymentOrder(updated), payment };
   }
 
   private async reuse(userId: string, order: StoredPaymentOrder, quote: MembershipQuote, channel: PaymentChannel): Promise<CheckoutResult> {
@@ -216,22 +210,22 @@ export class PaymentService {
           mode: channel === 'alipay-page' ? 'page' : 'wap', outTradeNo: order.outTradeNo,
           description: order.description, amountCents: order.amountCents, expiresAt: order.expiresAt,
         });
-        return { order: publicOrder(order), alipay: { redirectUrl: payment.redirectUrl } };
+        return { order: summarizePaymentOrder(order), alipay: { redirectUrl: payment.redirectUrl } };
       } catch (error) { mapGatewayError(error); }
     }
     if (channel === 'native') {
       if (!order.codeUrl) throw new HttpError(409, 'ORDER_PENDING', '订单正在创建中，请稍后重试。');
-      return { order: publicOrder(order), native: await nativeParams(order, order.codeUrl) };
+      return { order: summarizePaymentOrder(order), native: await nativeParams(order, order.codeUrl) };
     }
     if (!order.prepayId || !this.gateway) throw new HttpError(409, 'ORDER_PENDING', '订单正在创建中，请稍后重试。');
-    return { order: publicOrder(order), payment: this.gateway.paymentParams(order.prepayId) };
+    return { order: summarizePaymentOrder(order), payment: this.gateway.paymentParams(order.prepayId) };
   }
 
   async getOrder(userId: string, orderId: string): Promise<PaymentOrder> {
     if (typeof orderId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(orderId)) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单不存在。');
     const order = (await this.store.read()).orders.find(candidate => candidate.id === orderId && candidate.userId === userId);
     if (!order) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单不存在。');
-    return publicOrder(order);
+    return summarizePaymentOrder(order);
   }
 
   /** Verifies and applies a WeChat Pay v3 notification. Only trusted gateway data reaches this method. */

@@ -1,4 +1,5 @@
 import type { Analysis, AnalysisJob, AiQuotaSummary, PaidPlanId, WorkbenchAccess } from './types.js';
+import type { PaymentChannel, PaymentOrder, PaymentOrderStatus } from './payment.js';
 
 export const adminTaskStatuses = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const satisfies readonly AnalysisJob['status'][];
 export const adminUsageStatuses = ['reserved', 'dispatched', 'pending', 'settled', 'released'] as const;
@@ -24,6 +25,18 @@ export interface AdminTaskQuery extends AdminUserQuery {
   status?: AnalysisJob['status'];
   usageStatus?: AdminUsageStatus;
 }
+export interface AdminOrderQuery extends AdminUserQuery {
+  userId?: string;
+  status?: PaymentOrderStatus;
+  channel?: PaymentChannel;
+}
+type MembershipEventKind = 'purchase' | 'renewal' | 'upgrade';
+
+export interface AdminOrder extends PaymentOrder {
+  userId: string;
+  /** The verified membership event for this payment, regardless of current membership. */
+  membershipActivation: { kind: MembershipEventKind; startsAt: string; expiresAt: string } | null;
+}
 
 export interface AdminUser {
   id: string;
@@ -35,7 +48,7 @@ export interface AdminUser {
     planId: PaidPlanId;
     startsAt: string;
     expiresAt: string;
-    latestEvent: 'purchase' | 'renewal' | 'upgrade';
+    latestEvent: MembershipEventKind;
   } | null;
   workbench: WorkbenchAccess;
   quota: AiQuotaSummary;

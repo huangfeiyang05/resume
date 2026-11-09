@@ -1,8 +1,10 @@
 import type { PaidPlanId, PlanId } from './membership.js';
 
-export type PaymentOrderStatus = 'pending' | 'paid' | 'closed' | 'failed';
+export const paymentOrderStatuses = ['pending', 'paid', 'closed', 'failed'] as const;
+export type PaymentOrderStatus = typeof paymentOrderStatuses[number];
 /** jsapi/native: WeChat Pay; alipay-page/alipay-wap: Alipay web checkout on H5. */
-export type PaymentChannel = 'jsapi' | 'native' | 'alipay-page' | 'alipay-wap';
+export const paymentChannels = ['jsapi', 'native', 'alipay-page', 'alipay-wap'] as const;
+export type PaymentChannel = typeof paymentChannels[number];
 
 /** Client-safe order summary. It never contains WeChat secrets, openid or raw callback data. */
 export interface PaymentOrder {

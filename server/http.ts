@@ -12,7 +12,7 @@ import type { AlipayGateway } from './alipay.js';
 import type { BillingPricing } from './payment-config.js';
 import { AnalysisJobs } from './jobs.js';
 import { adminSessionTtlMs, AuthService } from './auth.js';
-import { adminOverview, adminTasks, adminUsers, parseAdminQuery } from './admin.js';
+import { adminOrders, adminOverview, adminTasks, adminUsers, parseAdminOrderQuery, parseAdminQuery } from './admin.js';
 import { AdminCareerContent } from './admin-career-content.js';
 import { careerContentKind } from './career-content-storage.js';
 import { careerId } from './career-validation.js';
@@ -269,6 +269,12 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       } else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
     } else if (path === '/overview' && method === 'GET') {
       json(response, 200, { data: adminOverview(await baseService.store.read(), Date.now()) });
+    } else if (path === '/orders/search' && method === 'POST') {
+      if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+        throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
+      }
+      const query = parseAdminOrderQuery(await body(request));
+      json(response, 200, { data: adminOrders(await baseService.store.read(), query) });
     } else if ((path === '/users/search' || path === '/tasks/search') && method === 'POST') {
       const query = parseAdminQuery(await body(request), path === '/users/search' ? 'users' : 'tasks');
       const database = await baseService.store.read();

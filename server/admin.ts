@@ -1,6 +1,8 @@
-import type { AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser } from '../shared/types.js';
+import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminTask, AdminTaskQuery, AdminUser } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
+import { paymentChannels, paymentOrderStatuses } from '../shared/payment.js';
 import { invalid } from './errors.js';
+import { summarizePaymentOrder } from './payment-storage.js';
 import { summarizeQuota } from './quota.js';
 import { quotaIdentifier, quotaWeekMilliseconds, type StoredAiUsage } from './quota-storage.js';
 import { workbenchAccessForMembership } from './workbench-access.js';
@@ -16,19 +18,36 @@ export function parseAdminUserIds(value = ''): ReadonlySet<string> {
   return new Set(ids);
 }
 
-export function parseAdminQuery(value: unknown, kind: 'users' | 'tasks'): AdminTaskQuery & { page: number; query: string } {
+function parseSearch(value: unknown, filters: string[]) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid('请提供查询对象。');
   const input = value as Record<string, unknown>;
-  const allowed = kind === 'users' ? ['page', 'query'] : ['page', 'query', 'status', 'usageStatus'];
+  const allowed = ['page', 'query', ...filters];
   if (Object.keys(input).some(key => !allowed.includes(key))) invalid('查询包含不支持的字段。');
-  const { page = 1, query = '', status, usageStatus } = input;
+  const { page = 1, query = '' } = input;
   if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1 || page > 100_000) invalid('页码无效。');
   if (typeof query !== 'string' || query.length > 254 || /[\u0000-\u001f\u007f]/.test(query)) invalid('查询标识无效。');
+  return { input, page, query: query.trim() };
+}
+
+export function parseAdminQuery(value: unknown, kind: 'users' | 'tasks'): AdminTaskQuery & { page: number; query: string } {
+  const { input, page, query } = parseSearch(value, kind === 'users' ? [] : ['status', 'usageStatus']);
+  const { status, usageStatus } = input;
   const taskStatus = adminTaskStatuses.find(value => value === status);
   const taskUsage = adminUsageStatuses.find(value => value === usageStatus);
   if (status !== undefined && !taskStatus) invalid('诊断状态无效。');
   if (usageStatus !== undefined && !taskUsage) invalid('用量状态无效。');
-  return { page, query: query.trim(), status: taskStatus, usageStatus: taskUsage };
+  return { page, query, status: taskStatus, usageStatus: taskUsage };
+}
+
+export function parseAdminOrderQuery(value: unknown): AdminOrderQuery & { page: number; query: string } {
+  const { input, page, query } = parseSearch(value, ['userId', 'status', 'channel']);
+  const { userId, status, channel } = input;
+  if (userId !== undefined && !quotaIdentifier(userId)) invalid('用户 ID 无效。');
+  const orderStatus = paymentOrderStatuses.find(value => value === status);
+  const paymentChannel = paymentChannels.find(value => value === channel);
+  if (status !== undefined && !orderStatus) invalid('订单状态无效。');
+  if (channel !== undefined && !paymentChannel) invalid('支付渠道无效。');
+  return { page, query, userId, status: orderStatus, channel: paymentChannel };
 }
 
 function paginate<T>(items: T[], page: number): AdminPage<T> {
@@ -70,6 +89,23 @@ export function adminUsers(database: Database, query: string, page: number, now:
       workbench: workbenchAccessForMembership(membership, now),
       quota: summarizeQuota({ memberships: membership ? [membership] : [], aiUsage: usageByUser.get(user.id)! }, user.id, now),
     };
+  }) };
+}
+
+export function adminOrders(database: Database, { page, query, userId, status, channel }: ReturnType<typeof parseAdminOrderQuery>): AdminPage<AdminOrder> {
+  const orders = paginate(database.orders.filter(order =>
+    (!userId || order.userId === userId) && (!status || order.status === status) && (!channel || order.channel === channel)
+    && (!query || order.id === query || order.userId === query || order.outTradeNo === query))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id)), page);
+  const activations = new Map(database.memberships.map(membership => [membership.userId, membership.activations]));
+  return { ...orders, items: orders.items.map(order => {
+    const { paymentEventId, paidAt } = order;
+    const provider = order.channel.startsWith('alipay-') ? 'alipay' : 'wechat';
+    const event = paymentEventId && paidAt ? activations.get(order.userId)?.find(activation =>
+      activation.verifiedEventId === paymentEventId && activation.idempotencyKey === `${provider}:${paymentEventId}`
+      && activation.planId === order.planId && Date.parse(activation.verifiedPaymentAt) === Date.parse(paidAt)) : undefined;
+    return { ...summarizePaymentOrder(order), userId: order.userId,
+      membershipActivation: event ? { kind: event.kind, startsAt: event.startsAt, expiresAt: event.expiresAt } : null };
   }) };
 }
 
