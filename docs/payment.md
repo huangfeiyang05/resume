@@ -49,7 +49,9 @@
 | `server/http.ts` | `/billing/quote`、`/billing/checkout`（`channel=jsapi/native/alipay-page/alipay-wap`）、`/billing/payment-methods`、`/billing/orders/:id`、`/billing/wechat/notify`、`/billing/alipay/notify`、`/auth/wechat/bind` |
 | `tests/payment.test.ts` | 假网关的报价、下单、幂等、微信/支付宝回调验签后入账与重复通知测试 |
 
-订单写入单进程 JSON 数据，`orders` 字段缺失时按空数组迁移。首次保存退款申请时数据格式升为版本 4。多实例运行前需将支付、退款和权益账本迁入事务存储。
+订单写入单进程 JSON 数据，`orders` 字段缺失时按空数组迁移。首次保存退款申请时数据格式至少为版本 4，首次发布价格时升为版本 5。多实例运行前需将支付、退款和权益账本迁入事务存储。
+
+后台发布价格后，`/plans` 和 `/billing/quote` 读取当前版本。客户端下单传 `expectedAmountCents` 表示用户确认的金额，服务端在创建订单的同一次写入里重新计算并核对。报价变化时返回 `BILLING_PRICE_CHANGED`，由用户重新确认。重复下单使用原订单金额，旧客户端缺少确认金额时只能复用已有请求标识。测试服务只使用模拟渠道，不能访问公开账本。
 
 ## 后台会员退款
 

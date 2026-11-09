@@ -1,13 +1,14 @@
-import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminRefund, AdminRefundPreview, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
+import type { AdminOrder, AdminOrderQuery, AdminOverview, AdminPage, AdminPricingState, AdminRefund, AdminRefundPreview, AdminTask, AdminTaskQuery, AdminUser, AdminUserQuery, ApiResponse, CareerContentSummary, CompanyBatchState } from '../shared/types.js';
 import { adminTaskStatuses, adminUsageStatuses } from '../shared/admin.js';
 import { paymentChannels, paymentOrderStatuses } from '../shared/payment.js';
 import { workbenchFeatureNames, workbenchFeatures } from '../shared/workbench.js';
 import { button, element, formatTime } from './dom.js';
 import { renderCareerContent } from './career-content.js';
 import { renderCompanyBatches } from './company-batches.js';
+import { renderMembershipPricing } from './membership-pricing.js';
 import './style.css';
 
-const titles = { overview: '运营概览', users: '用户与会员', orders: '用户与会员', tasks: '诊断与用量', content: '求职内容', companies: '企业资料' } as const;
+const titles = { overview: '运营概览', users: '用户与会员', orders: '用户与会员', pricing: '会员价格', tasks: '诊断与用量', content: '求职内容', companies: '企业资料' } as const;
 type Section = keyof typeof titles;
 const planNames = { free: '免费', basic: '初级', premium: '高级' };
 const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级' };
@@ -140,6 +141,10 @@ async function refresh() {
       const orders = await api<AdminPage<AdminOrder>>('orders/search', orderQuery);
       if (current !== generation) return;
       renderOrders(orders);
+    } else if (section === 'pricing') {
+      const pricing = await api<AdminPricingState>('pricing');
+      if (current !== generation) return;
+      contentEditor = renderMembershipPricing(result, pricing, api, editorError);
     } else if (section === 'tasks') {
       const tasks = await api<AdminPage<AdminTask>>('tasks/search', taskQuery);
       if (current !== generation) return;
@@ -450,4 +455,12 @@ logout.addEventListener('click', async () => {
   }
 });
 
+void fetch('/api/v1/environment', { cache: 'no-store' }).then(async response => {
+  if (!response.ok) return;
+  const { data } = await response.json() as ApiResponse<{ environment: 'test' | 'public' }>;
+  if (data?.environment !== 'test' && data?.environment !== 'public') return;
+  const environment = data.environment === 'test' ? '测试环境' : '公开环境';
+  document.querySelector('.brand small')!.textContent = `${environment} · 管理后台`;
+  document.title = `简历有方 · ${environment}管理后台`;
+}).catch(() => undefined);
 open('overview');

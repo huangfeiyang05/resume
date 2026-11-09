@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Analysis, Resume } from '../shared/types.js';
+import type { AdminPricePublication, Analysis, Resume } from '../shared/types.js';
 import type { AuthUser } from '../shared/auth.js';
 import type { EmailCodePurpose, PhoneCodePurpose } from '../shared/auth.js';
 import { normalizeCareerStorage, type CareerStorage } from './career-validation.js';
@@ -11,6 +11,7 @@ import { normalizeAnalysisTasks, type AnalysisTaskStorage } from './job-storage.
 import { normalizeQuotaStorage, type QuotaStorage } from './quota-storage.js';
 import { normalizePaymentStorage, paymentActivation, type PaymentStorage } from './payment-storage.js';
 import { normalizeRefunds, type StoredRefund } from './refund-storage.js';
+import { normalizePricingHistory } from './pricing-storage.js';
 
 export const legacyWorkspaceId = 'legacy-local-workspace';
 export interface StoredUser extends AuthUser { passwordHash?: string; wechatOpenid?: string }
@@ -36,8 +37,10 @@ export interface StoredPhoneChallenge extends Omit<StoredEmailChallenge, 'email'
 }
 
 export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStorage, PaymentStorage, CareerMediaStorage {
-  version: 3 | 4;
+  version: 3 | 4 | 5;
+  environment?: 'test';
   refunds: StoredRefund[];
+  pricingHistory: AdminPricePublication[];
   users: StoredUser[];
   sessions: StoredSession[];
   emailChallenges: StoredEmailChallenge[];
@@ -56,7 +59,7 @@ export class JsonStore {
   private queue: Promise<unknown> = Promise.resolve();
   readonly path: string;
 
-  constructor(path = resolve(process.cwd(), '.data/resumes.json')) {
+  constructor(path = resolve(process.cwd(), '.data/resumes.json'), readonly environment: 'public' | 'test' = 'public') {
     this.path = path;
   }
 
@@ -74,14 +77,17 @@ export class JsonStore {
   protected async loadFile(): Promise<Database> {
     try {
       const parsed = JSON.parse(await readFile(this.path, 'utf8'));
-      if (!parsed || ![1, 2, 3, 4].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
+      if (!parsed || ![1, 2, 3, 4, 5].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
         throw new Error('Unsupported or malformed local database.');
+      }
+      if (this.environment === 'test' ? parsed.environment !== 'test' || parsed.version !== 5 : parsed.environment !== undefined) {
+        throw new Error('Database environment does not match the service.');
       }
       // Old shared data is retained in a quarantined workspace, never claimed by the first signup.
       if (parsed.version === 1) {
         const resumes = parsed.resumes.map((resume: Resume) => ({ ...resume, userId: legacyWorkspaceId }));
         return {
-        version: 3, refunds: [], users: [], sessions: [], emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {},
+        version: 3, refunds: [], pricingHistory: [], users: [], sessions: [], emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {},
         ...normalizeCareerStorage({}),
         ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}),
         ...normalizeResumeHistory({}, resumes),
@@ -104,7 +110,7 @@ export class JsonStore {
         throw new Error('Unsupported or malformed account database.');
       }
       if (parsed.version === 2) {
-        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, refunds: [], users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {} };
+        return { ...parsed, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...normalizeQuotaStorage(parsed), ...normalizePaymentStorage(parsed), version: 3, refunds: [], pricingHistory: [], users: parsed.users.map((user: StoredUser) => ({ ...user, emailVerified: user.emailVerified === true })), emailChallenges: [], phoneChallenges: [], careerContent: [], careerAttachments: {}, careerVideos: {} };
       }
       if (!Array.isArray(parsed.emailChallenges)
         || parsed.users.some((user: StoredUser) => typeof user.emailVerified !== 'boolean')
@@ -142,7 +148,9 @@ export class JsonStore {
       if (Object.keys(careerVideos).some(key => Object.hasOwn(careerAttachments, key))) throw new Error('Duplicate career media reference.');
       const payment = normalizePaymentStorage(parsed);
       const refunds = normalizeRefunds(parsed.refunds, payment.orders);
-      if (parsed.version === 3 && refunds.length) throw new Error('Refund records require database version 4.');
+      const pricingHistory = normalizePricingHistory(parsed.pricingHistory);
+      if (parsed.version < 4 && refunds.length) throw new Error('Refund records require database version 4 or later.');
+      if (parsed.version < 5 && pricingHistory.length) throw new Error('Published prices require database version 5.');
       const quota = normalizeQuotaStorage(parsed, refunds);
       if (refunds.length) {
         const orders = new Map(payment.orders.map(order => [order.id, order]));
@@ -151,10 +159,13 @@ export class JsonStore {
           throw new Error('Refund has no matching membership event.');
         }
       }
-      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...quota, ...payment, refunds, careerContent, careerAttachments, careerVideos };
+      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...quota, ...payment, refunds, pricingHistory, careerContent, careerAttachments, careerVideos };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      return { version: 3, refunds: [], users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [], careerContent: [], careerAttachments: {}, careerVideos: {}, ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []), ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
+      return { version: this.environment === 'test' ? 5 : 3, ...(this.environment === 'test' ? { environment: 'test' as const } : {}),
+        refunds: [], pricingHistory: [], users: [], sessions: [], emailChallenges: [], phoneChallenges: [], resumes: [], analyses: [],
+        careerContent: [], careerAttachments: {}, careerVideos: {}, ...normalizeCareerStorage({}), ...normalizeResumeHistory({}, []),
+        ...normalizeAnalysisTasks({}), ...normalizeQuotaStorage({}), ...normalizePaymentStorage({}) };
     }
   }
 

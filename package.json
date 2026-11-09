@@ -13,6 +13,7 @@
     "dev:h5": "uni",
     "dev:mp-weixin": "uni -p mp-weixin",
     "dev:admin": "vite --config vite.admin.config.ts",
+    "test-env": "tsx scripts/start-test-environment.ts",
     "build": "npm run career:check && npm run type-check && npm run build:h5 && npm run build:mp-weixin",
     "build:h5": "uni build",
     "build:admin": "vite build --config vite.admin.config.ts",

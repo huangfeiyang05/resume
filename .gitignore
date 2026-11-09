@@ -2,6 +2,8 @@ node_modules/
 dist/
 # Local resumes, career/company catalogues, company batch snapshots, career-files attachments, and import reports/backups.
 .data/
+# Independent local test accounts, simulated payments, and test frontend builds.
+.test-data/
 # Editable and exported resume artifacts may contain personal information.
 outputs/
 .env

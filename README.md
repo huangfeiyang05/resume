@@ -50,6 +50,8 @@ H5 使用 HttpOnly、SameSite 的会话 Cookie，线上加上 Secure；不把 H5
 
 在「用户与会员」可分列查看已绑定的完整邮箱和手机号。「支付订单」支持查询并对已核对的会员订单发起全额退款，渠道确认成功后撤销本单权益。
 
+「会员价格」支持按环境预览、发布和查看历史。运行 `npm run test-env` 可启动本机测试版和测试后台，使用 Git 忽略的 `.test-data/` 与模拟支付。使用说明见 [测试版与公开版](docs/admin.md#测试版与公开版)。
+
 ## 邮件服务配置
 
 邮件发送由服务端 SMTP 适配器承接，前端不持有 SMTP 授权码或发信密钥。当前 163 配置使用 `smtp.163.com:465` 和 TLS；用户名为完整发信邮箱，认证凭据为客户端授权码。配置项为 `MAIL_ENABLED`、`MAIL_PROVIDER=smtp`、`SMTP_HOST`、`SMTP_PORT`、`SMTP_SECURE`、`SMTP_USER`、`SMTP_PASSWORD`、`MAIL_FROM` 和 `MAIL_CODE_SECRET`，详见 [部署说明](docs/deployment.md)。

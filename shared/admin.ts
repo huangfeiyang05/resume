@@ -1,5 +1,28 @@
 import type { Analysis, AnalysisJob, AiQuotaSummary, PaidPlanId, WorkbenchAccess } from './types.js';
 import type { PaymentChannel, PaymentOrder, PaymentOrderStatus } from './payment.js';
+import type { MembershipPrices } from './membership.js';
+
+export interface AdminPricePublication {
+  id: string;
+  revision: number;
+  actorId: string;
+  publishedAt: string;
+  prices: MembershipPrices;
+}
+
+export interface AdminPricingState {
+  environment: 'public' | 'test';
+  revision: number;
+  prices: MembershipPrices;
+  history: AdminPricePublication[];
+}
+
+export interface AdminPricingPreview {
+  id: string;
+  revision: number;
+  before: MembershipPrices;
+  after: MembershipPrices;
+}
 
 export const adminTaskStatuses = ['queued', 'running', 'completed', 'failed', 'cancelled'] as const satisfies readonly AnalysisJob['status'][];
 export const adminUsageStatuses = ['reserved', 'dispatched', 'pending', 'settled', 'released'] as const;

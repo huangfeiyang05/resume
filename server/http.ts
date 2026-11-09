@@ -8,6 +8,8 @@ import { ResumeService } from './service.js';
 import { limits, validateVersionRevision } from './validation.js';
 import { PaymentService } from './payments.js';
 import { AdminRefunds } from './refunds.js';
+import { AdminPricing } from './admin-pricing.js';
+import { testPaymentGateway } from './test-payment.js';
 import type { WechatPayGateway } from './wechat-pay.js';
 import type { AlipayGateway } from './alipay.js';
 import type { BillingPricing } from './payment-config.js';
@@ -138,20 +140,23 @@ export interface ApiServerOptions {
   paymentMchid?: string;
   paymentNotifyUrl?: string;
 }
-const cookieName = 'youfang_session';
-const adminCookieName = 'youfang_admin';
 const adminPath = '/api/v1/admin';
 function cookieToken(request: IncomingMessage, name: string) {
   const values = (request.headers.cookie ?? '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${name}=`));
   return values.length === 1 ? values[0].slice(name.length + 1) : undefined;
 }
-function sessionToken(request: IncomingMessage) {
-  const authorization = request.headers.authorization;
-  return authorization?.startsWith('Bearer ') ? authorization.slice(7) : cookieToken(request, cookieName);
-}
-
 /** The HTTP boundary always authenticates business requests before selecting a user's scope. */
 export function createApiServer(baseService = new ResumeService(new JsonStore()), options: ApiServerOptions = {}) {
+  const environment = baseService.store.environment;
+  const test = environment === 'test';
+  if (test && (options.paymentGateway || options.paymentAlipay)) throw new Error('Test environment cannot use real payment gateways.');
+  const alipay = test ? testPaymentGateway : options.paymentAlipay;
+  const cookieName = test ? 'youfang_test_session' : 'youfang_session';
+  const adminCookieName = test ? 'youfang_test_admin' : 'youfang_admin';
+  function sessionToken(request: IncomingMessage) {
+    const authorization = request.headers.authorization;
+    return authorization?.startsWith('Bearer ') ? authorization.slice(7) : cookieToken(request, cookieName);
+  }
   const auth = options.auth ?? new AuthService(baseService.store);
   const careerFiles = new CareerFiles(baseService.store.path);
   const careerContent = new AdminCareerContent(baseService.store, options.careerCatalogPath, careerFiles);
@@ -159,14 +164,15 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
   const payments = new PaymentService({
     store: baseService.store, quota: jobs.quota, ...(options.pricing ? { pricing: options.pricing } : {}),
     ...(options.paymentGateway ? { gateway: options.paymentGateway } : {}),
-    ...(options.paymentAlipay ? { alipay: options.paymentAlipay } : {}),
+    ...(alipay ? { alipay } : {}),
     ...(options.paymentAppid ? { appid: options.paymentAppid } : {}),
     ...(options.paymentMchid ? { mchid: options.paymentMchid } : {}),
     ...(options.paymentNotifyUrl ? { notifyUrl: options.paymentNotifyUrl } : {}),
   });
   const refunds = new AdminRefunds(baseService.store, {
-    wechat: options.paymentGateway, alipay: options.paymentAlipay, notifyUrl: options.paymentNotifyUrl,
+    wechat: options.paymentGateway, alipay, notifyUrl: options.paymentNotifyUrl,
   });
+  const pricing = new AdminPricing(baseService.store, options.pricing, environment);
   // Shared company reference data requires a currently effective trusted membership.
   const companies = new CompanyCatalogRepository(options.companyCatalogPath ?? join(dirname(baseService.store.path), 'company-catalog.json'));
   const companyBatches = new CompanyBatches(companies);
@@ -273,6 +279,14 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       } else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
     } else if (path === '/overview' && method === 'GET') {
       json(response, 200, { data: adminOverview(await baseService.store.read(), Date.now()) });
+    } else if (path === '/pricing' && method === 'GET') {
+      json(response, 200, { data: await pricing.state() });
+    } else if ((path === '/pricing/preview' || path === '/pricing/apply') && method === 'POST') {
+      if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+        throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
+      }
+      const input = await body(request);
+      json(response, 200, { data: path === '/pricing/preview' ? await pricing.preview(input, user.id) : await pricing.apply(input, user.id) });
     } else if (method === 'POST' && ['/orders/search', '/orders/refund-preview', '/orders/refund-apply', '/orders/refund-refresh'].includes(path)) {
       if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
         throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '请使用 application/json 请求体。');
@@ -302,6 +316,13 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '管理接口不接受 URL 查询参数。');
         await handleAdmin(request, response, path.slice(adminPath.length), method);
         return;
+      }
+      if (path === '/api/v1/environment' && method === 'GET') {
+        json(response, 200, { data: { environment } }); return;
+      }
+      if ((test && ['/api/v1/billing/wechat/notify', '/api/v1/billing/wechat/refund-notify', '/api/v1/billing/alipay/notify'].includes(path))
+        || (!test && path === '/api/v1/billing/simulate')) {
+        throw new HttpError(404, 'NOT_FOUND', '接口不存在。');
       }
       if (path === '/api/v1/billing/wechat/notify') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
@@ -421,13 +442,17 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         json(response, 200, { data: await getWorkbenchAccess(service.store, service.userId) });
       } else if (path === '/api/v1/plans') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        json(response, 200, { data: payments.plans() });
+        json(response, 200, { data: await payments.plans() });
       } else if (path === '/api/v1/billing/payment-methods') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: payments.methods() });
       } else if (path === '/api/v1/billing/checkout') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        if (test) throw new HttpError(409, 'TEST_CHECKOUT_ONLY', '测试环境仅支持模拟支付。');
         json(response, 201, { data: await payments.checkout(service.userId, await body(request)) });
+      } else if (path === '/api/v1/billing/simulate' && test) {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        json(response, 201, { data: await payments.simulateCheckout(service.userId, await body(request)) });
       } else if (path === '/api/v1/billing/quote') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const planId = url.searchParams.get('planId');

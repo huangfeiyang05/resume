@@ -1,7 +1,7 @@
 export type IssueSeverity = 'high' | 'medium' | 'low';
 export type { CompanyBatchEvent, CompanyBatchPreview, CompanyBatchState, CompanyEditDetail, CompanyEditInput, CompanyEditSearchResult } from './company-batch.js';
 export type { CareerAttachment, CareerFileFormat } from './career-attachment.js';
-export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus, AdminOrder, AdminOrderQuery, AdminRefund, AdminRefundPreview } from './admin.js';
+export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus, AdminOrder, AdminOrderQuery, AdminRefund, AdminRefundPreview, AdminPricePublication, AdminPricingState, AdminPricingPreview } from './admin.js';
 export type { CareerAssistantInput, CareerAssistantResult } from './career-assistant.js';
 export type { CompanySource, CompanyRecord, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
 export type { ResumeExportTemplate } from './resume-layout.js';
@@ -18,7 +18,7 @@ export interface ResumeExportFile extends ResumeExportInput {
   mimeType: string;
   contentBase64: string;
 }
-export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput } from './membership.js';
+export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput, MembershipPrices } from './membership.js';
 export type { PaymentOrder, PaymentOrderStatus, PaymentChannel, WechatPaymentParams, NativePaymentParams, AlipayPaymentParams, CheckoutResult, MembershipQuote, WechatBindResult } from './payment.js';
 export type { AiQuotaSummary } from './quota.js';
 export type { WorkbenchAccess, WorkbenchFeature } from './workbench.js';

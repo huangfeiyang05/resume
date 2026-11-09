@@ -179,6 +179,26 @@ try {
   assert.equal((await new JsonStore(store.path).read()).version, 4);
   checks.push('admin-full-contacts-reviewed-full-refund-idempotence-and-other-paid-term-retention');
 
+  const pricingPath = '/admin/pricing';
+  assert.equal((await request(pricingPath, 'GET', undefined, owner)).status, 401);
+  assert.deepEqual((await request('/environment')).body.data, { environment: 'public' });
+  assert.equal((await request('/billing/simulate', 'POST', {}, owner)).status, 404);
+  const beforePrices = (await request(pricingPath, 'GET', undefined, admin)).body.data;
+  const priceDraft = { revision: beforePrices.revision, prices: { basicMonthlyCents: 1100, premiumMonthlyCents: 3300, premiumFirstPurchaseCents: 2700 } };
+  const priceReview = await request(`${pricingPath}/preview`, 'POST', priceDraft, admin);
+  assert.equal(priceReview.status, 200);
+  assert.deepEqual(priceReview.body.data.before, beforePrices.prices);
+  assert.equal((await request('/plans')).body.data.find(plan => plan.id === 'basic').priceCents, beforePrices.prices.basicMonthlyCents);
+  const priceApply = { id: priceReview.body.data.id, confirmed: true };
+  const pricePublished = await request(`${pricingPath}/apply`, 'POST', priceApply, admin);
+  assert.equal(pricePublished.status, 200);
+  assert.deepEqual((await request(`${pricingPath}/apply`, 'POST', priceApply, admin)).body.data, pricePublished.body.data);
+  assert.equal((await request('/plans')).body.data.find(plan => plan.id === 'basic').priceCents, 1100);
+  const oldAmount = { planId: 'basic', channel: 'alipay-page', requestId: 'release-quote-mismatch', expectedAmountCents: beforePrices.prices.basicMonthlyCents };
+  assert.equal((await request('/billing/checkout', 'POST', oldAmount, quotaAccount)).body.error.code, 'BILLING_PRICE_CHANGED');
+  assert.equal((await new JsonStore(store.path).read()).version, 5);
+  checks.push('admin-reviewed-pricing-and-price-change-rejected-before-provider');
+
   const { id: materialId, updatedAt: _updatedAt, ...material } = catalog.materials[0];
   const contentPath = `/admin/career-content/material/${materialId}`;
   const currentContent = async () => (await request(contentPath, 'GET', undefined, admin)).body.data;

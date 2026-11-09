@@ -2,6 +2,12 @@ export type PlanId = 'free' | 'basic' | 'premium';
 export type PaidPlanId = Exclude<PlanId, 'free'>;
 import type { AiQuotaSummary } from './quota.js';
 
+export interface MembershipPrices {
+  basicMonthlyCents: number;
+  premiumMonthlyCents: number;
+  premiumFirstPurchaseCents: number | null;
+}
+
 /** Product planning only. Values are not active entitlements or validated launch prices. */
 export interface Plan {
   id: PlanId;
@@ -49,6 +55,7 @@ export interface MembershipPreview {
   currentPlanId: 'free';
   currentPlanName: '免费体验';
   paymentAvailable: boolean;
+  paymentMode?: 'simulation';
   limitsEnforced: false;
   policy: MembershipPolicy;
   quota: AiQuotaSummary;
@@ -60,6 +67,7 @@ export interface MembershipActive {
   currentPlanId: PaidPlanId;
   currentPlanName: string;
   paymentAvailable: boolean;
+  paymentMode?: 'simulation';
   limitsEnforced: true;
   policy: MembershipPolicy;
   quota: AiQuotaSummary;

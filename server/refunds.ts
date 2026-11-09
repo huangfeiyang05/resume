@@ -152,7 +152,7 @@ export class AdminRefunds {
       const refund: StoredRefund = { id: previewId, orderId: id, userId: order.userId, paymentEventId: order.paymentEventId!,
         amountCents: order.amountCents, requestedBy: actorId, status: 'requested', createdAt: at, updatedAt: at };
       database.refunds.push(refund);
-      database.version = 4;
+      if (database.version === 3) database.version = 4;
       return { refund, order };
     });
     if (!result.order) return summarizeRefund(result.refund);

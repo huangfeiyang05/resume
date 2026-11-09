@@ -38,7 +38,8 @@ export function validateQuota(value: unknown): AiQuotaSummary {
 export const membershipApi = {
   async current(): Promise<MembershipState> {
     const state = await request<MembershipState>('/membership');
-    if (!state || typeof state !== 'object' || Array.isArray(state) || typeof state.paymentAvailable !== 'boolean') invalidResponse();
+    if (!state || typeof state !== 'object' || Array.isArray(state) || typeof state.paymentAvailable !== 'boolean'
+      || (state.paymentMode !== undefined && state.paymentMode !== 'simulation')) invalidResponse();
     const quota = validateQuota(state.quota);
     if (state.mode === 'preview') {
       if (state.currentPlanId !== 'free' || state.currentPlanName !== '免费体验' || state.limitsEnforced !== false || quota.status === 'active') invalidResponse();
@@ -95,8 +96,9 @@ export const membershipApi = {
       || typeof result.wechat !== 'boolean' || typeof result.alipay !== 'boolean') invalidResponse();
     return result;
   },
-  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi'): Promise<CheckoutResult> {
-    const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId, channel });
+  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi', expectedAmountCents?: number): Promise<CheckoutResult> {
+    const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId, channel,
+      ...(expectedAmountCents === undefined ? {} : { expectedAmountCents }) });
     if (!result || typeof result !== 'object' || Array.isArray(result)) invalidResponse();
     const order = validateOrder(result.order);
     if (order.channel === 'alipay-page' || order.channel === 'alipay-wap') {
@@ -127,6 +129,11 @@ export const membershipApi = {
   },
   async order(orderId: string): Promise<PaymentOrder> {
     return validateOrder(await request<PaymentOrder>(`/billing/orders/${encodeURIComponent(orderId)}`));
+  },
+  async simulateCheckout(planId: PlanId, requestId: string, expectedAmountCents: number): Promise<PaymentOrder> {
+    const order = validateOrder(await request<PaymentOrder>('/billing/simulate', 'POST', { planId, requestId, expectedAmountCents }));
+    if (order.status !== 'paid' || order.planId !== planId || order.amountCents !== expectedAmountCents) invalidResponse();
+    return order;
   },
 };
 
