@@ -167,6 +167,34 @@ test('payment quote and order responses are strictly validated', async t => {
   await assert.rejects(membershipApi.order(order.id), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
 });
 
+test('scheduled renewal dates must be valid and the reviewed quote accompanies checkout', async t => {
+  const { requests, respond } = fixture(t);
+  const period = { startsAt: '2026-12-05T07:00:00.000Z', expiresAt: '2027-01-05T07:00:00.000Z' };
+  const quote = { planId: 'basic', amountCents: 990, kind: 'scheduled', currentPlanId: 'premium', period, reviewId: 'a'.repeat(64) };
+  const reply = (data: unknown) => respond(options => options.success({ statusCode: 200, data: { data } }));
+  reply(quote);
+  assert.deepEqual(await membershipApi.quote('basic'), quote);
+  for (const invalid of [{ ...quote, period: undefined }, { ...quote, reviewId: undefined },
+    { ...quote, period: { ...period, startsAt: period.expiresAt } }]) {
+    reply(invalid);
+    await assert.rejects(membershipApi.quote('basic'), { code: 'INVALID_RESPONSE' });
+  }
+  const active = membershipState({ status: 'active', remainingPercent: 100, resetsAt: '2026-11-12T07:00:00.000Z',
+    expiresAt: period.startsAt, pending: false }, 'premium');
+  const nextPeriod = { planId: 'basic', ...period };
+  reply({ ...active, nextPeriod });
+  assert.deepEqual((await membershipApi.current()).nextPeriod, nextPeriod);
+  reply({ ...active, nextPeriod: { ...nextPeriod, startsAt: '2026-12-01T07:00:00.000Z' } });
+  await assert.rejects(membershipApi.current(), { code: 'INVALID_RESPONSE' });
+
+  const order = { id: 'order-12345678', planId: 'basic', amountCents: 990, status: 'pending', channel: 'alipay-page',
+    createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
+  reply({ order, alipay: { redirectUrl: 'https://openapi.alipay.com/gateway.do' } });
+  await membershipApi.checkout('basic', 'queued-request-123456', 'alipay-page', quote.amountCents, quote.reviewId);
+  assert.deepEqual(requests.at(-1)?.data, { planId: 'basic', requestId: 'queued-request-123456', channel: 'alipay-page',
+    expectedAmountCents: quote.amountCents, reviewId: quote.reviewId });
+});
+
 test('membership accepts trusted paid states and exposes percentage-only quota summaries', async t => {
   const { requests, respond } = fixture(t);
   const quota = { status: 'active' as const, remainingPercent: 78, resetsAt: '2026-11-12T07:00:00.000Z', expiresAt: '2026-12-05T07:00:00.000Z', pending: false };

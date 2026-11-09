@@ -5,13 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { AdminPricing } from '../server/admin-pricing.js';
-import type { AlipayPaymentInput } from '../server/alipay.js';
+import type { AlipayNotification, AlipayPaymentInput } from '../server/alipay.js';
 import { AuthService } from '../server/auth.js';
 import { createApiServer } from '../server/http.js';
 import { PaymentService } from '../server/payments.js';
 import { QuotaService } from '../server/quota.js';
+import { AdminRefunds } from '../server/refunds.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
+import { getWorkbenchAccess } from '../server/workbench-access.js';
+import type { MembershipQuote } from '../shared/types.js';
 
 const credentials = { email: 'operator@example.test', password: 'Synthetic26!' };
 const newPrices = { basicMonthlyCents: 1200, premiumMonthlyCents: 3500, premiumFirstPurchaseCents: 2800 };
@@ -63,6 +66,100 @@ test('reviewed pricing is published atomically and pending orders retain the amo
   const paid = await payment.checkout(userId, { ...next, expectedAmountCents: 1200 });
   assert.equal(paid.order.amountCents, 1200);
   assert.deepEqual(calls.map(call => call.amountCents), [oldQuote.amountCents, oldQuote.amountCents, 1200]);
+});
+
+test('reviewed renewals keep each paid period, switch entitlements on time, and survive a refund and reload', async t => {
+  const store = new JsonStore(join(await temporary(t), 'public.json'));
+  const auth = new AuthService(store);
+  const userId = (await auth.register(credentials)).session.user.id;
+  const basicUserId = (await auth.register({ ...credentials, email: 'basic@example.test' })).session.user.id;
+  let time = '2026-10-31T02:00:00.000Z';
+  const now = () => new Date(time);
+  let notification: AlipayNotification;
+  const calls: AlipayPaymentInput[] = [];
+  const alipay = {
+    async createPayment(input: AlipayPaymentInput) { calls.push(input); return { redirectUrl: 'https://fixture.invalid/checkout' }; },
+    parseNotification() { return notification; },
+    async submitRefund() { return 'succeeded' as const; },
+    async queryRefund() { return 'succeeded' as const; },
+  };
+  const quota = new QuotaService(store, now);
+  const payments = new PaymentService({ store, quota, alipay, now });
+  const refunds = new AdminRefunds(store, { alipay }, () => now().getTime());
+  t.after(() => refunds.stop());
+  function checkoutInput(quote: MembershipQuote, requestId: string) {
+    return { planId: quote.planId, channel: 'alipay-page', requestId, expectedAmountCents: quote.amountCents, reviewId: quote.reviewId };
+  }
+  async function pay(owner: string, quote: MembershipQuote, requestId: string) {
+    const { order } = await payments.checkout(owner, checkoutInput(quote, requestId));
+    notification = { appId: 'fixture', outTradeNo: calls.at(-1)!.outTradeNo, tradeNo: `trade-${requestId}`,
+      tradeStatus: 'TRADE_SUCCESS', amountCents: order.amountCents, paidAt: time };
+    await payments.applyAlipayNotification({});
+    await payments.applyAlipayNotification({});
+    assert.equal((await payments.getOrder(owner, order.id)).status, 'paid');
+    return order;
+  }
+  await pay(userId, await payments.quote(userId, 'premium'), 'initial-premium-order');
+  await pay(basicUserId, await payments.quote(basicUserId, 'basic'), 'initial-basic-order');
+  const firstEnd = '2026-11-30T02:00:00.000Z';
+  const renewedEnd = '2026-12-30T02:00:00.000Z';
+  const basicEnd = '2027-01-30T02:00:00.000Z';
+  const premiumEnd = '2027-02-28T02:00:00.000Z';
+
+  time = '2026-11-12T02:00:00.000Z';
+  const basicRenewal = await payments.quote(basicUserId, 'basic');
+  assert.equal(basicRenewal.kind, 'renewal');
+  assert.deepEqual(basicRenewal.period, { startsAt: firstEnd, expiresAt: renewedEnd });
+  await pay(basicUserId, basicRenewal, 'same-tier-basic-renewal');
+  assert.equal((await payments.membership(basicUserId)).quota.expiresAt, renewedEnd);
+  const firstSchedule = await payments.quote(userId, 'basic');
+  assert.equal(firstSchedule.kind, 'scheduled');
+  assert.deepEqual(firstSchedule.period, { startsAt: firstEnd, expiresAt: renewedEnd });
+  await assert.rejects(payments.checkout(userId, { ...checkoutInput(firstSchedule, 'unreviewed-queued-basic'), reviewId: undefined }),
+    { code: 'BILLING_QUOTE_REQUIRED' });
+  const premiumRenewal = await payments.quote(userId, 'premium');
+  assert.equal(premiumRenewal.kind, 'renewal');
+  assert.equal(premiumRenewal.amountCents, 2990);
+  assert.deepEqual(premiumRenewal.period, { startsAt: firstEnd, expiresAt: renewedEnd });
+  await pay(userId, premiumRenewal, 'same-tier-premium-renewal');
+  const basicSchedule = await payments.quote(userId, 'basic');
+  assert.equal(basicSchedule.amountCents, firstSchedule.amountCents);
+  assert.deepEqual(basicSchedule.period, { startsAt: renewedEnd, expiresAt: basicEnd });
+  await assert.rejects(payments.checkout(userId, checkoutInput(firstSchedule, 'stale-queued-basic')), { code: 'BILLING_PERIOD_CHANGED' });
+  assert.equal(calls.length, 4);
+  await pay(userId, basicSchedule, 'queued-basic-renewal');
+  const stillPremium = await payments.membership(userId);
+  assert.equal(stillPremium.currentPlanId, 'premium');
+  assert.equal(stillPremium.quota.expiresAt, renewedEnd);
+  assert.deepEqual(stillPremium.nextPeriod, { planId: 'basic', startsAt: renewedEnd, expiresAt: basicEnd });
+
+  const premiumSchedule = await payments.quote(userId, 'premium');
+  assert.equal(premiumSchedule.kind, 'scheduled');
+  assert.equal(premiumSchedule.amountCents, premiumRenewal.amountCents);
+  assert.deepEqual(premiumSchedule.period, { startsAt: basicEnd, expiresAt: premiumEnd });
+  const scheduled = await pay(userId, premiumSchedule, 'queued-premium-renewal');
+  time = '2026-12-29T02:00:00.000Z';
+  await quota.reserve(userId, 'task-before-tier-change', 'a'.repeat(64), 20_000);
+  await quota.dispatch(userId, 'task-before-tier-change');
+  await quota.settle(userId, 'task-before-tier-change', { inputTokens: 18_000, outputTokens: 2_000, totalTokens: 20_000 });
+  const preview = await refunds.preview({ orderId: scheduled.id }, 'operator');
+  assert.equal((await refunds.apply({ orderId: scheduled.id, previewId: preview.id, confirmed: true }, 'operator')).status, 'succeeded');
+  const restarted = new JsonStore(store.path);
+  const reopenedPayments = new PaymentService({ store: restarted, quota: new QuotaService(restarted, now), now });
+  const saved = await restarted.read();
+  assert.equal(saved.version, 6);
+  assert.equal(saved.memberships.find(record => record.userId === userId)!.activations.length, 4);
+  assert.deepEqual((await reopenedPayments.membership(userId)).nextPeriod, stillPremium.nextPeriod);
+  assert.equal((await getWorkbenchAccess(restarted, userId, now())).planId, 'premium');
+
+  time = renewedEnd;
+  const switched = await reopenedPayments.membership(userId);
+  assert.equal(switched.currentPlanId, 'basic');
+  assert.equal(switched.quota.expiresAt, basicEnd);
+  assert.equal(switched.quota.remainingPercent, 90, 'the tier switch keeps usage in the same quota week');
+  assert.equal((await getWorkbenchAccess(restarted, userId, now())).features.companyJobs, false);
+  time = basicEnd;
+  assert.equal((await reopenedPayments.membership(userId)).currentPlanId, 'free');
 });
 
 test('test and public APIs use separate data, prices, sessions, and payment paths', async t => {
@@ -124,13 +221,23 @@ test('test and public APIs use separate data, prices, sessions, and payment path
   const membership = await sandbox.request('/membership', undefined, sandbox.user);
   assert.equal(membership.body.data.paymentMode, 'simulation');
   assert.equal(membership.body.data.currentPlanId, 'premium');
+  assert.equal((await new JsonStore(sandbox.store.path, 'test').read()).version, 5);
+  const scheduled = (await sandbox.request('/billing/quote?planId=basic', undefined, sandbox.user)).body.data;
+  assert.equal(scheduled.kind, 'scheduled');
+  const scheduleInput = { planId: 'basic', requestId: 'simulated-test-order-two', expectedAmountCents: scheduled.amountCents, reviewId: scheduled.reviewId };
+  const next = await sandbox.request('/billing/simulate', scheduleInput, sandbox.user);
+  assert.equal(next.status, 201);
+  assert.equal(next.body.data.status, 'paid');
+  assert.deepEqual((await sandbox.request('/billing/simulate', scheduleInput, sandbox.user)).body.data, next.body.data);
+  assert.deepEqual((await sandbox.request('/membership', undefined, sandbox.user)).body.data.nextPeriod, { planId: 'basic', ...scheduled.period });
   const orderId = simulated.body.data.id;
   const refund = await sandbox.request('/admin/orders/refund-preview', { orderId }, sandbox.admin);
   assert.equal(refund.body.data.amountCents, 2800);
   const confirmed = await sandbox.request('/admin/orders/refund-apply', { orderId, previewId: refund.body.data.id, confirmed: true }, sandbox.admin);
   assert.equal(confirmed.body.data.status, 'succeeded');
   assert.equal((await sandbox.request('/membership/workbench', undefined, sandbox.user)).body.data.planId, 'free');
-  assert.equal((await new JsonStore(sandbox.store.path, 'test').read()).version, 5);
+  assert.deepEqual((await sandbox.request('/membership', undefined, sandbox.user)).body.data.nextPeriod, { planId: 'basic', ...scheduled.period });
+  assert.equal((await new JsonStore(sandbox.store.path, 'test').read()).version, 6);
   const publicData = await live.store.read();
   assert.deepEqual([publicData.orders, publicData.refunds, publicData.memberships, publicData.pricingHistory], [[], [], [], []]);
 });

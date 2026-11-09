@@ -199,6 +199,26 @@ try {
   assert.equal((await new JsonStore(store.path).read()).version, 5);
   checks.push('admin-reviewed-pricing-and-price-change-rejected-before-provider');
 
+  const renewalQuote = (await request('/billing/quote?planId=premium', 'GET', undefined, owner)).body.data;
+  const queuedQuote = (await request('/billing/quote?planId=basic', 'GET', undefined, owner)).body.data;
+  assert.equal(renewalQuote.kind, 'renewal');
+  assert.equal(queuedQuote.kind, 'scheduled');
+  assert.equal(queuedQuote.amountCents, 1100);
+  assert.deepEqual(queuedQuote.period, renewalQuote.period);
+  assert.equal(queuedQuote.period.startsAt, premiumAccess.expiresAt);
+  assert.match(queuedQuote.reviewId, /^[a-f0-9]{64}$/);
+  const queuedCheckout = { ...oldAmount, expectedAmountCents: queuedQuote.amountCents };
+  assert.equal((await request('/billing/checkout', 'POST', queuedCheckout, owner)).body.error.code, 'BILLING_QUOTE_REQUIRED');
+  const booked = await quota.activateMembership({ userId, planId: 'basic', verifiedPaymentAt: new Date().toISOString(),
+    verifiedEventId: `fixture-${randomUUID()}`, idempotencyKey: `fixture-${randomUUID()}` });
+  assert.equal(booked.kind, 'scheduled');
+  const withBooking = (await request('/membership', 'GET', undefined, owner)).body.data;
+  assert.equal(withBooking.currentPlanId, 'premium');
+  assert.equal(withBooking.quota.expiresAt, premiumAccess.expiresAt);
+  assert.deepEqual(withBooking.nextPeriod, { planId: 'basic', ...queuedQuote.period });
+  assert.equal((await new JsonStore(store.path).read()).version, 6);
+  checks.push('renewal-dates-reviewed-and-booked-basic-term-keeps-current-premium-access');
+
   const { id: materialId, updatedAt: _updatedAt, ...material } = catalog.materials[0];
   const contentPath = `/admin/career-content/material/${materialId}`;
   const currentContent = async () => (await request(contentPath, 'GET', undefined, admin)).body.data;

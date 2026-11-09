@@ -53,10 +53,21 @@ const compareAtPrice = (plan: Plan | undefined) => plan && plan.priceCents !== n
 const selectedListPrice = computed(() => { const plan = selectedPlan.value; if (!plan || selectedAmount.value !== plan.priceCents) return null; return compareAtPrice(plan); });
 const optionPrice = (plan: Plan) => selectedPlanId.value === plan.id && quote.value && quote.value.kind !== 'upgrade' ? quote.value.amountCents : plan.priceCents;
 const optionListPrice = (plan: Plan) => selectedPlanId.value === plan.id ? (quote.value?.listPriceCents ?? null) : compareAtPrice(plan);
-const upgradeCopy = computed(() => membership.value?.policy.upgrade.expiryBase === 'current-expiry'
-  ? '初级有效期内升高级补月价差额，支付升级成功后，即免费往后增加一个月会员时间。'
-  : '升级规则暂时不可用。');
-const showUpgradeCopy = computed(() => membership.value?.currentPlanId === 'basic' && selectedPlanId.value === 'premium');
+const quoteSummary = computed(() => {
+  if (quoteLoading.value) return '正在确认价格和有效期…';
+  if (quoteError.value) return quoteError.value;
+  switch (quote.value?.kind) {
+    case 'renewal': return '再续费一个月';
+    case 'scheduled': return '预约续费一个月';
+    case 'upgrade': return '升级补差价 · 到期日顺延一个月';
+    default: return '一个自然月 · 手动续费';
+  }
+});
+const quoteExplanation = computed(() => {
+  if (quote.value?.kind === 'upgrade') return '支付成功后立即升级为高级会员，到期时间在原到期日基础上顺延一个月。';
+  if (quote.value?.kind === 'scheduled') return `${selectedPlan.value?.name}将在已购会员周期结束后生效。`;
+  return '';
+});
 const payMethodNames = computed(() => {
   if (miniProgram) return ['微信支付'];
   const names: string[] = [];
@@ -72,9 +83,10 @@ const paymentPreviewNote = computed(() => {
   return payMethodNames.value.length ? `${payMethodNames.value.join(' / ')}已开启 · 一个自然月 · 手动续费` : '支付已开启 · 一个自然月 · 手动续费';
 });
 const paymentHint = computed(() => {
-  if (simulated.value) return '本次开通只记录到测试环境。';
+  if (simulated.value) return '本次支付只记录到测试环境。';
   if (!membership.value?.paymentAvailable) return '支付未开放，不会扣费或开通会员。';
   if (miniProgram && iosDevice) return 'iOS 端暂不支持购买虚拟会员。';
+  if (quote.value?.kind === 'scheduled' || quote.value?.kind === 'renewal') return '支付成功后，续费周期按已付会员时间顺延。';
   if (miniProgram) return '支付由微信安全处理，权益到账后立即生效。';
   if (paymentMethods.value?.wechat && paymentMethods.value?.alipay) return '支持微信扫码或支付宝支付，权益到账后立即生效。';
   if (paymentMethods.value?.alipay) return '支付宝安全支付，权益到账后立即生效。';
@@ -122,9 +134,10 @@ async function load() {
     error.value = cause instanceof Error ? cause.message : '权益信息暂时不可用，请重试。';
   } finally { loading.value = false; }
 }
-async function openPurchase(id: PlanId = 'basic') {
+async function openPurchase(id?: PlanId) {
   if (!membership.value || !paidPlans.value.length) return;
-  selectedPlanId.value = id === 'free' ? 'basic' : id;
+  const target = id ?? membership.value.currentPlanId;
+  selectedPlanId.value = target === 'free' ? 'basic' : target;
   purchaseOpen.value = true;
   paymentError.value = '';
   nativePayment.value = undefined;
@@ -149,13 +162,13 @@ async function loadQuote() {
   quote.value = undefined;
   quoteError.value = '';
   quoteLoading.value = false;
-  if (!membership.value?.paymentAvailable || plan === 'free') return;
+  if (!membership.value || plan === 'free') return;
   quoteLoading.value = true;
   try {
     const result = await membershipApi.quote(plan);
     if (version === quoteRequest) quote.value = result;
   } catch (cause) {
-    if (version === quoteRequest) quoteError.value = cause instanceof Error ? cause.message : '价格暂时无法确认，请稍后重试。';
+    if (version === quoteRequest) quoteError.value = cause instanceof Error ? cause.message : '价格和有效期暂时无法确认，请稍后重试。';
   } finally { if (version === quoteRequest) quoteLoading.value = false; }
 }
 function requestId() {
@@ -184,14 +197,14 @@ async function waitForPayment(orderId: string, attempts = 10): Promise<boolean> 
   return false;
 }
 async function reportPaymentError(cause: unknown) {
-  if (cause instanceof ApiError && cause.code === 'BILLING_PRICE_CHANGED' && purchaseOpen.value) await loadQuote();
+  if (cause instanceof ApiError && ['BILLING_PRICE_CHANGED', 'BILLING_PERIOD_CHANGED'].includes(cause.code) && purchaseOpen.value) await loadQuote();
   paymentError.value = cause instanceof Error ? cause.message : '支付未完成，请稍后重试。';
 }
 async function payNative(approved: MembershipQuote) {
   paymentError.value = '';
   nativePayment.value = undefined;
   try {
-    const result = await membershipApi.checkout(approved.planId, requestId(), 'native', approved.amountCents);
+    const result = await membershipApi.checkout(approved.planId, requestId(), 'native', approved.amountCents, approved.reviewId);
     if (!result.native) throw new Error('扫码支付参数缺失，请稍后重试。');
     nativePayment.value = result.native;
     const confirmed = await waitForPayment(result.order.id, 120);
@@ -217,7 +230,7 @@ async function pay() {
     if (!miniProgram) { await payNative(approved); return; }
     const code = await loginCode();
     await membershipApi.bindWechat(code);
-    const result = await membershipApi.checkout(approved.planId, requestId(), 'jsapi', approved.amountCents);
+    const result = await membershipApi.checkout(approved.planId, requestId(), 'jsapi', approved.amountCents, approved.reviewId);
     if (!result.payment) throw new Error('支付参数缺失，请稍后重试。');
     await requestPayment(result.payment);
     const confirmed = await waitForPayment(result.order.id);
@@ -239,7 +252,7 @@ async function payAlipay() {
   paymentError.value = '';
   try {
     const channel = mobileBrowser() ? 'alipay-wap' : 'alipay-page';
-    const result = await membershipApi.checkout(approved.planId, requestId(), channel, approved.amountCents);
+    const result = await membershipApi.checkout(approved.planId, requestId(), channel, approved.amountCents, approved.reviewId);
     if (!result.alipay) throw new Error('支付宝支付链接缺失，请稍后重试。');
     uni.setStorageSync(ALIPAY_PENDING_KEY, result.order.id);
     // #ifdef H5
@@ -255,7 +268,7 @@ async function simulatePayment() {
   paying.value = true;
   paymentError.value = '';
   try {
-    await membershipApi.simulateCheckout(approved.planId, requestId(), approved.amountCents);
+    await membershipApi.simulateCheckout(approved.planId, requestId(), approved.amountCents, approved.reviewId);
     closePurchase();
     await load();
     uni.showToast({ title: '模拟支付成功', icon: 'success' });
@@ -288,8 +301,22 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
     <view v-else-if="error" class="glass-panel benefits-state" role="alert"><AppIcon name="info" :size="24" /><text>{{ error }}</text><button class="button secondary" @click="load" role="button" tabindex="0">重新加载</button></view>
     <template v-else-if="membership">
       <view class="glass-panel benefits-current">
-        <view class="benefits-current-main"><view class="benefits-gem"><AppIcon name="crown" :size="27" /></view><view><text class="benefits-overline">我的当前权益</text><text class="benefits-current-name">{{ membership.currentPlanName }}</text></view></view>
-        <button class="button primary benefits-upgrade" @click="openPurchase()" role="button" tabindex="0">查看会员方案<AppIcon name="arrow" :size="16" /></button>
+        <view class="benefits-current-main">
+          <view class="benefits-gem" :class="membership.currentPlanId">
+            <AppIcon :name="membership.currentPlanId === 'free' ? 'crown' : `member-${membership.currentPlanId}`" :size="27" />
+          </view>
+          <view>
+            <text class="benefits-overline">我的当前权益</text>
+            <text class="benefits-current-name">{{ membership.currentPlanName }}</text>
+            <text v-if="membership.mode === 'active'" class="benefits-membership-date">到期时间 {{ quotaTime(membership.quota.expiresAt) }}</text>
+            <text v-if="membership.nextPeriod" class="benefits-membership-date">
+              已预约{{ membership.nextPeriod.planId === 'basic' ? '初级会员' : '高级会员' }}，{{ quotaTime(membership.nextPeriod.startsAt) }}生效
+            </text>
+          </view>
+        </view>
+        <button class="button primary benefits-upgrade" @click="openPurchase()" role="button" tabindex="0">
+          {{ membership.mode === 'active' ? '续费或查看方案' : '查看会员方案' }}<AppIcon name="arrow" :size="16" />
+        </button>
       </view>
 
       <view class="glass-panel benefits-quota">
@@ -314,7 +341,8 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
           <text v-if="plan.promotionLabel" class="benefit-promo">{{ plan.promotionLabel }}</text>
           <view class="benefit-card-list benefit-card-list-full"><view v-for="feature in cardFeatures(plan)" :key="feature"><AppIcon name="check" :size="13" /><text>{{ feature }}</text></view></view>
           <view class="benefit-card-list benefit-card-list-compact"><view v-for="feature in compactFeatures[plan.id]" :key="feature"><AppIcon name="check" :size="13" /><text>{{ feature }}</text></view></view>
-          <button v-if="plan.id === membership.currentPlanId" class="button secondary benefit-plan-button current" :aria-label="`当前权益：${plan.name}`" disabled role="button"><text class="benefit-action-full">当前权益</text><text class="benefit-action-compact">当前</text></button>
+          <button v-if="plan.id === 'free' && plan.id === membership.currentPlanId" class="button secondary benefit-plan-button current" :aria-label="`当前权益：${plan.name}`" disabled role="button"><text class="benefit-action-full">当前权益</text><text class="benefit-action-compact">当前</text></button>
+          <button v-else-if="plan.id === membership.currentPlanId" class="button secondary benefit-plan-button" :aria-label="`再续费一个月${plan.name}`" @click="openPurchase(plan.id)" role="button" tabindex="0"><text class="benefit-action-full">再续费一个月</text><text class="benefit-action-compact">续费</text><AppIcon name="chevron" :size="13" /></button>
           <button v-else class="button secondary benefit-plan-button" :aria-label="`查看${plan.name}方案详情`" @click="openPurchase(plan.id)" role="button" tabindex="0"><text class="benefit-action-full">查看方案</text><text class="benefit-action-compact">详情</text><AppIcon name="chevron" :size="13" /></button>
         </view>
       </view>
@@ -333,12 +361,27 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
 
     <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? payMethodNote : '当前为方案预览，支付暂未开放'" @close="closePurchase">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text v-if="optionListPrice(plan)" class="benefits-checkout-option-list">{{ price(optionListPrice(plan)) }}</text><text>{{ price(optionPrice(plan)) }}</text></button></view>
-      <view class="glass-panel benefits-checkout-summary"><view class="benefits-checkout-summary-heading"><view><text class="benefits-summary-name">{{ selectedPlan.name }}</text><text class="benefits-summary-period">{{ quoteLoading ? '正在确认价格…' : quoteError ? quoteError : (quote?.kind === 'upgrade' ? '升级补差价 · 支付成功后会员顺延一个月' : '一个自然月 · 手动续费') }}</text></view><view class="benefits-summary-prices"><text class="benefits-summary-price">{{ price(selectedAmount) }}</text><text v-if="selectedListPrice" class="benefits-summary-list">{{ price(selectedListPrice) }}</text></view></view><view v-for="row in rows" :key="row.key" class="benefits-checkout-feature"><text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text></view></view>
-      <view v-if="showUpgradeCopy" class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ upgradeCopy }}</text></view>
+      <view class="glass-panel benefits-checkout-summary">
+        <view class="benefits-checkout-summary-heading">
+          <view>
+            <text class="benefits-summary-name">{{ selectedPlan.name }}</text>
+            <text class="benefits-summary-period">{{ quoteSummary }}</text>
+          </view>
+          <view class="benefits-summary-prices"><text class="benefits-summary-price">{{ price(selectedAmount) }}</text><text v-if="selectedListPrice" class="benefits-summary-list">{{ price(selectedListPrice) }}</text></view>
+        </view>
+        <view v-if="quote?.period" class="benefits-checkout-dates">
+          <text v-if="quote.period.startsAt">预计生效 {{ quotaTime(quote.period.startsAt) }}</text>
+          <text>{{ quote.kind === 'upgrade' ? '预计到期' : '预计续费至' }} {{ quotaTime(quote.period.expiresAt) }}</text>
+        </view>
+        <view v-for="row in rows" :key="row.key" class="benefits-checkout-feature">
+          <text>{{ row.label }}</text><text class="benefits-checkout-feature-value">{{ selectedPlan.features[row.key].trim() || '待确认' }}</text>
+        </view>
+      </view>
+      <view v-if="quoteExplanation" class="benefits-checkout-message"><AppIcon name="info" :size="17" /><text>{{ quoteExplanation }}</text></view>
       <view v-if="nativePayment" class="benefits-native-payment">
         <image class="benefits-native-qr" :src="nativePayment.qrCodeDataUrl" mode="aspectFit" aria-label="微信支付二维码" />
         <text class="benefits-native-title">请使用微信扫一扫支付 {{ price(selectedAmount) }}</text>
-        <text class="benefits-native-note">{{ paying ? '正在等待扫码支付结果…' : '二维码有效期 2 小时，支付成功后自动开通。' }}</text>
+        <text class="benefits-native-note">{{ paying ? '正在等待扫码支付结果…' : '二维码有效期 2 小时，支付成功后按所选方案生效。' }}</text>
       </view>
       <text v-if="paymentError" class="benefits-checkout-error" role="alert">{{ paymentError }}</text>
       <view class="benefits-checkout-footer">
@@ -361,9 +404,12 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
 .benefits-current { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px; }
 .benefits-current-main { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .benefits-gem { width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 12px; background: #edf2fb; color: #2458c5; }
+.benefits-gem.basic { background: #e0eeff; }
+.benefits-gem.premium { background: linear-gradient(135deg, #f3e7ff, #fff0dc); }
 .benefits-overline,.benefits-current-name { display: block; }
 .benefits-overline { font-size: 13px; color: #536174; }
 .benefits-current-name { margin-top: 5px; font-size: 24px; line-height: 1.4; font-weight: 650; color: #1f2937; }
+.benefits-membership-date { display: block; margin-top: 5px; color: #536174; font-size: 13px; line-height: 1.7; }
 .benefits-upgrade { border-radius: 10px; }
 .benefits-quota { margin-top: 18px; padding: 24px 28px; }
 .benefits-quota-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
@@ -422,6 +468,7 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
 .benefits-summary-prices { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
 .benefits-summary-price { font-size: 27px; font-weight: 600; color: #1f2937; white-space: nowrap; }
 .benefits-summary-list { color: #8a96a6; font-size: 14px; text-decoration: line-through; text-decoration-thickness: 1px; }
+.benefits-checkout-dates { display: flex; flex-direction: column; gap: 4px; padding: 9px 0 14px; border-bottom: 1px solid #d8dfe8; color: #344c75; font-size: 13px; line-height: 1.7; }
 .benefits-checkout-feature { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; font-size: 14px; padding: 10px 0; line-height: 1.8; color: #38465a; }
 .benefits-checkout-feature > text:first-child { color: #536174; flex-shrink: 0; }
 .benefits-checkout-feature-value { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }

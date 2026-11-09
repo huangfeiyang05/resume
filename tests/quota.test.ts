@@ -176,6 +176,45 @@ test('continuous renewal extends expiry without resetting usage, and the last we
   assert.equal((await f.quota.current('alice')).remainingPercent, 100);
 });
 
+test('an out-of-order renewal receipt preserves the paid term already in effect', async t => {
+  const f = await fixture(t);
+  const premium = await f.quota.activateMembership(f.activation('alice', 'premium'));
+  f.setNow('2026-11-08T06:30:00.000Z');
+  const basic = await f.quota.activateMembership(f.activation('alice', 'basic'));
+  assert.equal(basic.startsAt, premium.expiresAt);
+
+  f.setNow('2026-12-07T06:30:00.000Z');
+  const receipt = f.activation('alice', 'premium', { verifiedPaymentAt: '2026-11-07T06:30:00.000Z', deferTierChange: true });
+  const booked = await f.quota.activateMembership(receipt);
+  assert.equal(booked.kind, 'scheduled');
+  assert.equal(booked.verifiedPaymentAt, receipt.verifiedPaymentAt);
+  assert.equal(booked.appliedAt, new Date(f.now()).toISOString());
+  assert.equal(booked.startsAt, basic.expiresAt);
+  assert.deepEqual(await f.restart().activateMembership(receipt), booked);
+  assert.equal((await f.restart().getMembershipRecord('alice'))?.planId, 'basic');
+  f.setNow(basic.expiresAt);
+  assert.equal((await f.restart().getMembershipRecord('alice'))?.planId, 'premium');
+});
+
+test('a delayed upgrade receipt preserves usage accepted on the scheduled basic term', async t => {
+  const f = await fixture(t);
+  await f.quota.activateMembership(f.activation('alice', 'premium'));
+  f.setNow('2026-11-08T06:30:00.000Z');
+  const basic = await f.quota.activateMembership(f.activation('alice', 'basic'));
+  f.setNow('2026-12-07T06:30:00.200Z');
+  await f.quota.reserve('alice', 'task-before-receipt', hash, 10_000);
+  await f.quota.dispatch('alice', 'task-before-receipt');
+  await f.quota.settle('alice', 'task-before-receipt', usage(10_000));
+  f.setNow('2026-12-07T06:30:00.400Z');
+  const upgrade = await f.quota.activateMembership(f.activation('alice', 'premium', { verifiedPaymentAt: '2026-12-07T06:30:00.000Z' }));
+  assert.equal(upgrade.kind, 'upgrade');
+  assert.equal(upgrade.startsAt, '2026-12-07T06:30:00.400Z');
+  assert.equal(upgrade.expiresAt, '2027-02-05T06:30:00.000Z');
+  assert.equal(upgrade.quotaAnchorAt, basic.quotaAnchorAt);
+  assert.equal((await f.restart().getMembershipRecord('alice'))?.planId, 'premium');
+  assert.equal((await f.restart().current('alice')).remainingPercent, 99);
+});
+
 test('restart releases only undispatched reservations and persists dispatched unknown usage as pending', async t => {
   const f = await fixture(t);
   await f.quota.reserve('alice', 'queued', hash, 1000);

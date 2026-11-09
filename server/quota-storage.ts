@@ -1,4 +1,4 @@
-import type { PaidPlanId } from '../shared/types.js';
+import type { MembershipTermKind, PaidPlanId } from '../shared/types.js';
 import { calculateMembershipPeriod } from './membership.js';
 import { membershipAt, membershipPeriods } from './membership-periods.js';
 import type { StoredRefund } from './refund-storage.js';
@@ -25,8 +25,11 @@ export interface MembershipActivation extends MembershipBasis {
   verifiedEventId: string;
   idempotencyKey: string;
   verifiedPaymentAt: string;
-  kind: 'purchase' | 'renewal' | 'upgrade';
-  /** Basis at payment time if a prior refund changed the schedule. */
+  kind: MembershipTermKind;
+  /** Late receipts are booked at settlement without shifting previously paid periods. */
+  appliedAt?: string;
+  deferTierChange?: true;
+  /** Basis used at booking if it differs from the preceding activation. */
   basis?: MembershipBasis | null;
 }
 
@@ -62,7 +65,7 @@ export interface StoredAiUsage {
   reconciliations: QuotaReconciliation[];
 }
 
-export interface QuotaStorage { memberships: StoredMembership[]; aiUsage: StoredAiUsage[]; refunds?: StoredRefund[] }
+export interface QuotaStorage { version?: 3 | 4 | 5 | 6; memberships: StoredMembership[]; aiUsage: StoredAiUsage[]; refunds?: StoredRefund[] }
 
 function malformed(): never { throw new Error('Unsupported or malformed quota database.'); }
 
@@ -95,13 +98,16 @@ export function normalizeTokenUsage(value: unknown): TokenUsage {
 }
 
 function normalizeActivation(value: unknown): MembershipActivation {
-  const item = object(value, ['verifiedEventId', 'idempotencyKey', 'planId', 'verifiedPaymentAt', 'kind', 'startsAt', 'expiresAt', 'quotaAnchorAt'], ['basis']);
+  const item = object(value, ['verifiedEventId', 'idempotencyKey', 'planId', 'verifiedPaymentAt', 'kind', 'startsAt', 'expiresAt', 'quotaAnchorAt'], ['basis', 'appliedAt', 'deferTierChange']);
   if (!quotaIdentifier(item.verifiedEventId) || !quotaIdentifier(item.idempotencyKey) || !plan(item.planId)
-    || !['purchase', 'renewal', 'upgrade'].includes(item.kind as string)
+    || !['purchase', 'renewal', 'upgrade', 'scheduled'].includes(item.kind as string)
     || ![item.verifiedPaymentAt, item.startsAt, item.expiresAt, item.quotaAnchorAt].every(quotaInstant)
     || Date.parse(item.expiresAt as string) <= Date.parse(item.startsAt as string)
     || Date.parse(item.quotaAnchorAt as string) > Date.parse(item.startsAt as string)
     || Date.parse(item.verifiedPaymentAt as string) > Date.parse(item.startsAt as string)) return malformed();
+  if (item.appliedAt !== undefined && (!quotaInstant(item.appliedAt) || Date.parse(item.appliedAt) <= Date.parse(item.verifiedPaymentAt as string)
+    || Date.parse(item.appliedAt) > Date.parse(item.startsAt as string))) return malformed();
+  if (item.deferTierChange !== undefined && (item.deferTierChange !== true || item.kind === 'upgrade')) return malformed();
   if (item.basis !== undefined && item.basis !== null) {
     const basis = object(item.basis, ['planId', 'startsAt', 'expiresAt', 'quotaAnchorAt']);
     if (!plan(basis.planId) || ![basis.startsAt, basis.expiresAt, basis.quotaAnchorAt].every(quotaInstant)
@@ -119,15 +125,17 @@ function normalizeMembership(value: unknown): StoredMembership {
     || !Array.isArray(item.activations) || item.activations.length === 0) return malformed();
   const activations = item.activations.map(normalizeActivation);
   const latest = activations.at(-1)!;
+  const bookedAt = (event: MembershipActivation) => Date.parse(event.appliedAt ?? event.verifiedPaymentAt);
   if (latest.planId !== item.planId || latest.expiresAt !== item.expiresAt || latest.quotaAnchorAt !== item.quotaAnchorAt
-    || Date.parse(latest.verifiedPaymentAt) > Date.parse(item.updatedAt as string)
-    || activations.some((event, index) => index > 0 && Date.parse(event.verifiedPaymentAt) < Date.parse(activations[index - 1].verifiedPaymentAt))) return malformed();
+    || bookedAt(latest) > Date.parse(item.updatedAt as string)
+    || activations.some((event, index) => index > 0 && bookedAt(event) < bookedAt(activations[index - 1]))) return malformed();
   let previous: MembershipActivation | undefined, expectedStartsAt: string | undefined;
   for (const event of activations) {
     if (event.basis !== undefined && !previous) return malformed();
     const basis = event.basis === undefined ? previous : event.basis;
     let expected;
-    try { expected = calculateMembershipPeriod({ planId: event.planId, verifiedPaymentAt: event.verifiedPaymentAt,
+    try { expected = calculateMembershipPeriod({ planId: event.planId, verifiedPaymentAt: event.appliedAt ?? event.verifiedPaymentAt,
+      deferTierChange: event.kind === 'scheduled',
       ...(basis ? { current: { planId: basis.planId, expiresAt: basis.expiresAt } } : {}) }); }
     catch { return malformed(); }
     if (expected.kind !== event.kind || expected.startsAt !== event.startsAt || expected.expiresAt !== event.expiresAt
@@ -203,15 +211,17 @@ export function normalizeQuotaStorage(source: unknown, refunds: readonly StoredR
       const matchesPeriod = (period: MembershipBasis) => period.planId === row.planId && period.quotaAnchorAt === row.quotaAnchorAt
         && row.cycleEndsAt === new Date(Math.min(cycleStart + quotaWeekMilliseconds, Date.parse(period.expiresAt))).toISOString();
       const legacy = membership.activations.some((event, index) => {
-          const next = membership.activations[index + 1];
-          return Date.parse(event.verifiedPaymentAt) <= createdAt && Date.parse(event.expiresAt) > createdAt
-            && (!next || createdAt <= Date.parse(next.verifiedPaymentAt)) && matchesPeriod(event);
+        const next = membership.activations[index + 1];
+        return Date.parse(event.appliedAt ?? event.verifiedPaymentAt) <= createdAt && Date.parse(event.expiresAt) > createdAt
+          && (!next || createdAt <= Date.parse(next.appliedAt ?? next.verifiedPaymentAt)) && matchesPeriod(event);
       });
       if (!legacy) {
-        if (!refunds.some(refund => refund.userId === row.userId && refund.confirmedAt
-          && Date.parse(refund.confirmedAt) <= createdAt)) return malformed();
-        const period = membershipAt(membershipPeriods(membership, refunds, createdAt), createdAt);
-        if (!period || !matchesPeriod(period)) return malformed();
+        // A receipt or refund may have been saved in the same millisecond as the reservation.
+        const validAt = (at: number) => {
+          const period = membershipAt(membershipPeriods(membership, refunds, at), at);
+          return period && matchesPeriod(period);
+        };
+        if (!validAt(createdAt) && !validAt(createdAt - 1)) return malformed();
       }
     }
   }

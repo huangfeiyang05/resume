@@ -37,7 +37,7 @@ export interface StoredPhoneChallenge extends Omit<StoredEmailChallenge, 'email'
 }
 
 export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStorage, PaymentStorage, CareerMediaStorage {
-  version: 3 | 4 | 5;
+  version: 3 | 4 | 5 | 6;
   environment?: 'test';
   refunds: StoredRefund[];
   pricingHistory: AdminPricePublication[];
@@ -77,10 +77,10 @@ export class JsonStore {
   protected async loadFile(): Promise<Database> {
     try {
       const parsed = JSON.parse(await readFile(this.path, 'utf8'));
-      if (!parsed || ![1, 2, 3, 4, 5].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
+      if (!parsed || ![1, 2, 3, 4, 5, 6].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
         throw new Error('Unsupported or malformed local database.');
       }
-      if (this.environment === 'test' ? parsed.environment !== 'test' || parsed.version !== 5 : parsed.environment !== undefined) {
+      if (this.environment === 'test' ? parsed.environment !== 'test' || parsed.version < 5 : parsed.environment !== undefined) {
         throw new Error('Database environment does not match the service.');
       }
       // Old shared data is retained in a quarantined workspace, never claimed by the first signup.
@@ -152,6 +152,10 @@ export class JsonStore {
       if (parsed.version < 4 && refunds.length) throw new Error('Refund records require database version 4 or later.');
       if (parsed.version < 5 && pricingHistory.length) throw new Error('Published prices require database version 5.');
       const quota = normalizeQuotaStorage(parsed, refunds);
+      if (parsed.version < 6 && (payment.orders.some(order => order.reviewId)
+        || quota.memberships.some(row => row.activations.some(event => event.kind === 'scheduled' || event.appliedAt || event.deferTierChange)))) {
+        throw new Error('Reviewed membership renewals require database version 6.');
+      }
       if (refunds.length) {
         const orders = new Map(payment.orders.map(order => [order.id, order]));
         const activations = new Map(quota.memberships.map(row => [row.userId, row.activations]));

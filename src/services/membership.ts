@@ -41,6 +41,10 @@ export const membershipApi = {
     if (!state || typeof state !== 'object' || Array.isArray(state) || typeof state.paymentAvailable !== 'boolean'
       || (state.paymentMode !== undefined && state.paymentMode !== 'simulation')) invalidResponse();
     const quota = validateQuota(state.quota);
+    const next = state.nextPeriod;
+    if (next !== undefined && (!next || typeof next !== 'object' || Array.isArray(next) || !['basic', 'premium'].includes(next.planId)
+      || !isInstant(next.startsAt) || !isInstant(next.expiresAt) || Date.parse(next.startsAt) >= Date.parse(next.expiresAt)
+      || (quota.status === 'active' && Date.parse(next.startsAt) < Date.parse(quota.expiresAt!)))) invalidResponse();
     if (state.mode === 'preview') {
       if (state.currentPlanId !== 'free' || state.currentPlanName !== '免费体验' || state.limitsEnforced !== false || quota.status === 'active') invalidResponse();
     } else if (state.mode === 'active') {
@@ -76,12 +80,18 @@ export const membershipApi = {
   async quote(planId: PlanId): Promise<MembershipQuote> {
     const quote = await request<MembershipQuote>(`/billing/quote?planId=${encodeURIComponent(planId)}`);
     if (!quote || typeof quote !== 'object' || Array.isArray(quote)
-      || !['basic', 'premium'].includes(quote.planId) || !Number.isSafeInteger(quote.amountCents) || quote.amountCents <= 0
-      || !['purchase', 'renewal', 'upgrade'].includes(quote.kind) || !['free', 'basic', 'premium'].includes(quote.currentPlanId)
+      || !['basic', 'premium'].includes(quote.planId) || quote.planId !== planId || !Number.isSafeInteger(quote.amountCents) || quote.amountCents <= 0
+      || !['purchase', 'renewal', 'upgrade', 'scheduled'].includes(quote.kind) || !['free', 'basic', 'premium'].includes(quote.currentPlanId)
       || (quote.kind === 'purchase' && quote.currentPlanId !== 'free')
       || (quote.kind === 'upgrade' && quote.currentPlanId !== 'basic')
       || (quote.listPriceCents !== undefined && (!Number.isSafeInteger(quote.listPriceCents) || quote.listPriceCents < quote.amountCents))
-      || (quote.promotionLabel !== undefined && (typeof quote.promotionLabel !== 'string' || !quote.promotionLabel))) invalidResponse();
+      || (quote.promotionLabel !== undefined && (typeof quote.promotionLabel !== 'string' || !quote.promotionLabel))
+      || (quote.reviewId !== undefined && (typeof quote.reviewId !== 'string' || !/^[a-f0-9]{64}$/.test(quote.reviewId)))) invalidResponse();
+    const period = quote.period;
+    if (period !== undefined && (!period || typeof period !== 'object' || Array.isArray(period) || quote.kind === 'purchase'
+      || !isInstant(period.expiresAt) || (quote.kind === 'upgrade' ? period.startsAt !== null
+        : !isInstant(period.startsAt) || Date.parse(period.startsAt) >= Date.parse(period.expiresAt)))) invalidResponse();
+    if ((quote.kind === 'scheduled' && !quote.reviewId) || (quote.reviewId && quote.kind !== 'purchase' && !period)) invalidResponse();
     return quote;
   },
   async bindWechat(code: string): Promise<{ bound: true; openidMasked: string }> {
@@ -96,9 +106,9 @@ export const membershipApi = {
       || typeof result.wechat !== 'boolean' || typeof result.alipay !== 'boolean') invalidResponse();
     return result;
   },
-  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi', expectedAmountCents?: number): Promise<CheckoutResult> {
+  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi', expectedAmountCents?: number, reviewId?: string): Promise<CheckoutResult> {
     const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId, channel,
-      ...(expectedAmountCents === undefined ? {} : { expectedAmountCents }) });
+      ...(expectedAmountCents === undefined ? {} : { expectedAmountCents }), ...(reviewId ? { reviewId } : {}) });
     if (!result || typeof result !== 'object' || Array.isArray(result)) invalidResponse();
     const order = validateOrder(result.order);
     if (order.channel === 'alipay-page' || order.channel === 'alipay-wap') {
@@ -130,8 +140,8 @@ export const membershipApi = {
   async order(orderId: string): Promise<PaymentOrder> {
     return validateOrder(await request<PaymentOrder>(`/billing/orders/${encodeURIComponent(orderId)}`));
   },
-  async simulateCheckout(planId: PlanId, requestId: string, expectedAmountCents: number): Promise<PaymentOrder> {
-    const order = validateOrder(await request<PaymentOrder>('/billing/simulate', 'POST', { planId, requestId, expectedAmountCents }));
+  async simulateCheckout(planId: PlanId, requestId: string, expectedAmountCents: number, reviewId?: string): Promise<PaymentOrder> {
+    const order = validateOrder(await request<PaymentOrder>('/billing/simulate', 'POST', { planId, requestId, expectedAmountCents, ...(reviewId ? { reviewId } : {}) }));
     if (order.status !== 'paid' || order.planId !== planId || order.amountCents !== expectedAmountCents) invalidResponse();
     return order;
   },

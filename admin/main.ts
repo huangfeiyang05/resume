@@ -11,7 +11,7 @@ import './style.css';
 const titles = { overview: '运营概览', users: '用户与会员', orders: '用户与会员', pricing: '会员价格', tasks: '诊断与用量', content: '求职内容', companies: '企业资料' } as const;
 type Section = keyof typeof titles;
 const planNames = { free: '免费', basic: '初级', premium: '高级' };
-const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级' };
+const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级', scheduled: '预约续费' };
 const statusNames = { queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const usageNames = { reserved: '已预占', dispatched: '已派发', pending: '待核对', settled: '已结算', released: '已释放' };
 const orderStatuses = { pending: '待支付确认', paid: '已支付', closed: '已关闭', failed: '失败' };

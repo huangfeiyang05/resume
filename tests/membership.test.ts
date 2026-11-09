@@ -179,11 +179,17 @@ test('same-tier renewals preserve an active term and expired memberships start f
   }
 });
 
-test('period calculation rejects invalid timestamps, invalid plans and active downgrades', () => {
+test('premium members can book a basic term that starts at their premium expiry', () => {
+  assert.deepEqual(calculateMembershipPeriod({ planId: 'basic', verifiedPaymentAt: '2026-10-25T00:00:00Z',
+    current: { planId: 'premium', expiresAt: '2026-10-31T16:00:00+08:00' } }), {
+    kind: 'scheduled', planId: 'basic', startsAt: '2026-10-31T08:00:00.000Z', expiresAt: '2026-11-30T08:00:00.000Z',
+  });
+});
+
+test('period calculation rejects invalid timestamps and invalid plans', () => {
   for (const verifiedPaymentAt of ['bad-date', '2026-10-25T12:00:00', '2026-13-25T12:00:00Z', '2026-02-31T12:00:00Z']) {
     assert.throws(() => calculateMembershipPeriod({ planId: 'premium', verifiedPaymentAt }), error => error instanceof HttpError && error.status === 400);
   }
   assert.throws(() => calculateMembershipPeriod({ planId: 'free' as any, verifiedPaymentAt: '2026-10-25T00:00:00Z' }), error => error instanceof HttpError && error.status === 400);
-  assert.throws(() => calculateMembershipPeriod({ planId: 'basic', verifiedPaymentAt: '2026-10-25T00:00:00Z', current: { planId: 'premium', expiresAt: '2026-11-01T00:00:00Z' } }), error => error instanceof HttpError && error.code === 'MEMBERSHIP_DOWNGRADE_NOT_SUPPORTED');
   assert.throws(() => calculateMembershipPeriod({ planId: 'basic', verifiedPaymentAt: '2026-10-25T00:00:00Z', current: { planId: 'basic', expiresAt: 'not-a-date' } }), error => error instanceof HttpError && error.status === 400);
 });

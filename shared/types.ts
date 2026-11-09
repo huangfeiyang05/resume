@@ -18,7 +18,7 @@ export interface ResumeExportFile extends ResumeExportInput {
   mimeType: string;
   contentBase64: string;
 }
-export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput, MembershipPrices } from './membership.js';
+export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput, MembershipPrices, MembershipTerm, MembershipTermKind } from './membership.js';
 export type { PaymentOrder, PaymentOrderStatus, PaymentChannel, WechatPaymentParams, NativePaymentParams, AlipayPaymentParams, CheckoutResult, MembershipQuote, WechatBindResult } from './payment.js';
 export type { AiQuotaSummary } from './quota.js';
 export type { WorkbenchAccess, WorkbenchFeature } from './workbench.js';

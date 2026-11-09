@@ -104,7 +104,9 @@ test('checkout binds WeChat, creates one pending order per request id and quotes
   const { service, request, bind } = await fixture(t);
   const quote = await request('/billing/quote?planId=basic');
   assert.equal(quote.status, 200);
-  assert.deepEqual(quote.body.data, { planId: 'basic', amountCents: 990, kind: 'purchase', currentPlanId: 'free' });
+  const { reviewId, ...offer } = quote.body.data;
+  assert.match(reviewId, /^[a-f0-9]{64}$/);
+  assert.deepEqual(offer, { planId: 'basic', amountCents: 990, kind: 'purchase', currentPlanId: 'free' });
   assert.equal((await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'request-id-123456' })).body.error.code, 'WECHAT_NOT_BOUND');
   await bind();
   const first = await request('/billing/checkout', 'POST', { planId: 'basic', requestId: 'request-id-123456' });

@@ -150,6 +150,28 @@ test('after refunding the only term, a new purchase starts fresh and survives a 
   assert.equal((await restarted.read()).memberships[0].activations.length, 2);
 });
 
+test('refunding the current premium term preserves a paid basic booking and prior usage', async t => {
+  const f = await fixture(t);
+  const premium = await f.paid('premium');
+  f.at('2025-01-12T01:00:00Z');
+  const basic = await f.paid('basic');
+  f.at('2025-01-14T01:00:00Z');
+  await f.quota.reserve('alice', 'task-before-refund', 'b'.repeat(64), 10_000);
+  await f.quota.finish('alice', 'task-before-refund');
+  const gateway: RefundGateway = { async submitRefund() { return 'succeeded'; }, async queryRefund() { return 'succeeded'; } };
+  const refunds = new AdminRefunds(f.store, { alipay: gateway }, f.now);
+  t.after(() => refunds.stop());
+  const orderId = premium.order.id;
+  const preview = await refunds.preview({ orderId }, 'operator');
+  assert.deepEqual(preview.remaining, [{ planId: 'basic', startsAt: basic.period.startsAt, expiresAt: basic.period.expiresAt }]);
+  assert.equal((await refunds.apply({ orderId, previewId: preview.id, confirmed: true }, 'operator')).status, 'succeeded');
+  const reopened = new JsonStore(f.store.path);
+  assert.equal((await getWorkbenchAccess(reopened, 'alice', new Date(f.now()))).planId, 'free');
+  assert.equal((await reopened.read()).aiUsage.length, 1);
+  f.at(basic.period.startsAt);
+  assert.equal((await getWorkbenchAccess(reopened, 'alice', new Date(f.now()))).planId, 'basic');
+});
+
 const target = { id: 'fixture-refund', outTradeNo: 'YF20251109000000000001', transactionId: 'fixture-transaction', amountCents: 3499 };
 const time = Date.parse('2025-11-09T01:00:00Z');
 function keys() {

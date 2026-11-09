@@ -1,5 +1,7 @@
 import type { MembershipActivation, MembershipBasis, StoredMembership } from './quota-storage.js';
 import type { StoredRefund } from './refund-storage.js';
+import type { PaidPlanId } from '../shared/types.js';
+import { calculateMembershipPeriod } from './membership.js';
 
 export interface MembershipPeriod extends MembershipBasis {
   kind: MembershipActivation['kind'];
@@ -15,7 +17,7 @@ export function membershipPeriods(record: StoredMembership | undefined, refunds:
   if (excludeEventId) revoked.add(excludeEventId);
   let periods: MembershipPeriod[] = [];
   for (const [index, event] of record.activations.entries()) {
-    if (Date.parse(event.verifiedPaymentAt) > now) break;
+    if (Date.parse(event.appliedAt ?? event.verifiedPaymentAt) > now) break;
     if (revoked.has(event.verifiedEventId)) continue;
     let startsAt = event.startsAt;
     if (event.kind === 'upgrade') {
@@ -42,4 +44,13 @@ export function membershipPeriods(record: StoredMembership | undefined, refunds:
 
 export function membershipAt(periods: MembershipPeriod[], now: number): MembershipPeriod | undefined {
   return periods.find(period => Date.parse(period.startsAt) <= now && now < Date.parse(period.expiresAt));
+}
+
+/** Append after paid windows. Upgrade immediately only when the last paid window is active now. */
+export function planMembershipPeriod(periods: MembershipPeriod[], planId: PaidPlanId, at: number, deferTierChange = false) {
+  const current = membershipAt(periods, at);
+  const basis = periods.at(-1);
+  const term = calculateMembershipPeriod({ planId, verifiedPaymentAt: new Date(at).toISOString(),
+    ...(basis ? { current: basis, deferTierChange: deferTierChange || current !== basis } : {}) });
+  return { current, basis, term };
 }

@@ -1,4 +1,4 @@
-import type { MembershipPolicy, MembershipPreview, MembershipState, AiQuotaSummary, PaidPlanId, Plan } from '../shared/types.js';
+import type { MembershipPolicy, MembershipPreview, MembershipState, AiQuotaSummary, PaidPlanId, Plan, MembershipTerm, MembershipTermKind } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 import { defaultPricing, type BillingPricing } from './payment-config.js';
 
@@ -72,18 +72,17 @@ export function calculateMembershipPeriod(input: {
   planId: PaidPlanId;
   verifiedPaymentAt: string;
   current?: { planId: PaidPlanId; expiresAt: string };
-}): { kind: 'purchase' | 'renewal' | 'upgrade'; planId: PaidPlanId; startsAt: string; expiresAt: string } {
+  deferTierChange?: boolean;
+}): MembershipTerm & { kind: MembershipTermKind } {
   if (!['basic', 'premium'].includes(input.planId)) invalid('请选择有效的会员等级。');
   const paidAt = parseInstant(input.verifiedPaymentAt);
   const current = input.current;
   if (current && !['basic', 'premium'].includes(current.planId)) invalid('当前会员等级无效。');
   const currentExpiry = current ? parseInstant(current.expiresAt) : undefined;
   const active = currentExpiry !== undefined && currentExpiry > paidAt;
-  if (active && current!.planId === 'premium' && input.planId === 'basic') {
-    throw new HttpError(409, 'MEMBERSHIP_DOWNGRADE_NOT_SUPPORTED', '高级会员有效期内不能改为初级会员，请在到期后选择。');
-  }
-  const kind = !active ? 'purchase' : current!.planId === input.planId ? 'renewal' : 'upgrade';
-  const startsAt = kind === 'renewal' ? currentExpiry! : paidAt;
+  const kind = !active ? 'purchase' : current!.planId === input.planId ? 'renewal'
+    : input.planId === 'basic' || input.deferTierChange ? 'scheduled' : 'upgrade';
+  const startsAt = kind === 'renewal' || kind === 'scheduled' ? currentExpiry! : paidAt;
   const expiryBase = kind === 'upgrade' ? currentExpiry! : startsAt;
   return { kind, planId: input.planId, startsAt: new Date(startsAt).toISOString(), expiresAt: nextCalendarMonth(expiryBase) };
 }

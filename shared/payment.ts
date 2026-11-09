@@ -1,4 +1,4 @@
-import type { PaidPlanId, PlanId } from './membership.js';
+import type { MembershipTermKind, PaidPlanId, PlanId } from './membership.js';
 
 export const paymentOrderStatuses = ['pending', 'paid', 'closed', 'failed'] as const;
 export type PaymentOrderStatus = typeof paymentOrderStatuses[number];
@@ -59,8 +59,12 @@ export interface MembershipQuote {
   amountCents: number;
   listPriceCents?: number;
   promotionLabel?: string;
-  kind: 'purchase' | 'renewal' | 'upgrade';
+  kind: MembershipTermKind;
   currentPlanId: PlanId;
+  /** Projected dates for an existing membership. An immediate upgrade starts on verified payment. */
+  period?: { startsAt: string | null; expiresAt: string };
+  /** Identifies the amount and dates reviewed on the confirmation screen. */
+  reviewId?: string;
 }
 
 export interface WechatBindResult {

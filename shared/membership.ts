@@ -1,6 +1,14 @@
+import type { AiQuotaSummary } from './quota.js';
+
 export type PlanId = 'free' | 'basic' | 'premium';
 export type PaidPlanId = Exclude<PlanId, 'free'>;
-import type { AiQuotaSummary } from './quota.js';
+export type MembershipTermKind = 'purchase' | 'renewal' | 'upgrade' | 'scheduled';
+
+export interface MembershipTerm {
+  planId: PaidPlanId;
+  startsAt: string;
+  expiresAt: string;
+}
 
 export interface MembershipPrices {
   basicMonthlyCents: number;
@@ -56,18 +64,20 @@ export interface MembershipPreview {
   currentPlanName: '免费体验';
   paymentAvailable: boolean;
   paymentMode?: 'simulation';
+  nextPeriod?: MembershipTerm;
   limitsEnforced: false;
   policy: MembershipPolicy;
   quota: AiQuotaSummary;
 }
 
-/** A trusted server-side entitlement; checkout remains unavailable. */
+/** A trusted server-side entitlement in effect at the time of the request. */
 export interface MembershipActive {
   mode: 'active';
   currentPlanId: PaidPlanId;
   currentPlanName: string;
   paymentAvailable: boolean;
   paymentMode?: 'simulation';
+  nextPeriod?: MembershipTerm;
   limitsEnforced: true;
   policy: MembershipPolicy;
   quota: AiQuotaSummary;

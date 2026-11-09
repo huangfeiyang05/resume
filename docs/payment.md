@@ -21,7 +21,7 @@
    - 服务端用 `WECHAT_PAY_APP_SECRET` 调微信 `sns/jscode2session` 换 `openid`；
    - 只把 `openid` 绑定到当前登录账号，不自动创建微信账号，也不合并其他账号；
    - 同一 `openid` 已绑定其他账号时返回 409，不得静默转移。
-2. 前端请求 `/api/v1/billing/quote?planId=basic|premium` 获取服务端报价（新购、续费或升级补差价）。
+2. 前端请求 `/api/v1/billing/quote?planId=basic|premium` 获取服务端报价（新购、续费、预约续费或升级补差价）。续费报价返回预计生效和到期时间。
 3. 前端生成至少 16 字符的幂等 `requestId`，调用 `/api/v1/billing/checkout` 并带 `channel`。服务端创建 `pending` 订单：小程序传 `jsapi`，调用微信支付 v3 JSAPI 下单并返回已签名的 `wx.requestPayment` 参数；H5 传 `native`，调用 v3 Native 下单，返回 `code_url` 与服务器生成的二维码 SVG data URL，由消费者用微信扫码。
    - 同一账号、同一 `requestId` 的重复请求复用同一订单，不会重复扣款；
    - 未过期的 `pending` 订单不会重复下单；
@@ -49,9 +49,9 @@
 | `server/http.ts` | `/billing/quote`、`/billing/checkout`（`channel=jsapi/native/alipay-page/alipay-wap`）、`/billing/payment-methods`、`/billing/orders/:id`、`/billing/wechat/notify`、`/billing/alipay/notify`、`/auth/wechat/bind` |
 | `tests/payment.test.ts` | 假网关的报价、下单、幂等、微信/支付宝回调验签后入账与重复通知测试 |
 
-订单写入单进程 JSON 数据，`orders` 字段缺失时按空数组迁移。首次保存退款申请时数据格式至少为版本 4，首次发布价格时升为版本 5。多实例运行前需将支付、退款和权益账本迁入事务存储。
+订单写入单进程 JSON 数据，`orders` 字段缺失时按空数组迁移。首次保存退款申请时数据格式至少为版本 4，发布价格需要版本 5，保存带报价确认标识的订单或预约续费记录需要版本 6。多实例运行前需将支付、退款和权益账本迁入事务存储。
 
-后台发布价格后，`/plans` 和 `/billing/quote` 读取当前版本。客户端下单传 `expectedAmountCents` 表示用户确认的金额，服务端在创建订单的同一次写入里重新计算并核对。报价变化时返回 `BILLING_PRICE_CHANGED`，由用户重新确认。重复下单使用原订单金额，旧客户端缺少确认金额时只能复用已有请求标识。测试服务只使用模拟渠道，不能访问公开账本。
+后台发布价格后，`/plans` 和 `/billing/quote` 读取当前版本。新版客户端下单传 `expectedAmountCents` 与 `reviewId`，服务端在创建订单的同一次写入里重新核对。金额变化返回 `BILLING_PRICE_CHANGED`，续费日期或方案变化返回 `BILLING_PERIOD_CHANGED`，前端刷新报价后由用户重新确认。预约续费要求确认标识。重复下单使用原订单的金额，支付确认时续费按账本里的已付周期排定实际日期。测试服务使用独立账本和模拟支付渠道。
 
 ## 后台会员退款
 

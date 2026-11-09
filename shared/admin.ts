@@ -1,6 +1,6 @@
 import type { Analysis, AnalysisJob, AiQuotaSummary, PaidPlanId, WorkbenchAccess } from './types.js';
 import type { PaymentChannel, PaymentOrder, PaymentOrderStatus } from './payment.js';
-import type { MembershipPrices } from './membership.js';
+import type { MembershipPrices, MembershipTermKind } from './membership.js';
 
 export interface AdminPricePublication {
   id: string;
@@ -53,7 +53,7 @@ export interface AdminOrderQuery extends AdminUserQuery {
   status?: PaymentOrderStatus;
   channel?: PaymentChannel;
 }
-type MembershipEventKind = 'purchase' | 'renewal' | 'upgrade';
+type MembershipEventKind = MembershipTermKind;
 
 export interface AdminOrder extends PaymentOrder {
   userId: string;

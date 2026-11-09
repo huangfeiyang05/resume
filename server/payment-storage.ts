@@ -13,6 +13,8 @@ export interface StoredPaymentOrder extends PaymentOrder {
   prepayId?: string;
   codeUrl?: string;
   requestId?: string;
+  reviewId?: string;
+  deferTierChange?: true;
   transactionId?: string;
   paymentEventId?: string;
 }
@@ -58,7 +60,7 @@ function optionalString(value: unknown, pattern: RegExp): boolean {
 function normalizeOrder(value: unknown): StoredPaymentOrder {
   const item = object(value,
     ['id', 'userId', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'outTradeNo', 'description'],
-    ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'transactionId', 'paymentEventId', 'channel']);
+    ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'reviewId', 'deferTierChange', 'transactionId', 'paymentEventId', 'channel']);
   const channel = item.channel === undefined ? 'jsapi' : item.channel;
   if (!paymentChannels.includes(channel as PaymentChannel)) return malformed();
   if (!identifier(item.id) || !identifier(item.userId) || !plans.includes(item.planId as PaidPlanId)
@@ -71,6 +73,8 @@ function normalizeOrder(value: unknown): StoredPaymentOrder {
     || (item.paidAt !== undefined && !instant(item.paidAt))
     || !optionalString(item.prepayId, /^[A-Za-z0-9_-]{10,128}$/)
     || !optionalString(item.codeUrl, /^weixin:\/\/[^\s]{10,512}$/)
+    || !optionalString(item.reviewId, /^[a-f0-9]{64}$/)
+    || (item.deferTierChange !== undefined && (item.deferTierChange !== true || item.reviewId === undefined))
     || !optionalString(item.requestId, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/)
     || !optionalString(item.transactionId, /^[A-Za-z0-9_-]{6,64}$/)
     || !optionalString(item.paymentEventId, /^[A-Za-z0-9_-]{6,128}$/)) return malformed();

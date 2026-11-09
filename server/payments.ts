@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { CheckoutResult, MembershipQuote, NativePaymentParams, PaymentChannel, PaymentOrder, WechatPaymentParams } from '../shared/payment.js';
 import type { MembershipState, PaidPlanId, PlanId } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 import type { Database, JsonStore } from './store.js';
 import { summarizeQuota, type QuotaService } from './quota.js';
-import { membershipAt, membershipPeriods } from './membership-periods.js';
+import { membershipAt, membershipPeriods, planMembershipPeriod } from './membership-periods.js';
 import { defaultPricing, planPricing, type BillingPricing } from './payment-config.js';
 import { billingPricing } from './pricing-storage.js';
 import { newOutTradeNo, orderTtlMilliseconds, summarizePaymentOrder, type StoredPaymentOrder } from './payment-storage.js';
@@ -81,7 +81,9 @@ export class PaymentService {
     const snapshot = await this.store.read();
     const now = this.now().getTime();
     const periods = membershipPeriods(snapshot.memberships.find(record => record.userId === userId), snapshot.refunds, now);
+    const upcoming = periods.find(period => Date.parse(period.startsAt) > now);
     return { ...membershipState(summarizeQuota(snapshot, userId, now), membershipAt(periods, now)?.planId, this.available),
+      ...(upcoming ? { nextPeriod: { planId: upcoming.planId, startsAt: upcoming.startsAt, expiresAt: upcoming.expiresAt } } : {}),
       ...(this.store.environment === 'test' ? { paymentMode: 'simulation' as const } : {}) };
   }
 
@@ -92,38 +94,32 @@ export class PaymentService {
   private quoteFor(snapshot: Database, userId: string, target: PaidPlanId, now: number): MembershipQuote {
     const pricing = billingPricing(snapshot.pricingHistory, this.pricing);
     const periods = membershipPeriods(snapshot.memberships.find(record => record.userId === userId), snapshot.refunds, now);
-    const record = periods.at(-1);
-    const active = record && now < Date.parse(record.expiresAt) ? record : undefined;
-    if (active?.planId === 'premium' && target === 'basic') {
-      throw new HttpError(409, 'MEMBERSHIP_DOWNGRADE_NOT_SUPPORTED', '高级会员有效期内不能改为初级会员，请在到期后选择。');
-    }
+    const { current, term } = planMembershipPeriod(periods, target, now);
     const targetPrice = planPricing(pricing, target);
     const hasPaidBefore = snapshot.orders.some(order => order.userId === userId && order.status === 'paid');
-    const promoEligible = !active && !hasPaidBefore && targetPrice.listPriceCents !== undefined && targetPrice.listPriceCents > targetPrice.priceCents;
+    const promoEligible = term.kind === 'purchase' && !hasPaidBefore && targetPrice.listPriceCents !== undefined && targetPrice.listPriceCents > targetPrice.priceCents;
     const unitPrice = promoEligible ? targetPrice.priceCents : (targetPrice.listPriceCents ?? targetPrice.priceCents);
-    let amountCents = unitPrice;
-    let kind: MembershipQuote['kind'] = 'purchase';
-    if (active?.planId === target) kind = 'renewal';
-    else if (active?.planId === 'basic' && target === 'premium') {
-      kind = 'upgrade';
-      amountCents = Math.max(0, unitPrice - planPricing(pricing, 'basic').priceCents);
-    }
-    return {
-      planId: target, amountCents, kind, currentPlanId: membershipAt(periods, now)?.planId ?? 'free',
+    const amountCents = term.kind === 'upgrade' ? Math.max(0, unitPrice - planPricing(pricing, 'basic').priceCents) : unitPrice;
+    const quote: MembershipQuote = {
+      planId: target, amountCents, kind: term.kind, currentPlanId: current?.planId ?? 'free',
+      ...(term.kind !== 'purchase' ? { period: { startsAt: term.kind === 'upgrade' ? null : term.startsAt, expiresAt: term.expiresAt } } : {}),
       ...(promoEligible && targetPrice.listPriceCents !== undefined ? { listPriceCents: targetPrice.listPriceCents } : {}),
       ...(promoEligible && targetPrice.promotionLabel !== undefined ? { promotionLabel: targetPrice.promotionLabel } : {}),
     };
+    return { ...quote, reviewId: createHash('sha256').update(JSON.stringify([userId, quote])).digest('hex') };
   }
 
   async checkout(userId: string, body: unknown): Promise<CheckoutResult> {
     if (!body || typeof body !== 'object' || Array.isArray(body)) invalid('请求体必须是 JSON 对象。');
     const input = body as Record<string, unknown>;
-    if (Object.keys(input).some(key => !['planId', 'requestId', 'channel', 'expectedAmountCents'].includes(key))) invalid('支付请求含不支持的字段。');
+    if (Object.keys(input).some(key => !['planId', 'requestId', 'channel', 'expectedAmountCents', 'reviewId'].includes(key))) invalid('支付请求含不支持的字段。');
     const planId = paid(input.planId);
     if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(input.requestId)) invalid('缺少有效的支付请求标识。');
     const requestId = input.requestId;
     const expected = input.expectedAmountCents;
     if (expected !== undefined && (typeof expected !== 'number' || !Number.isSafeInteger(expected) || expected <= 0)) invalid('确认的金额无效。');
+    const reviewId = input.reviewId;
+    if (reviewId !== undefined && (typeof reviewId !== 'string' || !/^[a-f0-9]{64}$/.test(reviewId))) invalid('确认的会员方案无效。');
     const channelValue = input.channel === undefined ? 'jsapi' : input.channel;
     if (typeof channelValue !== 'string' || !['jsapi', 'native', 'alipay-page', 'alipay-wap'].includes(channelValue)) invalid('支付方式不正确。');
     const channel = channelValue as PaymentChannel;
@@ -132,7 +128,7 @@ export class PaymentService {
     if (!wechatChannel && !this.alipay) throw new HttpError(503, 'PAYMENT_NOT_CONFIGURED', '支付宝支付尚未配置完成，本次未扣费。');
     const snapshot = await this.store.read();
     const existing = snapshot.orders.find(order => order.userId === userId && order.requestId === requestId);
-    if (existing) return this.reuse(existing, planId, channel, expected);
+    if (existing) return this.reuse(existing, planId, channel, expected, reviewId);
     const created = await this.store.mutate(database => {
       const duplicate = database.orders.find(candidate => candidate.userId === userId && candidate.requestId === requestId);
       if (duplicate) return { order: duplicate, created: false as const };
@@ -147,17 +143,26 @@ export class PaymentService {
       if (expected !== undefined && expected !== quote.amountCents) {
         throw new HttpError(409, 'BILLING_PRICE_CHANGED', '当前报价已变化，请核对新金额后再支付。');
       }
+      if (quote.kind === 'scheduled' && reviewId === undefined) {
+        throw new HttpError(409, 'BILLING_QUOTE_REQUIRED', '请更新客户端并核对预约续费日期。');
+      }
+      if (reviewId !== undefined && reviewId !== quote.reviewId) {
+        throw new HttpError(409, 'BILLING_PERIOD_CHANGED', '会员方案已变化，请核对新的续费日期和金额。');
+      }
       if (quote.amountCents <= 0) throw new HttpError(409, 'BILLING_PRICE_UNAVAILABLE', '当前金额不可用，请联系管理员。');
       const order: StoredPaymentOrder = {
         id: randomUUID(), userId, planId, amountCents: quote.amountCents, status: 'pending',
         createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + orderTtlMilliseconds).toISOString(),
         outTradeNo: newOutTradeNo(now.getTime()), requestId, channel,
+        ...(reviewId ? { reviewId } : {}),
+        ...(reviewId && (quote.kind === 'renewal' || quote.kind === 'scheduled') ? { deferTierChange: true as const } : {}),
         description: `简历有方·${planId === 'basic' ? '初级' : '高级'}会员`,
       };
       database.orders.push(order);
+      if (reviewId) database.version = 6;
       return { order, created: true as const, openid: currentUser.wechatOpenid };
     });
-    if (!created.created) return this.reuse(created.order, planId, channel, expected);
+    if (!created.created) return this.reuse(created.order, planId, channel, expected, reviewId);
     const { order, openid } = created;
     let prepayId: string | undefined;
     let payment: WechatPaymentParams | undefined;
@@ -212,9 +217,9 @@ export class PaymentService {
     return { order: summarizePaymentOrder(updated), payment };
   }
 
-  private async reuse(order: StoredPaymentOrder, planId: PaidPlanId, channel: PaymentChannel, expected?: number): Promise<CheckoutResult> {
-    if (order.planId !== planId || order.channel !== channel || (expected !== undefined && order.amountCents !== expected)) {
-      throw new HttpError(409, 'IDEMPOTENCY_KEY_CONFLICT', '相同支付请求标识不能用于不同的方案、金额或支付方式。');
+  private async reuse(order: StoredPaymentOrder, planId: PaidPlanId, channel: PaymentChannel, expected?: number, reviewId?: string): Promise<CheckoutResult> {
+    if (order.planId !== planId || order.channel !== channel || order.reviewId !== reviewId || (expected !== undefined && order.amountCents !== expected)) {
+      throw new HttpError(409, 'IDEMPOTENCY_KEY_CONFLICT', '相同支付请求标识不能用于不同的方案、报价或支付方式。');
     }
     if (order.status === 'paid') throw new HttpError(409, 'ORDER_ALREADY_PAID', '该订单已支付，请勿重复支付。');
     if (order.status !== 'pending') throw new HttpError(409, 'ORDER_CLOSED', '该订单已关闭，请重新下单。');
@@ -246,7 +251,7 @@ export class PaymentService {
 
   async simulateCheckout(userId: string, body: unknown): Promise<PaymentOrder> {
     if (this.store.environment !== 'test') throw new HttpError(404, 'NOT_FOUND', '接口不存在。');
-    const input = careerObject(body, ['planId', 'requestId', 'expectedAmountCents']);
+    const input = careerObject(body, ['planId', 'requestId', 'expectedAmountCents', 'reviewId']);
     if (input.expectedAmountCents === undefined) invalid('请先核对测试报价。');
     const payload = { ...input, channel: 'alipay-page' };
     let result: CheckoutResult;
@@ -293,6 +298,7 @@ export class PaymentService {
     await this.quota.activateMembership({
       userId: order.userId, planId: order.planId, verifiedPaymentAt: successAt.toISOString(),
       verifiedEventId: transaction.transactionId, idempotencyKey: `wechat:${transaction.transactionId}`,
+      ...(order.deferTierChange ? { deferTierChange: true as const } : {}),
     });
     await this.store.mutate(database => {
       const stored = database.orders.find(candidate => candidate.outTradeNo === transaction.outTradeNo);
@@ -333,6 +339,7 @@ export class PaymentService {
     await this.quota.activateMembership({
       userId: order.userId, planId: order.planId, verifiedPaymentAt: payload.paidAt,
       verifiedEventId: payload.tradeNo, idempotencyKey: `alipay:${payload.tradeNo}`,
+      ...(order.deferTierChange ? { deferTierChange: true as const } : {}),
     });
     await this.store.mutate(database => {
       const stored = database.orders.find(candidate => candidate.outTradeNo === payload.outTradeNo);

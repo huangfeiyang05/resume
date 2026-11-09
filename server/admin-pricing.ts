@@ -52,7 +52,7 @@ export class AdminPricing {
       const entry: AdminPricePublication = {
         id, revision: revision + 1, actorId, publishedAt: new Date(this.now()).toISOString(), prices: preview.after,
       };
-      database.version = 5;
+      if (database.version < 5) database.version = 5;
       history.push(entry);
       return entry;
     });
