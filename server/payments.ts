@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { paymentChannels, type CheckoutResult, type MembershipQuote, type NativePaymentParams, type PaymentChannel, type PaymentMethods,
-  type PaymentOrder, type WechatPaymentParams, type WechatVirtualDevice } from '../shared/payment.js';
+  type PaymentOrder, type WechatPaymentParams, type WechatVirtualDevice, type WechatVirtualOrderStatus } from '../shared/payment.js';
 import type { MembershipState, PaidPlanId, PlanId } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 import type { Database, JsonStore } from './store.js';
@@ -295,11 +295,24 @@ export class PaymentService {
     return { order: summarizePaymentOrder(order), payment: this.gateway.paymentParams(order.prepayId) };
   }
 
-  async getOrder(userId: string, orderId: string): Promise<PaymentOrder> {
+  private async ownedOrder(userId: string, orderId: string): Promise<StoredPaymentOrder> {
     if (typeof orderId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(orderId)) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单不存在。');
     const order = (await this.store.read()).orders.find(candidate => candidate.id === orderId && candidate.userId === userId);
     if (!order) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单不存在。');
-    return summarizePaymentOrder(this.virtual && order.channel === 'wechat-virtual' ? await this.virtual.refresh(order) : order);
+    return order;
+  }
+
+  async getOrder(userId: string, orderId: string): Promise<PaymentOrder> {
+    const order = await this.ownedOrder(userId, orderId);
+    const checked = this.virtual && order.channel === 'wechat-virtual' ? await this.virtual.refresh(order) : undefined;
+    return summarizePaymentOrder(checked?.order ?? order);
+  }
+
+  async getVirtualOrderStatus(userId: string, orderId: string): Promise<WechatVirtualOrderStatus> {
+    const order = await this.ownedOrder(userId, orderId);
+    if (order.channel !== 'wechat-virtual') throw new HttpError(404, 'ORDER_NOT_FOUND', '虚拟支付订单不存在。');
+    const checked = await this.virtual?.refresh(order);
+    return { order: summarizePaymentOrder(checked?.order ?? order), verifiedUnpaid: checked?.verifiedUnpaid ?? false };
   }
 
   async simulateCheckout(userId: string, body: unknown): Promise<PaymentOrder> {

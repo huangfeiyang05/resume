@@ -8,6 +8,8 @@ import type { VirtualReceipt, WechatVirtualGateway } from './wechat-virtual-gate
 
 type PaidReceipt = Extract<VirtualReceipt, { wxOrderId: string }>;
 type VirtualOrder = StoredPaymentOrder & { virtual: NonNullable<StoredPaymentOrder['virtual']> };
+type OrderCheck = { order: StoredPaymentOrder; verifiedUnpaid: boolean };
+const checkInterval = 2500;
 
 function virtualOrder(order: StoredPaymentOrder | undefined): VirtualOrder {
   if (!order?.virtual || order.channel !== 'wechat-virtual') throw new HttpError(404, 'ORDER_NOT_FOUND', '虚拟支付订单不存在。');
@@ -21,8 +23,8 @@ function mismatch(): never {
 function eventId(id: string) { return 'XPAY-' + createHash('sha256').update(id).digest('hex').slice(0, 48); }
 
 export class WechatVirtualPayments {
-  private readonly inFlight = new Map<string, Promise<StoredPaymentOrder>>();
-  private readonly checkedAt = new Map<string, number>();
+  private readonly inFlight = new Map<string, Promise<OrderCheck>>();
+  private readonly recentChecks = new Map<string, { startedAt: number; verifiedUnpaid: boolean }>();
   private notifications = 0;
 
   constructor(private readonly store: JsonStore, readonly gateway: WechatVirtualGateway, private readonly now = Date.now) {}
@@ -34,47 +36,61 @@ export class WechatVirtualPayments {
   }
 
   /** Owner-authenticated status checks recover a payment even if the delivery push was missed. */
-  async refresh(order: StoredPaymentOrder) {
-    if (!order.virtual || order.status === 'closed' || (order.status === 'paid' && order.virtual.delivered)) return order;
+  async refresh(order: StoredPaymentOrder): Promise<OrderCheck> {
+    const unchecked = { order, verifiedUnpaid: false };
+    if (!order.virtual || order.status === 'closed' || (order.status === 'paid' && order.virtual.delivered)) return unchecked;
     const existing = this.inFlight.get(order.id);
     if (existing) return existing;
     const now = this.now();
-    if (this.inFlight.size >= 4 || now - (this.checkedAt.get(order.id) ?? -Infinity) < 2500) return order;
-    this.checkedAt.delete(order.id);
-    if (this.checkedAt.size >= 512) this.checkedAt.delete(this.checkedAt.keys().next().value!);
-    this.checkedAt.set(order.id, now);
-    const operation = this.check(virtualOrder(order)).catch(error => {
-      if (error instanceof HttpError) return order;
+    const recent = this.recentChecks.get(order.id);
+    if (recent && now - recent.startedAt < checkInterval) {
+      return { order, verifiedUnpaid: order.status === 'pending' && recent.verifiedUnpaid };
+    }
+    if (this.inFlight.size >= 4) return unchecked;
+    this.recentChecks.delete(order.id);
+    if (this.recentChecks.size >= 512) this.recentChecks.delete(this.recentChecks.keys().next().value!);
+    const check = { startedAt: now, verifiedUnpaid: false };
+    this.recentChecks.set(order.id, check);
+    const operation = this.check(virtualOrder(order)).then(result => {
+      check.verifiedUnpaid = result.verifiedUnpaid;
+      return result;
+    }).catch(error => {
+      if (error instanceof HttpError) return unchecked;
       throw error;
     }).finally(() => { this.inFlight.delete(order.id); });
     this.inFlight.set(order.id, operation);
     return operation;
   }
 
-  private async check(order: VirtualOrder) {
+  private async check(order: VirtualOrder): Promise<OrderCheck> {
     const openid = this.payer(await this.store.read(), order);
     const receipt = await this.gateway.query(order, openid);
-    if (receipt.status === 'pending') return order;
+    if (receipt.status === 'pending') {
+      const current = virtualOrder((await this.store.read()).orders.find(row => row.id === order.id));
+      return { order: current, verifiedUnpaid: current.status === 'pending' };
+    }
     if (receipt.status === 'closed') {
-      return this.store.mutate(database => {
+      const current = await this.store.mutate(database => {
         const current = virtualOrder(database.orders.find(row => row.id === order.id));
         if (current.status === 'pending') current.status = 'closed';
         return current;
       });
+      return { order: current, verifiedUnpaid: false };
     }
     if (!('wxOrderId' in receipt)) return mismatch();
     const paid = await this.record(order, openid, receipt);
     if (!paid.virtual.delivered) {
       // The entitlement is committed before acknowledging provider delivery.
       try { await this.gateway.confirmDelivery(paid); }
-      catch { return paid; }
-      return this.store.mutate(database => {
+      catch { return { order: paid, verifiedUnpaid: false }; }
+      const delivered = await this.store.mutate(database => {
         const current = virtualOrder(database.orders.find(row => row.id === order.id));
         current.virtual.delivered = true;
         return current;
       });
+      return { order: delivered, verifiedUnpaid: false };
     }
-    return paid;
+    return { order: paid, verifiedUnpaid: false };
   }
 
   private async record(order: VirtualOrder, openid: string, receipt: PaidReceipt, pushed = false) {

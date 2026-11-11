@@ -29,10 +29,10 @@ const paymentError = ref('');
 const nativePayment = ref<NativePaymentParams>();
 const paymentMethods = ref<PaymentMethods>();
 const virtualStorageKey = 'resume-youfang:pending-virtual-order:' + props.userId;
-const pendingVirtual = ref<{ id: string; expiresAt: string }>();
+const pendingVirtual = ref<{ id: string; nativeSucceeded?: true }>();
 const checkingVirtual = ref(false);
 const virtualStatus = ref('');
-const virtualExpired = ref(false);
+const virtualCanRetry = ref(false);
 let disposed = false;
 const ALIPAY_PENDING_KEY = 'resume-youfang:pending-alipay-order';
 let miniProgram = false;
@@ -111,7 +111,8 @@ const paymentPreviewNote = computed(() => {
 });
 const paymentHint = computed(() => {
   if (simulated.value) return '本次支付只记录到测试环境。';
-  if (pendingVirtual.value) return '上一笔订单待确认，可先查询支付结果。';
+  if (virtualStatus.value) return virtualStatus.value;
+  if (pendingVirtual.value) return '正在查询上一笔订单…';
   if (virtualUnavailable.value) return virtualUnavailable.value;
   if (!membership.value?.paymentAvailable) return '支付未开放，不会扣费或开通会员。';
   if (quote.value?.kind === 'scheduled' || quote.value?.kind === 'renewal') return '支付成功后，续费周期按已付会员时间顺延。';
@@ -170,6 +171,7 @@ async function openPurchase(id?: PlanId) {
   paymentError.value = '';
   nativePayment.value = undefined;
   await loadQuote();
+  if (pendingVirtual.value) void checkVirtualOrder();
 }
 function closePurchase() {
   purchaseOpen.value = false;
@@ -238,21 +240,24 @@ async function payNative(approved: MembershipQuote) {
 function forgetVirtualOrder(id: string) {
   if (pendingVirtual.value?.id !== id) return;
   pendingVirtual.value = undefined;
-  virtualExpired.value = false;
+  virtualCanRetry.value = false;
   virtualStatus.value = '';
-  try { uni.removeStorageSync(virtualStorageKey); } catch { /* The order can be rechecked on return. */ }
+  try {
+    if (uni.getStorageSync(virtualStorageKey)?.id === id) uni.removeStorageSync(virtualStorageKey);
+  } catch { /* The order can be rechecked on return. */ }
 }
-async function checkVirtualOrder(attempts = 1) {
+async function checkVirtualOrder(attempts = 1, retry = false) {
   const id = pendingVirtual.value?.id;
   if (!id || checkingVirtual.value || disposed) return;
   checkingVirtual.value = true;
   virtualStatus.value = '';
+  virtualCanRetry.value = false;
   try {
     for (let index = 0; index < attempts && !disposed && pendingVirtual.value?.id === id; index++) {
       if (index) await new Promise(resolve => setTimeout(resolve, 2600));
       if (disposed || pendingVirtual.value?.id !== id) return;
       try {
-        const order = await membershipApi.order(id);
+        const { order, verifiedUnpaid } = await membershipApi.virtualOrderStatus(id);
         if (disposed || pendingVirtual.value?.id !== id) return;
         if (order.status === 'paid') {
           forgetVirtualOrder(id);
@@ -266,22 +271,35 @@ async function checkVirtualOrder(attempts = 1) {
           virtualStatus.value = '订单已关闭，可以重新购买。';
           return;
         }
-        virtualExpired.value = Date.parse(order.expiresAt) <= Date.now();
+        if (verifiedUnpaid && !pendingVirtual.value.nativeSucceeded) {
+          if (retry) {
+            forgetVirtualOrder(id);
+            paymentError.value = '';
+            if (purchaseOpen.value) await loadQuote();
+          } else {
+            virtualCanRetry.value = true;
+            virtualStatus.value = '微信暂未确认付款。若你已取消或未付款，可以重新购买。';
+          }
+          return;
+        }
       } catch (cause) {
+        if (disposed || pendingVirtual.value?.id !== id) return;
         if (cause instanceof ApiError && cause.code === 'ORDER_NOT_FOUND') { forgetVirtualOrder(id); return; }
       }
     }
-    if (!disposed) virtualStatus.value = '支付结果待确认。';
+    if (!disposed && pendingVirtual.value?.id === id) virtualStatus.value = '付款结果暂待确认。若已扣款，请查询原订单。';
   } finally { checkingVirtual.value = false; }
 }
-function stopWaitingForVirtualOrder() {
+function retryVirtualOrder() {
   const id = pendingVirtual.value?.id;
-  if (!id || !virtualExpired.value || paying.value || checkingVirtual.value) return;
+  if (!id || !virtualCanRetry.value || paying.value || checkingVirtual.value) return;
   uni.showModal({
-    title: '结束等待',
-    content: '确认这笔订单未扣款后，可以发起新订单。已扣款请继续查询结果。',
-    confirmText: '结束等待',
-    success: result => { if (result.confirm && !disposed) forgetVirtualOrder(id); },
+    title: '确认未付款',
+    content: '如果你已取消或未确认付款，可以重新购买。若已确认付款或收到扣款通知，请查询原订单。',
+    confirmText: '我未付款',
+    success: result => {
+      if (result.confirm && pendingVirtual.value?.id === id) void checkVirtualOrder(1, true);
+    },
   });
 }
 async function pay() {
@@ -289,6 +307,7 @@ async function pay() {
   if (!(canPayWechat.value || canPayVirtual.value) || !approved || approved.planId !== selectedPlanId.value || paying.value || pendingVirtual.value) return;
   paying.value = true;
   paymentError.value = '';
+  virtualStatus.value = '';
   try {
     if (!miniProgram) { await payNative(approved); return; }
     const wechatCode = await requestWechatLoginCode();
@@ -297,13 +316,25 @@ async function pay() {
       { wechatCode, device: virtualDevice });
     if (disposed || !purchaseOpen.value) return;
     if (!result.virtual || result.order.status !== 'pending') throw new Error('支付参数缺失，请稍后重试。');
-    const pending = { id: result.order.id, expiresAt: result.order.expiresAt };
+    const pending = { id: result.order.id };
     uni.setStorageSync(virtualStorageKey, pending);
     pendingVirtual.value = pending;
-    try { await requestWechatVirtualPayment(result.virtual); }
-    catch (cause) {
+    try {
+      await requestWechatVirtualPayment(result.virtual);
+      if (pendingVirtual.value?.id === pending.id) {
+        const confirmed = { ...pending, nativeSucceeded: true as const };
+        pendingVirtual.value = confirmed;
+        try {
+          if (uni.getStorageSync(virtualStorageKey)?.id === pending.id) uni.setStorageSync(virtualStorageKey, confirmed);
+        } catch { /* The original order remains saved. */ }
+      }
+    } catch (cause) {
       if (cause instanceof WechatPaymentClientError && cause.result !== 'unknown') {
         forgetVirtualOrder(pending.id);
+        if (cause.result === 'cancelled') {
+          virtualStatus.value = '已取消支付，可以重新购买。';
+          return;
+        }
         throw cause;
       }
     }
@@ -360,10 +391,9 @@ async function resumeAlipayOrder() {
 }
 onMounted(async () => {
   if (miniProgram) {
-    const saved = uni.getStorageSync(virtualStorageKey) as { id?: unknown; expiresAt?: unknown } | undefined;
-    if (saved && typeof saved.id === 'string' && /^[a-f0-9-]{36}$/.test(saved.id)
-      && typeof saved.expiresAt === 'string' && Number.isFinite(Date.parse(saved.expiresAt))) {
-      pendingVirtual.value = { id: saved.id, expiresAt: saved.expiresAt };
+    const saved = uni.getStorageSync(virtualStorageKey) as { id?: unknown; nativeSucceeded?: unknown } | undefined;
+    if (saved && typeof saved.id === 'string' && /^[a-f0-9-]{36}$/.test(saved.id)) {
+      pendingVirtual.value = { id: saved.id, ...(saved.nativeSucceeded === true ? { nativeSucceeded: true } : {}) };
     }
   }
   await load();
@@ -379,7 +409,7 @@ onUnmounted(() => { disposed = true; });
     <view v-if="pendingVirtual || virtualStatus" class="benefits-checkout-message benefits-pending" role="status">
       <text>{{ virtualStatus || '正在确认小程序支付结果…' }}</text>
       <button v-if="pendingVirtual" class="text-button" :disabled="checkingVirtual || paying" @click="checkVirtualOrder()">查询支付结果</button>
-      <button v-if="virtualExpired" class="text-button" :disabled="checkingVirtual || paying" @click="stopWaitingForVirtualOrder">结束等待</button>
+      <button v-if="virtualCanRetry" class="text-button" :disabled="checkingVirtual || paying" @click="retryVirtualOrder">未付款，重新购买</button>
     </view>
     <view v-if="loading" class="glass-panel benefits-state" role="status" aria-live="polite"><view class="benefits-loading" /><text>正在读取你的权益…</text></view>
     <view v-else-if="error" class="glass-panel benefits-state" role="alert"><AppIcon name="info" :size="24" /><text>{{ error }}</text><button class="button secondary" @click="load" role="button" tabindex="0">重新加载</button></view>
@@ -472,7 +502,7 @@ onUnmounted(() => { disposed = true; });
         <text class="benefits-pay-hint">{{ paymentHint }}</text>
         <view v-if="pendingVirtual" class="benefits-pay-actions is-single">
           <button class="button secondary benefits-pay-button" :disabled="checkingVirtual || paying" @click="checkVirtualOrder()">{{ checkingVirtual || paying ? '正在确认…' : '查询支付结果' }}</button>
-          <button v-if="virtualExpired" class="text-button" :disabled="checkingVirtual || paying" @click="stopWaitingForVirtualOrder">结束等待</button>
+          <button v-if="virtualCanRetry" class="text-button" :disabled="checkingVirtual || paying" @click="retryVirtualOrder">未付款，重新购买</button>
         </view>
         <view v-else class="benefits-pay-actions" :class="{ 'is-single': payActionCount < 2 }">
           <button v-if="simulated" class="button primary benefits-pay-button" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="simulatePayment" role="button">{{ paying ? '正在模拟支付…' : `模拟支付 ${price(selectedAmount)}` }}</button>

@@ -22,6 +22,11 @@ export interface PaymentOrder {
   channel: PaymentChannel;
 }
 
+export interface WechatVirtualOrderStatus {
+  order: PaymentOrder;
+  verifiedUnpaid: boolean;
+}
+
 /** Parameters passed to `uni.requestPayment` on the mini-program client. */
 export interface WechatPaymentParams {
   appId: string;

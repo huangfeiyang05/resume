@@ -30,7 +30,7 @@ export function requestWechatVirtualPayment(params: WechatVirtualPaymentParams):
         invoke({ ...params, success: () => { clearTimeout(timeout); resolve(); }, fail: error => {
           clearTimeout(timeout);
           const code = error?.errCode;
-          if (code === -2 || /\bcancel\b/i.test(error?.errMsg ?? '')) {
+          if (code === -2 || (code === undefined && /:fail\s+cancel(?:led|ed)?\s*$/i.test(error?.errMsg ?? ''))) {
             reject(new WechatPaymentClientError('cancelled', '已取消支付。'));
           } else if (code !== undefined && [1001, -15005, -15006, -15007, -15010, -15013, -15014, -15016, -15018].includes(code)) {
             reject(new WechatPaymentClientError('rejected', '微信暂时无法发起这笔支付，请稍后重试。'));

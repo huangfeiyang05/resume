@@ -194,11 +194,48 @@ test('the order status endpoint reconciles a verified payment and acknowledges d
   const { outTradeNo } = JSON.parse(result.virtual!.signData);
   f.remote.set(outTradeNo, { order_id: outTradeNo, env_type: 1, order_type: 7,
     status: 2, order_fee: 990, paid_fee: 990, wx_order_id: 'xp-fallback-001', paid_time: Math.floor(Date.now() / 1000) });
-  const checks = await Promise.all([f.request('/billing/orders/' + result.order.id, a.token), f.request('/billing/orders/' + result.order.id, a.token)]);
-  for (const check of checks) assert.equal((await check.json()).data.status, 'paid');
+  const route = '/billing/orders/' + result.order.id;
+  const [legacy, virtual] = await Promise.all([f.request(route, a.token), f.request(route + '/virtual-status', a.token)]);
+  const order = (await legacy.json()).data;
+  assert.equal(order.status, 'paid');
+  assert.equal('verifiedUnpaid' in order, false);
+  assert.deepEqual((await virtual.json()).data, { order, verifiedUnpaid: false });
   assert.equal(f.calls.filter(call => call === '/xpay/query_order').length, 1);
   assert.equal(f.calls.filter(call => call === '/xpay/notify_provide_goods').length, 1);
   assert.equal((await f.store.read()).orders[0].virtual?.delivered, true);
+});
+
+test('only an authenticated payer with a verified unpaid order can see the retry state', async t => {
+  const f = await fixture(t);
+  const a = await f.login('a-login');
+  const b = await f.login('b-login');
+  const placed = await f.request('/billing/checkout', a.token, await f.checkoutInput(a.token));
+  const first = (await placed.json()).data as CheckoutResult;
+  const statusRoute = (id: string) => '/billing/orders/' + id + '/virtual-status';
+  const path = statusRoute(first.order.id);
+  assert.equal((await f.request(path, b.token)).status, 404);
+  assert.equal(f.calls.filter(call => call === '/xpay/query_order').length, 0);
+  assert.deepEqual((await (await f.request(path, a.token)).json()).data, { order: first.order, verifiedUnpaid: true });
+  assert.equal((await f.store.read()).orders.find(row => row.id === first.order.id)?.status, 'pending');
+
+  const nextInput = await f.checkoutInput(a.token, 'basic', 'virtual-retry-new-order');
+  const next = (await (await f.request('/billing/checkout', a.token, nextInput)).json()).data as CheckoutResult;
+  const firstTradeNo = JSON.parse(first.virtual!.signData).outTradeNo;
+  const nextTradeNo = JSON.parse(next.virtual!.signData).outTradeNo;
+  assert.notEqual(firstTradeNo, nextTradeNo);
+  f.remote.set(nextTradeNo, { order_id: 'wrong-provider-order', env_type: 1, order_type: 7, status: 1 });
+  assert.deepEqual((await (await f.request(statusRoute(next.order.id), a.token)).json()).data, { order: next.order, verifiedUnpaid: false });
+  assert.equal((await f.store.read()).memberships.length, 0);
+
+  f.remote.set(firstTradeNo, { order_id: firstTradeNo, env_type: 1, order_type: 7, status: 2,
+    order_fee: 990, paid_fee: 990, wx_order_id: 'xp-late-receipt', paid_time: Math.floor(Date.now() / 1000) });
+  const { body, params } = encryptedPush({ MsgType: 'event', Event: 'xpay_goods_deliver_notify', OutTradeNo: firstTradeNo,
+    Env: 0, OpenId: 'test-openid-a', GoodsInfo: { ProductId: 'basic_month', Quantity: 1, ActualPrice: 990 } });
+  assert.equal(await (await f.request(endpoint + '?' + params, undefined, body)).text(), 'success');
+  const late = (await (await f.request(path, a.token)).json()).data;
+  assert.equal(late.order.status, 'paid');
+  assert.equal(late.verifiedUnpaid, false);
+  assert.equal((await f.store.read()).memberships[0].activations.length, 1);
 });
 
 test('a disabled iOS or virtual payment channel cannot create orders', async t => {

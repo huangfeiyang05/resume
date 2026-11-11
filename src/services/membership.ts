@@ -1,5 +1,5 @@
 import type { AiQuotaSummary, AlipayPaymentParams, CheckoutResult, MembershipQuote, MembershipState, NativePaymentParams, PaymentChannel,
-  PaymentMethods, PaymentOrder, Plan, PlanId, WechatPaymentParams, WechatVirtualCheckoutProof } from '../../shared/types';
+  PaymentMethods, PaymentOrder, Plan, PlanId, WechatPaymentParams, WechatVirtualCheckoutProof, WechatVirtualOrderStatus } from '../../shared/types';
 import { paymentChannels } from '../../shared/payment';
 import { request } from './api';
 
@@ -160,6 +160,15 @@ export const membershipApi = {
     const order = validateOrder(await request<PaymentOrder>('/billing/orders/' + encodeURIComponent(orderId)));
     if (order.id !== orderId) invalidResponse();
     return order;
+  },
+  async virtualOrderStatus(orderId: string): Promise<WechatVirtualOrderStatus> {
+    const result = await request<WechatVirtualOrderStatus>('/billing/orders/' + encodeURIComponent(orderId) + '/virtual-status');
+    if (!result || typeof result !== 'object' || Array.isArray(result)
+      || Object.keys(result).some(key => key !== 'order' && key !== 'verifiedUnpaid')
+      || typeof result.verifiedUnpaid !== 'boolean') invalidResponse();
+    const order = validateOrder(result.order);
+    if (order.id !== orderId || order.channel !== 'wechat-virtual' || (result.verifiedUnpaid && order.status !== 'pending')) invalidResponse();
+    return { order, verifiedUnpaid: result.verifiedUnpaid };
   },
   async simulateCheckout(planId: PlanId, requestId: string, expectedAmountCents: number, reviewId?: string): Promise<PaymentOrder> {
     const order = validateOrder(await request<PaymentOrder>('/billing/simulate', 'POST', { planId, requestId, expectedAmountCents, ...(reviewId ? { reviewId } : {}) }));

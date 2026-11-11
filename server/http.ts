@@ -495,6 +495,9 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         const planId = url.searchParams.get('planId');
         if (!planId || [...url.searchParams.keys()].some(key => key !== 'planId')) throw new HttpError(400, 'VALIDATION_ERROR', '请提供有效的方案标识。');
         json(response, 200, { data: await payments.quote(service.userId, planId as never) });
+      } else if ((match = path.match(/^\/api\/v1\/billing\/orders\/([^/]+)\/virtual-status$/))) {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        json(response, 200, { data: await payments.getVirtualOrderStatus(service.userId, decodeURIComponent(match[1])) });
       } else if ((match = path.match(/^\/api\/v1\/billing\/orders\/([^/]+)$/))) {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await payments.getOrder(service.userId, decodeURIComponent(match[1])) });
