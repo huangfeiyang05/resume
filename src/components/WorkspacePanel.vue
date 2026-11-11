@@ -71,6 +71,21 @@ const tabs: { id: Page; label: string; icon: string }[] = [
 ];
 const activeTab = computed(() => ['diagnosis', 'match', 'templates'].includes(page.value) ? 'overview' : page.value);
 const pageTitle = computed(() => tabs.find(t => t.id === activeTab.value)?.label || '首页');
+const miniHeader = (() => {
+  // #ifdef MP-WEIXIN
+  try {
+    const capsule = uni.getMenuButtonBoundingClientRect();
+    const { windowWidth } = uni.getWindowInfo();
+    if (capsule.width > 0 && capsule.left > 0 && capsule.right <= windowWidth) {
+      return { active: true, style: { paddingRight: `${windowWidth - capsule.left + 12}px` } };
+    }
+  } catch { /* The mini-program header has a CSS fallback for the capsule. */ }
+  return { active: true };
+  // #endif
+  // #ifndef MP-WEIXIN
+  return { active: false };
+  // #endif
+})();
 const importOpen = ref(false), guideOpen = ref(false), exportOpen = ref(false);
 const pasteText = ref(''), pasteTitle = ref(''), search = ref('');
 const suggestionText = ref('');
@@ -211,7 +226,18 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
 
 <template>
   <view class="app-shell liquid-app">
-    <view class="glass-header"><view class="header-inner"><button class="header-brand" @click="navigate('overview')" role="button" tabindex="0"><view class="brand-mark"><image class="brand-logo" src="/static/brand/logo.png" mode="aspectFill" aria-label="简历有方 Logo" /></view><text>简历有方</text></button><view class="desktop-tabs"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="navigate(tab.id)" role="button" tabindex="0">{{ tab.label }}</button></view><button class="header-benefits" @click="navigate('benefits')" role="button" tabindex="0"><AppIcon name="crown" :size="16" /><text>我的权益</text></button></view></view>
+    <view class="glass-header" :class="{ 'mini-program-header': miniHeader.active }">
+      <view class="header-inner" :style="miniHeader.style">
+        <button class="header-brand" @click="navigate('overview')" role="button" tabindex="0">
+          <view class="brand-mark"><image class="brand-logo" src="/static/brand/logo.png" mode="aspectFill" aria-label="简历有方 Logo" /></view>
+          <text>简历有方</text>
+        </button>
+        <view class="desktop-tabs"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="navigate(tab.id)" role="button" tabindex="0">{{ tab.label }}</button></view>
+        <!-- #ifndef MP-WEIXIN -->
+        <button class="header-benefits" @click="navigate('benefits')" role="button" tabindex="0"><AppIcon name="crown" :size="16" /><text>我的权益</text></button>
+        <!-- #endif -->
+      </view>
+    </view>
     <view class="content">
       <template v-if="page === 'overview'">
         <view class="home-intro"><view><text class="home-title">简历与岗位</text></view><button class="sample-link" :disabled="!!busy" @click="useExample()" role="button" tabindex="0">使用示例<AppIcon name="arrow" :size="15" /></button></view>
@@ -234,9 +260,15 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
       <CareerPanel v-else-if="page === 'career'" :resumes="resumes" :owner="user.id" @context-change="invalidateCareerAction" @tailor="tailorCareerJob" @tailor-assistant-job="tailorAssistantJob" @optimize-resume="optimizeAssistantResume" @create-resume="openEditor()" @upgrade="openMembershipUpgrade" />
       <template v-else-if="page === 'resumes'"><view class="compact-page-heading my-page-heading"><view><text class="compact-page-title">我的简历</text></view><button class="button primary small-button" @click="openEditor()" role="button" tabindex="0"><AppIcon name="plus" :size="16" />新建简历</button></view>
         <view class="glass-panel account-strip">
-          <AccountProfile :user="user" :busy="bindingBusy" :error="logoutError" :save-profile="saveProfile" @clear-error="emit('clearAuthError')">
-            <text class="account-meta">{{ resumes.length }} 份简历 · 仅本人账号可访问</text><view v-if="user.email" :class="['account-state', { verified: user.emailVerified }]"><AppIcon :name="user.emailVerified ? 'check' : 'info'" :size="12" /><text>{{ user.emailVerified ? '邮箱已验证 · 可用于找回密码' : verificationAvailable ? '邮箱未验证 · 验证后可用于找回密码' : '邮箱未验证 · 验证功能暂未启用' }}</text></view>
-          </AccountProfile>
+          <view class="account-strip-profile">
+            <AccountProfile :user="user" :busy="bindingBusy" :error="logoutError" :save-profile="saveProfile" @clear-error="emit('clearAuthError')">
+              <text class="account-meta">{{ resumes.length }} 份简历 · 仅本人账号可访问</text>
+              <view v-if="user.email" :class="['account-state', { verified: user.emailVerified }]">
+                <AppIcon :name="user.emailVerified ? 'check' : 'info'" :size="12" />
+                <text>{{ user.emailVerified ? '邮箱已验证 · 可用于找回密码' : verificationAvailable ? '邮箱未验证 · 验证后可用于找回密码' : '邮箱未验证 · 验证功能暂未启用' }}</text>
+              </view>
+            </AccountProfile>
+          </view>
           <view class="account-actions"><button v-if="user.email && !user.emailVerified && verificationAvailable" class="text-button account-verify" :disabled="verificationBusy" @click="openVerify" role="button" tabindex="0">{{ verificationBusy ? '正在验证…' : '验证邮箱' }}</button><button class="text-button" @click="navigate('benefits')" role="button" tabindex="0">查看权益<AppIcon name="chevron" :size="14" /></button><button class="text-button account-logout" :disabled="logoutBusy" @click="emit('logout')" role="button" tabindex="0">{{ logoutBusy ? '正在退出…' : '退出登录' }}</button></view></view><AccountBindings :key="user.id" :user="user" :capabilities="capabilities" :busy="bindingBusy || logoutBusy || verificationBusy" :error="logoutError" @bind-phone="emit('bindPhone', $event)" @bind-email="emit('bindEmail', $event)" @bind-wechat-phone="emit('bindWechatPhone', $event)" @clear-error="emit('clearAuthError')" /><view v-if="logoutError && !verifyOpen" class="info-banner" role="alert"><AppIcon name="info" :size="16" /><text>{{ logoutError }}</text></view><view v-if="resumes.length" class="search-field"><AppIcon name="search" :size="18" /><input v-model="search" placeholder="搜索简历名称或岗位" aria-label="搜索简历" /></view><view v-if="loading" class="empty-state"><view class="spinner" /><text>正在加载…</text></view><view v-else-if="loadError" class="empty-state"><text>{{ loadError }}</text><button class="text-button" @click="w.refresh()" role="button" tabindex="0">重试</button></view><view v-else-if="!resumes.length" class="glass-panel empty-state"><AppIcon name="file" :size="32" /><text class="empty-title">从第一份简历开始</text><button class="button primary" @click="importOpen = true" role="button" tabindex="0">导入简历</button></view><view v-else-if="!visibleResumes.length" class="empty-state"><text>没有找到相关简历</text><button class="text-button" @click="search = ''" role="button" tabindex="0">清除搜索</button></view><view v-else class="resume-list glass-panel"><view v-for="resume in visibleResumes" :key="resume.id" class="resume-row"><view class="document-icon"><AppIcon name="file" :size="23" /></view><view class="resume-row-main"><button class="resume-name" @click="openResume(resume)" role="button" tabindex="0">{{ resume.title }}</button><view class="resume-meta"><text>{{ resume.targetRole || '未设置岗位' }}</text><text>V{{ resume.revision }} · {{ formatDate(resume.updatedAt) }}</text></view></view><view class="resume-row-actions"><button class="text-button" :disabled="!!busy" @click="openResume(resume)" role="button" tabindex="0">打开<AppIcon name="arrow" :size="14" /></button><button class="icon-button" :disabled="!!busy" :aria-label="`查看${resume.title}的版本记录`" @click="historyTarget = resume" role="button" tabindex="0"><AppIcon name="clock" :size="17" /></button><button class="icon-button" :aria-label="`编辑${resume.title}`" @click="openEditor(resume)" role="button" tabindex="0"><AppIcon name="edit" :size="17" /></button><button class="icon-button delete-button" :aria-label="`删除${resume.title}`" @click="deleteTarget = resume" role="button" tabindex="0"><AppIcon name="trash" :size="17" /></button></view></view></view><button class="glass-panel my-guide-row" @click="guideOpen = true" role="button" tabindex="0"><AppIcon name="book" :size="19" /><text>简历优化指南</text><AppIcon name="chevron" :size="15" /></button></template>
       <template v-else><view class="compact-page-heading"><text class="compact-page-title">简历诊断</text><button class="text-button" @click="navigate('overview')" role="button" tabindex="0">返回首页<AppIcon name="arrow" :size="15" /></button></view><DiagnosisReport v-if="analysis && selected" :analysis="analysis" :resume="selected" :history="history" :busy="busy" @inspect="activeSuggestion = $event" @export="openExport" @history="analysis = $event" @reanalyze="w.diagnoseResume()" /><view v-else class="glass-panel empty-state"><text class="empty-title">先导入简历，开始一次诊断。</text><button class="button primary" @click="navigate('overview')" role="button" tabindex="0">回到首页</button></view></template>
       <SiteFooter />

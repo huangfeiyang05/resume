@@ -148,8 +148,8 @@ const miniProgram = isMiniProgramClient();
 </template>
 
 <style scoped>
-.account-profile { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 0; }
-.account-profile-detail { min-width: 0; }
+.account-profile { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.account-profile-detail { flex: 1; min-width: 0; }
 .account-profile-name { display: block; color: var(--ink); font-size: 16px; font-weight: 650; overflow-wrap: anywhere; }
 .account-profile-avatar { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 1px solid #fff; color: var(--muted); background: #eff3fa; font-size: 13px; }
 .account-profile-image { width: 100%; height: 100%; display: block; }
@@ -157,5 +157,4 @@ const miniProgram = isMiniProgramClient();
 .account-profile-form { display: flex; flex-direction: column; gap: 10px; }
 .account-profile-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .account-profile-error { color: #b42318; font-size: 13px; }
-@media (max-width: 767px) { .account-profile { grid-column: 1 / -1; } }
 </style>
