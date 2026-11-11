@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { CheckoutResult, MembershipQuote, NativePaymentParams, PaymentChannel, PaymentOrder, WechatPaymentParams } from '../shared/payment.js';
+import { paymentChannels, type CheckoutResult, type MembershipQuote, type NativePaymentParams, type PaymentChannel, type PaymentMethods,
+  type PaymentOrder, type WechatPaymentParams, type WechatVirtualDevice } from '../shared/payment.js';
 import type { MembershipState, PaidPlanId, PlanId } from '../shared/types.js';
 import { HttpError, invalid } from './errors.js';
 import type { Database, JsonStore } from './store.js';
@@ -13,6 +14,8 @@ import { AlipayError, type AlipayGateway, type AlipayNotification, type AlipayPa
 import { careerObject } from './career-validation.js';
 import qrcode from 'qrcode-generator';
 import { listPlans, membershipState } from './membership.js';
+import { wechatLoginCode, type WechatIdentity } from './wechat-identity.js';
+import type { WechatVirtualPayments } from './wechat-virtual-payments.js';
 
 export interface PaymentServiceOptions {
   store: JsonStore;
@@ -20,6 +23,7 @@ export interface PaymentServiceOptions {
   pricing?: BillingPricing;
   gateway?: WechatPayGateway;
   alipay?: AlipayGateway;
+  virtual?: WechatVirtualPayments;
   appid?: string;
   mchid?: string;
   notifyUrl?: string;
@@ -49,6 +53,7 @@ export class PaymentService {
   private readonly quota: QuotaService;
   private readonly gateway?: WechatPayGateway;
   private readonly alipay?: AlipayGateway;
+  private readonly virtual?: WechatVirtualPayments;
   private readonly appid?: string;
   private readonly mchid?: string;
   private readonly notifyUrl?: string;
@@ -60,6 +65,7 @@ export class PaymentService {
     this.pricing = options.pricing ?? defaultPricing;
     this.gateway = options.gateway;
     this.alipay = options.alipay;
+    this.virtual = options.virtual;
     this.appid = options.appid;
     this.mchid = options.mchid;
     this.notifyUrl = options.notifyUrl;
@@ -67,12 +73,14 @@ export class PaymentService {
     if (this.gateway && (!this.appid || !this.mchid || !this.notifyUrl)) throw new Error('Payment gateway requires appid, mchid and notify URL.');
   }
 
-  get available(): boolean { return this.gateway !== undefined || this.alipay !== undefined; }
+  get available(): boolean { return this.gateway !== undefined || this.alipay !== undefined || this.virtual?.gateway.config.enabled === true; }
 
   /** Which checkout buttons the client may show; never treats a provider as available without configuration. */
-  methods(): { wechat: boolean; alipay: boolean } {
+  methods(miniProgram = false): PaymentMethods {
     if (this.store.environment === 'test') return { wechat: false, alipay: false };
-    return { wechat: this.gateway !== undefined, alipay: this.alipay !== undefined };
+    const virtual = this.virtual?.gateway.config;
+    return { wechat: this.gateway !== undefined, alipay: this.alipay !== undefined,
+      ...(miniProgram && virtual?.enabled ? { wechatVirtual: { ios: virtual.ios } } : {}) };
   }
 
   async plans() { return listPlans(billingPricing((await this.store.read()).pricingHistory, this.pricing)); }
@@ -88,7 +96,9 @@ export class PaymentService {
   }
 
   async quote(userId: string, planId: PlanId): Promise<MembershipQuote> {
-    return this.quoteFor(await this.store.read(), userId, paid(planId), this.now().getTime());
+    const quote = this.quoteFor(await this.store.read(), userId, paid(planId), this.now().getTime());
+    const gateway = this.virtual?.gateway;
+    return gateway?.config.enabled ? { ...quote, virtualProductAvailable: !!gateway.product(quote.planId, quote.amountCents) } : quote;
   }
 
   private quoteFor(snapshot: Database, userId: string, target: PaidPlanId, now: number): MembershipQuote {
@@ -109,10 +119,31 @@ export class PaymentService {
     return { ...quote, reviewId: createHash('sha256').update(JSON.stringify([userId, quote])).digest('hex') };
   }
 
-  async checkout(userId: string, body: unknown): Promise<CheckoutResult> {
+  private reviewedQuote(database: Database, userId: string, planId: PaidPlanId, now: number, expected?: number, reviewId?: string) {
+    if (database.pricingHistory.length && expected === undefined) {
+      throw new HttpError(409, 'BILLING_QUOTE_REQUIRED', '请更新客户端并重新核对当前报价。');
+    }
+    const quote = this.quoteFor(database, userId, planId, now);
+    if (expected !== undefined && expected !== quote.amountCents) {
+      throw new HttpError(409, 'BILLING_PRICE_CHANGED', '当前报价已变化，请核对新金额后再支付。');
+    }
+    if (quote.kind === 'scheduled' && reviewId === undefined) {
+      throw new HttpError(409, 'BILLING_QUOTE_REQUIRED', '请更新客户端并核对预约续费日期。');
+    }
+    if (reviewId !== undefined && reviewId !== quote.reviewId) {
+      throw new HttpError(409, 'BILLING_PERIOD_CHANGED', '会员方案已变化，请核对新的续费日期和金额。');
+    }
+    if (quote.amountCents <= 0) throw new HttpError(409, 'BILLING_PRICE_UNAVAILABLE', '当前金额不可用，请联系管理员。');
+    return quote;
+  }
+
+  async checkout(userId: string, body: unknown, verifyWechat?: (code: string) => Promise<WechatIdentity>): Promise<CheckoutResult> {
     if (!body || typeof body !== 'object' || Array.isArray(body)) invalid('请求体必须是 JSON 对象。');
     const input = body as Record<string, unknown>;
-    if (Object.keys(input).some(key => !['planId', 'requestId', 'channel', 'expectedAmountCents', 'reviewId'].includes(key))) invalid('支付请求含不支持的字段。');
+    const isVirtual = input.channel === 'wechat-virtual';
+    const keys = ['planId', 'requestId', 'channel', 'expectedAmountCents', 'reviewId'];
+    if (isVirtual) keys.push('wechatCode', 'device');
+    if (Object.keys(input).some(key => !keys.includes(key))) invalid('支付请求含不支持的字段。');
     const planId = paid(input.planId);
     if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(input.requestId)) invalid('缺少有效的支付请求标识。');
     const requestId = input.requestId;
@@ -121,47 +152,64 @@ export class PaymentService {
     const reviewId = input.reviewId;
     if (reviewId !== undefined && (typeof reviewId !== 'string' || !/^[a-f0-9]{64}$/.test(reviewId))) invalid('确认的会员方案无效。');
     const channelValue = input.channel === undefined ? 'jsapi' : input.channel;
-    if (typeof channelValue !== 'string' || !['jsapi', 'native', 'alipay-page', 'alipay-wap'].includes(channelValue)) invalid('支付方式不正确。');
-    const channel = channelValue as PaymentChannel;
+    const channel = paymentChannels.find(value => value === channelValue);
+    if (!channel) invalid('支付方式不正确。');
+    const virtualGateway = isVirtual ? this.virtual?.gateway : undefined;
+    if (isVirtual && (!virtualGateway?.config.enabled || !verifyWechat)) throw new HttpError(503, 'WECHAT_VIRTUAL_NOT_CONFIGURED', '微信小程序虚拟支付暂未开放。');
+    if (channel === 'jsapi' && this.virtual?.gateway.config.enabled) {
+      throw new HttpError(409, 'WECHAT_VIRTUAL_REQUIRED', '请更新小程序后使用虚拟支付购买会员。');
+    }
     const wechatChannel = channel === 'jsapi' || channel === 'native';
     if (wechatChannel && (!this.gateway || !this.notifyUrl)) throw new HttpError(503, 'PAYMENT_NOT_CONFIGURED', '支付尚未配置完成，本次未扣费。');
-    if (!wechatChannel && !this.alipay) throw new HttpError(503, 'PAYMENT_NOT_CONFIGURED', '支付宝支付尚未配置完成，本次未扣费。');
+    if (!wechatChannel && !isVirtual && !this.alipay) throw new HttpError(503, 'PAYMENT_NOT_CONFIGURED', '支付宝支付尚未配置完成，本次未扣费。');
     const snapshot = await this.store.read();
     const existing = snapshot.orders.find(order => order.userId === userId && order.requestId === requestId);
-    if (existing) return this.reuse(existing, planId, channel, expected, reviewId);
+    if (existing && !isVirtual) return this.reuse(existing, planId, channel, expected, reviewId);
+    let device: WechatVirtualDevice | undefined;
+    let identity: WechatIdentity | undefined;
+    if (virtualGateway && verifyWechat) {
+      if (expected === undefined || !reviewId) throw new HttpError(409, 'BILLING_QUOTE_REQUIRED', '请先核对会员价格与有效期。');
+      if (input.device !== 'ios' && input.device !== 'other') invalid('微信支付设备类型无效。');
+      device = input.device;
+      if (existing) {
+        this.assertReusable(existing, planId, channel, expected, reviewId, device);
+        if (device === 'ios' && !virtualGateway.config.ios) throw new HttpError(503, 'WECHAT_VIRTUAL_NOT_CONFIGURED', 'iOS 端的虚拟支付暂未开放。');
+      } else {
+        const quote = this.reviewedQuote(snapshot, userId, planId, this.now().getTime(), expected, reviewId);
+        virtualGateway.orderDetails(planId, quote.amountCents, device);
+      }
+      identity = await verifyWechat(wechatLoginCode(input.wechatCode));
+      if (!identity.sessionKey) throw new HttpError(502, 'WECHAT_SESSION_INVALID', '微信支付凭证暂不可用，请重试。');
+    }
     const created = await this.store.mutate(database => {
       const duplicate = database.orders.find(candidate => candidate.userId === userId && candidate.requestId === requestId);
       if (duplicate) return { order: duplicate, created: false as const };
       const currentUser = database.users.find(candidate => candidate.id === userId);
       if (!currentUser) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
       if (channel === 'jsapi' && !currentUser.wechatOpenid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '请先在小程序内绑定微信后再支付。');
-      if (database.pricingHistory.length && expected === undefined) {
-        throw new HttpError(409, 'BILLING_QUOTE_REQUIRED', '请更新客户端并重新核对当前报价。');
-      }
+      if (identity && currentUser.wechatOpenid !== identity.openid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '当前账号的微信支付身份已变化，请重新登录。');
       const now = this.now();
-      const quote = this.quoteFor(database, userId, planId, now.getTime());
-      if (expected !== undefined && expected !== quote.amountCents) {
-        throw new HttpError(409, 'BILLING_PRICE_CHANGED', '当前报价已变化，请核对新金额后再支付。');
-      }
-      if (quote.kind === 'scheduled' && reviewId === undefined) {
-        throw new HttpError(409, 'BILLING_QUOTE_REQUIRED', '请更新客户端并核对预约续费日期。');
-      }
-      if (reviewId !== undefined && reviewId !== quote.reviewId) {
-        throw new HttpError(409, 'BILLING_PERIOD_CHANGED', '会员方案已变化，请核对新的续费日期和金额。');
-      }
-      if (quote.amountCents <= 0) throw new HttpError(409, 'BILLING_PRICE_UNAVAILABLE', '当前金额不可用，请联系管理员。');
+      const quote = this.reviewedQuote(database, userId, planId, now.getTime(), expected, reviewId);
+      const virtual = virtualGateway && device ? virtualGateway.orderDetails(planId, quote.amountCents, device) : undefined;
       const order: StoredPaymentOrder = {
         id: randomUUID(), userId, planId, amountCents: quote.amountCents, status: 'pending',
         createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + orderTtlMilliseconds).toISOString(),
         outTradeNo: newOutTradeNo(now.getTime()), requestId, channel,
         ...(reviewId ? { reviewId } : {}),
         ...(reviewId && (quote.kind === 'renewal' || quote.kind === 'scheduled') ? { deferTierChange: true as const } : {}),
+        ...(virtual ? { virtual } : {}),
         description: `简历有方·${planId === 'basic' ? '初级' : '高级'}会员`,
       };
       database.orders.push(order);
-      if (reviewId) database.version = 6;
+      if (virtual) database.version = 7;
+      else if (reviewId && database.version < 6) database.version = 6;
       return { order, created: true as const, openid: currentUser.wechatOpenid };
     });
+    if (virtualGateway && identity?.sessionKey) {
+      const order = created.order;
+      if (!created.created) this.assertReusable(order, planId, channel, expected, reviewId, device);
+      return { order: summarizePaymentOrder(order), virtual: virtualGateway.parameters(order, identity.sessionKey) };
+    }
     if (!created.created) return this.reuse(created.order, planId, channel, expected, reviewId);
     const { order, openid } = created;
     let prepayId: string | undefined;
@@ -217,13 +265,18 @@ export class PaymentService {
     return { order: summarizePaymentOrder(updated), payment };
   }
 
-  private async reuse(order: StoredPaymentOrder, planId: PaidPlanId, channel: PaymentChannel, expected?: number, reviewId?: string): Promise<CheckoutResult> {
-    if (order.planId !== planId || order.channel !== channel || order.reviewId !== reviewId || (expected !== undefined && order.amountCents !== expected)) {
+  private assertReusable(order: StoredPaymentOrder, planId: PaidPlanId, channel: PaymentChannel, expected?: number, reviewId?: string, device?: WechatVirtualDevice) {
+    if (order.planId !== planId || order.channel !== channel || order.reviewId !== reviewId || (expected !== undefined && order.amountCents !== expected)
+      || order.virtual?.device !== device) {
       throw new HttpError(409, 'IDEMPOTENCY_KEY_CONFLICT', '相同支付请求标识不能用于不同的方案、报价或支付方式。');
     }
     if (order.status === 'paid') throw new HttpError(409, 'ORDER_ALREADY_PAID', '该订单已支付，请勿重复支付。');
     if (order.status !== 'pending') throw new HttpError(409, 'ORDER_CLOSED', '该订单已关闭，请重新下单。');
     if (Date.parse(order.expiresAt) <= this.now().getTime()) throw new HttpError(409, 'ORDER_EXPIRED', '订单已过期，请重新下单。');
+  }
+
+  private async reuse(order: StoredPaymentOrder, planId: PaidPlanId, channel: PaymentChannel, expected?: number, reviewId?: string): Promise<CheckoutResult> {
+    this.assertReusable(order, planId, channel, expected, reviewId);
     if (channel === 'alipay-page' || channel === 'alipay-wap') {
       if (!this.alipay) throw new HttpError(503, 'PAYMENT_NOT_CONFIGURED', '支付宝支付尚未配置完成，本次未扣费。');
       try {
@@ -246,7 +299,7 @@ export class PaymentService {
     if (typeof orderId !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(orderId)) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单不存在。');
     const order = (await this.store.read()).orders.find(candidate => candidate.id === orderId && candidate.userId === userId);
     if (!order) throw new HttpError(404, 'ORDER_NOT_FOUND', '订单不存在。');
-    return summarizePaymentOrder(order);
+    return summarizePaymentOrder(this.virtual && order.channel === 'wechat-virtual' ? await this.virtual.refresh(order) : order);
   }
 
   async simulateCheckout(userId: string, body: unknown): Promise<PaymentOrder> {
@@ -284,6 +337,7 @@ export class PaymentService {
     }
     const order = (await this.store.read()).orders.find(candidate => candidate.outTradeNo === transaction.outTradeNo);
     if (!order) throw new HttpError(404, 'ORDER_NOT_FOUND', '支付通知对应的订单不存在。');
+    if (order.channel !== 'jsapi' && order.channel !== 'native') throw new HttpError(409, 'PAYMENT_CHANNEL_MISMATCH', '支付通知的渠道与订单不一致。');
     if (order.amountCents !== transaction.amountCents) throw new HttpError(409, 'PAYMENT_AMOUNT_MISMATCH', '支付金额与订单不一致。');
     if (order.status === 'paid' && (order.transactionId !== transaction.transactionId || order.paymentEventId !== transaction.transactionId)) {
       throw new HttpError(409, 'PAYMENT_EVENT_CONFLICT', '订单已关联其他支付交易。');

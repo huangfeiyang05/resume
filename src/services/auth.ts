@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import type { AuthCapabilities, AuthSession, AuthUser, EmailPasswordInput, WechatLoginInput, PhoneLoginInput, EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput, PhoneCodePurpose, PhoneCodeChallenge, SendPhoneCodeInput, BindPhoneInput, BindEmailInput } from '../../shared/auth';
-import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../../shared/auth';
+import type { AccountProfileInput, BindWechatPhoneInput } from '../../shared/auth';
+import { accountAvatarIdPattern, isAccountNickname, PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../../shared/auth';
 import { ApiError, isMiniProgramClient, onUnauthorized, request, setAuthToken } from './api';
 
 const miniProgramSessionKey = 'youfang-auth-session-v1';
@@ -17,6 +18,8 @@ export const authApi = {
   sendPhoneCode: (input: SendPhoneCodeInput) => request<PhoneCodeChallenge>('/auth/phone/code', 'POST', input, { notifyUnauthorized: input.purpose !== 'login' }),
   bindPhone: (input: BindPhoneInput) => request<AuthUser>('/auth/phone/bind', 'POST', input, { notifyUnauthorized: false }),
   bindEmail: (input: BindEmailInput) => request<AuthUser>('/auth/email/bind', 'POST', input, { notifyUnauthorized: false }),
+  bindWechatPhone: (input: BindWechatPhoneInput) => request<AuthUser>('/auth/wechat/phone/bind', 'POST', input),
+  updateProfile: (input: AccountProfileInput) => request<AuthUser>('/auth/profile', 'PUT', input),
   // Capabilities and server responses determine whether a provider is available.
   wechat: (input: WechatLoginInput) => request<AuthSession>('/auth/wechat', 'POST', input, { notifyUnauthorized: false }),
   phone: (input: PhoneLoginInput) => request<AuthSession>('/auth/phone', 'POST', input, { notifyUnauthorized: false }),
@@ -110,6 +113,8 @@ export function validAuthUser(value: unknown): value is AuthUser {
     || (user.phone !== undefined && (typeof user.phone !== 'string' || !/^1[3-9]\d{9}$/.test(user.phone)))
     || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
     || (user.wechat !== undefined && typeof user.wechat !== 'boolean')
+    || (user.nickname !== undefined && !isAccountNickname(user.nickname))
+    || (user.avatarId !== undefined && (typeof user.avatarId !== 'string' || !accountAvatarIdPattern.test(user.avatarId)))
     || (user.hasPassword !== undefined && typeof user.hasPassword !== 'boolean')) return false;
   if ((!user.email && user.emailVerified) || (!user.phone && user.phoneVerified === true)) return false;
   return !!user.email || (!!user.phone && user.phoneVerified === true) || user.wechat === true;
@@ -163,7 +168,7 @@ export function usePhoneChallenge(options: { autoTick?: boolean; now?: () => num
   return { phone, purpose, code, challenge, busy, error, message, remaining, setTarget, send, proof, clearProof, tick, dispose };
 }
 
-function requestWechatLoginCode(): Promise<string> {
+export function requestWechatLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
     uni.login({
       provider: 'weixin',
@@ -181,7 +186,7 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
   const user = ref<AuthUser>();
   const status = ref<'checking' | 'authenticated' | 'anonymous' | 'unavailable'>('checking');
   const busy = ref(false);
-  const operation = ref<'authenticate' | 'logout' | 'reset' | 'verify' | 'bind'>();
+  const operation = ref<'authenticate' | 'logout' | 'reset' | 'verify' | 'bind' | 'profile'>();
   const error = ref('');
   const notice = ref('');
   const capabilities = ref<AuthCapabilities>();
@@ -219,10 +224,10 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     error.value = ''; notice.value = '';
   }
 
-  async function silentWechatLogin(current: number) {
+  async function silentWechatLogin(current: number, reportFailure = false) {
     const providers = await loadCapabilities();
     if (disposed || current !== generation || !providers?.wechat) {
-      if (!disposed && current === generation) { clearSession(); status.value = 'anonymous'; }
+      if (!disposed && current === generation) clearSession(reportFailure ? '微信登录暂不可用，请稍后重试。' : '');
       return;
     }
     try {
@@ -230,15 +235,15 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
       const session = await authApi.wechat({ code });
       if (disposed || current !== generation) return;
       acceptSession(session);
-    } catch {
+    } catch (reason) {
       if (!disposed && current === generation) {
         user.value = undefined;
         status.value = 'anonymous';
-        error.value = '';
+        error.value = reportFailure && reason instanceof Error ? reason.message : '';
       }
     }
   }
-  async function restore() {
+  async function restore(reportFailure = false) {
     const current = ++generation;
     status.value = 'checking'; error.value = '';
     if (isMiniProgramClient()) {
@@ -246,7 +251,8 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
       if (!saved || typeof saved.token !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(saved.token)
         || typeof saved.expiresAt !== 'string' || !(Date.parse(saved.expiresAt) > Date.now())) {
         clearSession();
-        await silentWechatLogin(generation);
+        status.value = 'checking';
+        await silentWechatLogin(generation, reportFailure);
         return;
       }
       activeToken = saved.token;
@@ -258,7 +264,13 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
       if (!disposed && current === generation) acceptSession(session, activeToken);
     } catch (reason) {
       if (disposed || current !== generation) return;
-      if (reason instanceof ApiError && reason.status === 401) clearSession();
+      if (reason instanceof ApiError && reason.status === 401) {
+        clearSession();
+        if (isMiniProgramClient()) {
+          status.value = 'checking';
+          await silentWechatLogin(generation, reportFailure);
+        }
+      }
       else {
         user.value = undefined;
         status.value = 'unavailable';
@@ -269,7 +281,8 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
   async function loadCapabilities() {
     try {
       const result = await authApi.providers();
-      if (!result || result.emailPassword !== true || !['wechat', 'phone', 'emailVerification', 'passwordReset'].every(key => typeof result[key as keyof AuthCapabilities] === 'boolean')) return;
+      if (!result || result.emailPassword !== true || !['wechat', 'phone', 'emailVerification', 'passwordReset'].every(key => typeof result[key as keyof AuthCapabilities] === 'boolean')
+        || (result.wechatPhone !== undefined && (result.wechatPhone !== true || !result.wechat))) return;
       if (!disposed) capabilities.value = result;
       return result;
     }
@@ -340,6 +353,37 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
   }
   const bindPhone = (input: BindPhoneInput) => bindIdentity('phone', input);
   const bindEmail = (input: BindEmailInput) => bindIdentity('email', input);
+
+  async function changeAccount(kind: 'bind' | 'profile', action: (current: number) => Promise<AuthUser | undefined>, matches: (result: AuthUser) => boolean) {
+    if (busy.value || !user.value) return false;
+    const id = user.value.id;
+    const current = ++generation;
+    busy.value = true; operation.value = kind; error.value = ''; notice.value = '';
+    try {
+      const result = await action(current);
+      if (!result || disposed || current !== generation || user.value?.id !== id) return false;
+      if (!validAuthUser(result) || result.id !== id || !matches(result)) throw new Error('暂时无法确认保存结果，请重新读取账号资料。');
+      user.value = result;
+      return true;
+    } catch (reason) {
+      if (!disposed && current === generation) error.value = reason instanceof Error ? reason.message : '操作未完成，请稍后重试。';
+      return false;
+    } finally { if (!disposed) { busy.value = false; operation.value = undefined; } }
+  }
+
+  function bindWechatPhone(phoneCode: string) {
+    if (!capabilities.value?.wechatPhone || !user.value?.wechat || !isMiniProgramClient()) return Promise.resolve(false);
+    return changeAccount('bind', async current => {
+      const wechatCode = await requestWechatLoginCode();
+      if (disposed || current !== generation) return;
+      return authApi.bindWechatPhone({ wechatCode, phoneCode });
+    }, result => !!result.phone && result.phoneVerified === true && result.wechat === true);
+  }
+
+  function updateProfile(input: AccountProfileInput) {
+    return changeAccount('profile', () => authApi.updateProfile(input), result =>
+      (result.nickname ?? null) === input.nickname && (input.avatar === undefined || !!result.avatarId === !!input.avatar));
+  }
   async function resetPassword(input: ResetPasswordInput) {
     if (busy.value) return false;
     const validation = validateAuthForm('reset', input.email, input.password, input.password);
@@ -395,5 +439,6 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     onMounted(restore);
     onUnmounted(dispose);
   }
-  return { user, signedIn, status, busy, operation, error, notice, capabilities, restore, authenticate, authenticatePhone, bindPhone, bindEmail, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
+  return { user, signedIn, status, busy, operation, error, notice, capabilities, restore, signInWithWechat: () => restore(true),
+    authenticate, authenticatePhone, bindPhone, bindEmail, bindWechatPhone, updateProfile, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
 }

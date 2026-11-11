@@ -5,6 +5,7 @@ import { PASSWORD_MAX_LENGTH } from '../../shared/auth';
 import { useEmailChallenge, usePhoneChallenge, normalizedPhone, validateAuthForm, type AuthMode } from '../services/auth';
 import AppIcon from './AppIcon.vue';
 import SiteFooter from './SiteFooter.vue';
+import { isMiniProgramClient } from '../services/api';
 
 const props = defineProps<{ busy: boolean; error: string; notice?: string; capabilities?: AuthCapabilities; restoreFailed?: boolean }>();
 const emit = defineEmits<{
@@ -12,6 +13,7 @@ const emit = defineEmits<{
   reset: [input: ResetPasswordInput];
   phone: [input: PhoneLoginInput];
   retry: [];
+  wechat: [];
   clearError: [];
 }>();
 const mode = ref<AuthMode>('login');
@@ -46,6 +48,7 @@ const message = computed(() => formError.value || codeError.value || props.error
 const title = computed(() => mode.value === 'login' ? '欢迎回来' : mode.value === 'register' ? '创建你的账号' : '找回密码');
 const submitLabel = computed(() => mode.value === 'login' ? '登录' : mode.value === 'register' ? '注册并登录' : '设置新密码');
 const submitting = computed(() => props.busy || codeBusy.value);
+const miniProgram = isMiniProgramClient();
 const strength = computed(() => {
   const value = password.value;
   let score = 0;
@@ -138,6 +141,9 @@ function submit() {
             <button v-if="restoreFailed" class="text-button auth-retry" :disabled="busy" @click="emit('retry')" role="button">重新检查登录状态</button>
           </view>
         </template>
+        <!-- #ifdef MP-WEIXIN -->
+        <button v-if="miniProgram && capabilities?.wechat" class="text-button auth-retry" :disabled="busy" @click="emit('wechat')">使用当前微信登录</button>
+        <!-- #endif -->
       </view>
     </view>
     <SiteFooter />

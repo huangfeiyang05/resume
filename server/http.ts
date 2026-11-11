@@ -30,6 +30,9 @@ import { searchCompanies } from './company-search.js';
 import { answerCareerAssistant } from './career-assistant.js';
 import { assertWorkbenchFeature, getWorkbenchAccess } from './workbench-access.js';
 import type { CareerWorkspace } from '../shared/types.js';
+import type { WechatMessagePush } from './wechat-message-push.js';
+import type { WechatVirtualGateway } from './wechat-virtual-gateway.js';
+import { WechatVirtualPayments } from './wechat-virtual-payments.js';
 
 function json(response: ServerResponse, status: number, value: unknown) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', Vary: 'Cookie, Authorization' });
@@ -135,6 +138,7 @@ export interface ApiServerOptions {
   companyCatalogPath?: string;
   paymentGateway?: WechatPayGateway;
   paymentAlipay?: AlipayGateway;
+  paymentVirtual?: { gateway: WechatVirtualGateway; push: WechatMessagePush };
   pricing?: BillingPricing;
   paymentAppid?: string;
   paymentMchid?: string;
@@ -149,7 +153,7 @@ function cookieToken(request: IncomingMessage, name: string) {
 export function createApiServer(baseService = new ResumeService(new JsonStore()), options: ApiServerOptions = {}) {
   const environment = baseService.store.environment;
   const test = environment === 'test';
-  if (test && (options.paymentGateway || options.paymentAlipay)) throw new Error('Test environment cannot use real payment gateways.');
+  if (test && (options.paymentGateway || options.paymentAlipay || options.paymentVirtual)) throw new Error('Test environment cannot use real payment gateways.');
   const alipay = test ? testPaymentGateway : options.paymentAlipay;
   const cookieName = test ? 'youfang_test_session' : 'youfang_session';
   const adminCookieName = test ? 'youfang_test_admin' : 'youfang_admin';
@@ -161,10 +165,12 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
   const careerFiles = new CareerFiles(baseService.store.path);
   const careerContent = new AdminCareerContent(baseService.store, options.careerCatalogPath, careerFiles);
   const jobs = new AnalysisJobs(baseService);
+  const virtual = options.paymentVirtual && new WechatVirtualPayments(baseService.store, options.paymentVirtual.gateway);
   const payments = new PaymentService({
     store: baseService.store, quota: jobs.quota, ...(options.pricing ? { pricing: options.pricing } : {}),
     ...(options.paymentGateway ? { gateway: options.paymentGateway } : {}),
     ...(alipay ? { alipay } : {}),
+    ...(virtual ? { virtual } : {}),
     ...(options.paymentAppid ? { appid: options.paymentAppid } : {}),
     ...(options.paymentMchid ? { mchid: options.paymentMchid } : {}),
     ...(options.paymentNotifyUrl ? { notifyUrl: options.paymentNotifyUrl } : {}),
@@ -311,6 +317,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
       const path = url.pathname.replace(/\/$/, '');
       const method = request.method ?? 'GET';
+      const miniProgramClient = request.headers['x-auth-client'] === 'mp-weixin';
       assertWriteOrigin(request);
       if (path === adminPath || path.startsWith(`${adminPath}/`)) {
         if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '管理接口不接受 URL 查询参数。');
@@ -334,6 +341,14 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         await refunds.wechatNotification(request.headers, await rawBody(request));
         response.writeHead(204).end();
         return;
+      }
+      if (path === '/api/v1/billing/wechat-virtual/notify') {
+        if (!options.paymentVirtual || !virtual) throw new HttpError(404, 'NOT_FOUND', '接口不存在。');
+        const { push } = options.paymentVirtual;
+        if (method === 'GET') { text(response, 200, push.challenge(url.searchParams)); return; }
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await virtual.notification(push.decode(url.searchParams, await rawBody(request)));
+        text(response, 200, 'success'); return;
       }
       if (path === '/api/v1/billing/alipay/notify') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
@@ -398,6 +413,26 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await auth.authenticate(sessionToken(request)) }); return;
       }
+      if (path === '/api/v1/auth/profile') {
+        if (method !== 'PUT') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const { user } = await auth.authenticate(sessionToken(request));
+        json(response, 200, { data: await auth.updateProfile(user.id, await body(request), clientAddress(request)) }); return;
+      }
+      const avatarRoute = path.match(/^\/api\/v1\/auth\/profile\/avatar\/([a-f0-9-]{36})$/);
+      if (avatarRoute) {
+        if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const { user } = await auth.authenticate(sessionToken(request));
+        const { bytes, mime } = await auth.profileAvatar(user.id, avatarRoute[1]);
+        response.writeHead(200, { 'Content-Type': mime, 'Content-Length': bytes.length, 'Cache-Control': 'private, no-store',
+          'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': 'sandbox',
+          'Cross-Origin-Resource-Policy': 'same-origin', Vary: 'Cookie, Authorization' }).end(bytes);
+        return;
+      }
+      if (path === '/api/v1/auth/wechat/phone/bind') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const { user } = await auth.authenticate(sessionToken(request));
+        json(response, 200, { data: await auth.bindWechatPhone(user.id, await body(request), clientAddress(request)) }); return;
+      }
       if (path === '/api/v1/auth/logout') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const result = await auth.logout(sessionToken(request));
@@ -445,11 +480,13 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         json(response, 200, { data: await payments.plans() });
       } else if (path === '/api/v1/billing/payment-methods') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        json(response, 200, { data: payments.methods() });
+        json(response, 200, { data: payments.methods(miniProgramClient) });
       } else if (path === '/api/v1/billing/checkout') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         if (test) throw new HttpError(409, 'TEST_CHECKOUT_ONLY', '测试环境仅支持模拟支付。');
-        json(response, 201, { data: await payments.checkout(service.userId, await body(request)) });
+        const verifyWechat = miniProgramClient && request.headers.authorization?.startsWith('Bearer ')
+          ? (code: string) => auth.bindWechatIdentity(service.userId, code, clientAddress(request), true) : undefined;
+        json(response, 201, { data: await payments.checkout(service.userId, await body(request), verifyWechat) });
       } else if (path === '/api/v1/billing/simulate' && test) {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 201, { data: await payments.simulateCheckout(service.userId, await body(request)) });

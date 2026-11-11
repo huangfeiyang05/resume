@@ -15,7 +15,8 @@ const eventNames = { purchase: '购买', renewal: '续费', upgrade: '升级', s
 const statusNames = { queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const usageNames = { reserved: '已预占', dispatched: '已派发', pending: '待核对', settled: '已结算', released: '已释放' };
 const orderStatuses = { pending: '待支付确认', paid: '已支付', closed: '已关闭', failed: '失败' };
-const channelNames = { jsapi: '微信小程序', native: '微信扫码', 'alipay-page': '支付宝电脑网页', 'alipay-wap': '支付宝手机网页' };
+const channelNames = { jsapi: '微信小程序（旧版）', native: '微信扫码', 'alipay-page': '支付宝电脑网页',
+  'alipay-wap': '支付宝手机网页', 'wechat-virtual': '微信小程序虚拟支付' };
 const refundNames: Record<AdminRefund['status'], string> = { requested: '退款待提交', processing: '退款处理中',
   unknown: '退款待核对', succeeded: '退款成功', closed: '退款已关闭', abnormal: '渠道退款异常' };
 

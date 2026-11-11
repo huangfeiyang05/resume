@@ -4,9 +4,9 @@ import { legalConfig } from '../../config/legal';
 </script>
 
 <template>
-  <LegalPage title="隐私政策" :updated-at="legalConfig.updatedAt">
+  <LegalPage title="隐私政策" updated-at="2026-11-11">
     <view class="legal-section">
-      <text class="legal-paragraph">“简历有方”（{{ legalConfig.website }}，以下简称“本网站”）由 {{ legalConfig.operatorName }}（{{ legalConfig.operatorType }}，以下简称“我们”）运营。我们重视你的个人信息保护，并按照《中华人民共和国个人信息保护法》等法律法规处理你的个人信息。本政策说明我们收集哪些信息、如何使用与保存、与谁共享，以及你可以如何行使权利。</text>
+      <text class="legal-paragraph">“简历有方”网站（{{ legalConfig.website }}）与微信小程序由 {{ legalConfig.operatorName }}（{{ legalConfig.operatorType }}，以下简称“我们”）运营。我们重视你的个人信息保护，并按照《中华人民共和国个人信息保护法》等法律法规处理你的个人信息。本政策说明我们收集哪些信息、如何使用与保存、与谁共享，以及你可以如何行使权利。</text>
       <text class="legal-paragraph">使用本网站前，请仔细阅读本政策。你注册账号、使用简历编辑、分析、导出或求职助手等功能，即表示你已理解本政策所述的信息处理规则。</text>
     </view>
 
@@ -19,6 +19,8 @@ import { legalConfig } from '../../config/legal';
       <text class="legal-item">4. 企业资料检索：你输入的关键词、筛选条件与分页参数，用于返回匹配结果；我们不用这些信息建立你的个人画像。</text>
       <text class="legal-item">5. 运行与安全信息：IP 地址、请求时间、浏览器或设备类型、页面错误等信息，用于保障服务稳定与安全、排查故障。我们不把完整简历正文、手机号、密码或邮箱及短信验证码写入应用日志。</text>
       <text class="legal-item">6. 本地存储：为保持登录状态、界面偏好和求职助手历史，我们会在你的浏览器或设备本地保存必要数据。你可以通过浏览器或小程序设置清除这些本地数据，但可能影响登录状态与历史记录。</text>
+      <text class="legal-item">7. 微信登录与个人资料：小程序使用微信提供的账号标识（OpenID）建立并恢复登录。只有在你主动授权后，我们才会获取所选的微信验证手机号并绑定当前账号。你也可在“我的”自行保存、修改或移除昵称和头像，资料仅用于本人账号展示。</text>
+      <text class="legal-item">8. 会员订单：购买会员时，我们保存订单号、金额、支付渠道、支付及退款状态，用于核对交易、发放权益和售后。</text>
     </view>
 
     <view class="legal-section">
@@ -34,6 +36,7 @@ import { legalConfig } from '../../config/legal';
       <text class="legal-item">2. 邮件发送服务：用于发送注册、找回密码等验证码邮件；我们仅向邮件服务商提供收件邮箱和邮件内容。</text>
       <text class="legal-item">短信发送服务：仅在你主动选择短信验证并提交手机号后，用于发送登录、注册、账号绑定或身份核验验证码。我们会向配置的短信服务商提供接收手机号、验证码和必要的签名模板参数，不提供你的简历内容。短信入口是否开放以页面提示为准，未配置时不会发送短信。</text>
       <text class="legal-item">3. 第三方招聘链接：企业资料中可能包含指向第三方网站的招聘链接，访问后适用该第三方的隐私政策，我们不控制其信息处理行为。</text>
+      <text class="legal-item">4. 微信和支付平台：微信处理小程序登录、用户主动授权的手机号验证、微信昵称或头像选择及小程序支付。支付由对应平台处理，小程序 iOS 内购由 Apple 处理。订单核验使用购买所需的商品、金额、账号标识和订单信息。</text>
       <text class="legal-paragraph">当前线上服务使用本地透明规则完成简历检查与求职助手回复，默认不启用第三方大模型处理你的简历。若未来启用第三方模型服务，我们会在使用前单独告知处理目的、涉及的信息字段与服务商，并依法取得你的同意。</text>
       <text class="legal-paragraph">除取得你的同意、履行法定义务、司法机关或监管部门依法要求，或为保护你或他人的生命、财产安全所必需外，我们不会向第三方提供你的简历等个人信息。</text>
     </view>
@@ -52,7 +55,7 @@ import { legalConfig } from '../../config/legal';
 
     <view class="legal-section">
       <text class="legal-heading">六、你的权利</text>
-      <text class="legal-paragraph">在法律法规允许的范围内，你有权访问、复制、更正、补充和删除你的个人信息，撤回同意，获取个人信息副本，注销账号，以及要求我们解释个人信息处理规则。简历内容与版本可以在网站内直接修改或删除。</text>
+      <text class="legal-paragraph">在法律法规允许的范围内，你有权访问、复制、更正、补充和删除你的个人信息，撤回同意，获取个人信息副本，注销账号，以及要求我们解释个人信息处理规则。简历内容与版本可以在网站内直接修改或删除。你可以在“我的”修改或移除账号头像和昵称。</text>
       <text class="legal-paragraph">账号注销功能尚在完善中；如需注销账号或行使其他权利，请通过本网站底部“联系我们”页面所列方式提出。为保护账号安全，我们可能要求你使用注册邮箱发送请求并完成必要的身份核验。我们将在 {{ legalConfig.responseDays }} 个工作日内答复。</text>
       <text class="legal-paragraph">如你认为我们的处理行为损害了你的合法权益，可以向网信、市场监管等监管部门投诉或举报。</text>
     </view>

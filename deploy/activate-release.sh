@@ -16,6 +16,7 @@ readonly CATALOG_FILE=/var/lib/resume-youfang/.data/career-catalog.json
 readonly COMPANY_FILE=/var/lib/resume-youfang/.data/company-catalog.json
 readonly COMPANY_BATCHES=/var/lib/resume-youfang/.data/company-batches
 readonly CAREER_FILES=/var/lib/resume-youfang/.data/career-files
+readonly ACCOUNT_AVATARS=/var/lib/resume-youfang/.data/account-avatars
 readonly BACKUP_ROOT=/var/backups/resume-youfang
 readonly NODE=/opt/nodejs/bin/node
 readonly SERVICE=resume-youfang
@@ -137,6 +138,7 @@ flock -n 9 || abort
 [[ ! -L $STATE_DIR && ( ! -e $STATE_DIR || -d $STATE_DIR ) ]] || abort
 [[ ! -L $COMPANY_BATCHES && ( ! -e $COMPANY_BATCHES || -d $COMPANY_BATCHES ) ]] || abort
 [[ ! -L $CAREER_FILES && ( ! -e $CAREER_FILES || -d $CAREER_FILES ) ]] || abort
+[[ ! -L $ACCOUNT_AVATARS && ( ! -e $ACCOUNT_AVATARS || -d $ACCOUNT_AVATARS ) ]] || abort
 for path in "$DATA_FILE" "$CATALOG_FILE" "$COMPANY_FILE"; do
   [[ ! -L $path && ( ! -e $path || -f $path ) ]] || abort
 done
@@ -209,6 +211,7 @@ data_present=false
 catalog_present=false
 companies_present=false
 files_present=false
+avatars_present=false
 if [[ -f $DATA_FILE && ! -L $DATA_FILE ]]; then
   install -m 0600 -o root -g root -- "$DATA_FILE" "$BACKUP_DIR/resumes.json" >/dev/null 2>&1
   data_present=true
@@ -238,8 +241,17 @@ if [[ -d $CAREER_FILES && ! -L $CAREER_FILES ]]; then
   done
   files_present=true
 fi
-printf '{"releaseId":"%s","previous":"%s","gitCommit":"%s","dataFilePresent":%s,"catalogFilePresent":%s,"companyFilePresent":%s,"careerFilesPresent":%s}\n' \
-  "$release_id" "$previous_id" "$expected_commit" "$data_present" "$catalog_present" "$companies_present" "$files_present" >"$BACKUP_DIR/manifest.json"
+if [[ -d $ACCOUNT_AVATARS && ! -L $ACCOUNT_AVATARS ]]; then
+  install -d -m 0700 -o root -g root -- "$BACKUP_DIR/account-avatars"
+  for file in "$ACCOUNT_AVATARS"/*.img; do
+    [[ ${file##*/} =~ ^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.img$ ]] || continue
+    [[ -f $file && ! -L $file ]] || abort
+    install -m 0600 -o root -g root -- "$file" "$BACKUP_DIR/account-avatars/${file##*/}"
+  done
+  avatars_present=true
+fi
+printf '{"releaseId":"%s","previous":"%s","gitCommit":"%s","dataFilePresent":%s,"catalogFilePresent":%s,"companyFilePresent":%s,"careerFilesPresent":%s,"accountAvatarsPresent":%s}\n' \
+  "$release_id" "$previous_id" "$expected_commit" "$data_present" "$catalog_present" "$companies_present" "$files_present" "$avatars_present" >"$BACKUP_DIR/manifest.json"
 
 stage=activate
 [[ $(current_target) == "$PREVIOUS_DIR" ]] || abort

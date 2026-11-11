@@ -1,5 +1,6 @@
 import type { Analysis, AnalysisInput, AnalysisJob, Health, ApplySuggestionInput, ApplySuggestionResult, CareerAttachment, Resume, ResumeExportFile, ResumeExportInput, ResumeInput, ResumeUpdateInput, ResumeVersionSummary, ResumeVersion, RestoreResumeInput, RestoreResumeResult } from '../../shared/types';
 import { careerFileTypes, isCareerAttachment } from '../../shared/career-attachment';
+import { accountAvatarIdPattern } from '../../shared/auth';
 
 const base = import.meta.env?.VITE_API_BASE_URL || '';
 export class ApiError extends Error {
@@ -70,6 +71,33 @@ function downloadMiniCareerFile(url: string, revision: number, timeout: number, 
   });
 }
 // #endif
+
+/** Avatar bytes use the active account session and never a token in a URL. */
+export async function loadAccountAvatar(id: string): Promise<{ url: string; release(): void }> {
+  if (!accountAvatarIdPattern.test(id)) throw new Error('头像标识无效。');
+  const url = base + '/api/v1/auth/profile/avatar/' + id;
+  // #ifdef MP-WEIXIN
+  if (isMiniProgramClient()) {
+    const revision = transportRevision;
+    return new Promise((resolve, reject) => {
+      uni.downloadFile({
+        url, timeout: 15000, header: { Authorization: 'Bearer ' + authToken },
+        success(result) {
+          if (revision !== transportRevision || result.statusCode !== 200 || !result.tempFilePath) {
+            if (result.tempFilePath) releaseMiniFile(result.tempFilePath);
+            reject(new Error('头像暂时无法加载。'));
+            return;
+          }
+          const path = result.tempFilePath;
+          resolve({ url: path, release: () => releaseMiniFile(path) });
+        },
+        fail: () => reject(new Error('头像暂时无法加载。')),
+      });
+    });
+  }
+  // #endif
+  return { url, release() {} };
+}
 
 export async function openCareerMaterialFile(materialId: string, file: CareerAttachment): Promise<'download-started' | 'document-opened'> {
   if (file.format === 'mp4') throw new Error('请使用资料页的视频播放器。');

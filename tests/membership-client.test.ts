@@ -167,6 +167,24 @@ test('payment quote and order responses are strictly validated', async t => {
   await assert.rejects(membershipApi.order(order.id), error => error instanceof MembershipApiError && error.code === 'INVALID_RESPONSE');
 });
 
+test('mini-program virtual checkout sends fresh identity proof and rejects payment data for a different reviewed amount', async t => {
+  const { requests, respond } = fixture(t, true);
+  const order = { id: 'order-virtual-01', planId: 'basic', amountCents: 990, status: 'pending', channel: 'wechat-virtual',
+    createdAt: '2026-11-05T02:00:00.000Z', expiresAt: '2026-11-05T04:00:00.000Z' };
+  const signed = { offerId: '12345', buyQuantity: 1, env: 0, currencyType: 'CNY', productId: 'basic_month',
+    goodsPrice: 990, outTradeNo: 'synthetic-out-trade-no' };
+  const virtual = { mode: 'short_series_goods', signData: JSON.stringify(signed), paySig: 'a'.repeat(64), signature: 'b'.repeat(64) };
+  const proof = { wechatCode: 'fresh-login-code', device: 'ios' as const };
+  const reviewId = 'a'.repeat(64);
+  const checkout = () => membershipApi.checkout('basic', 'virtual-request-123', 'wechat-virtual', 990, reviewId, proof);
+  const reply = (data: unknown) => respond(options => options.success({ statusCode: 201, data: { data } }));
+  reply({ order, virtual });
+  assert.deepEqual(await checkout(), { order, virtual });
+  assert.deepEqual(requests.at(-1)?.data, { planId: 'basic', requestId: 'virtual-request-123', channel: 'wechat-virtual', expectedAmountCents: 990, reviewId, ...proof });
+  reply({ order, virtual: { ...virtual, signData: JSON.stringify({ ...signed, goodsPrice: 1 }) } });
+  await assert.rejects(checkout(), { code: 'INVALID_RESPONSE' });
+});
+
 test('scheduled renewal dates must be valid and the reviewed quote accompanies checkout', async t => {
   const { requests, respond } = fixture(t);
   const period = { startsAt: '2026-12-05T07:00:00.000Z', expiresAt: '2027-01-05T07:00:00.000Z' };

@@ -207,53 +207,55 @@ export class QuotaService {
     });
   }
 
-  /** For a future verified payment adapter or audited server operation only. Never expose client grants. */
+  /** Called only with a verified provider event or an audited server operation. */
   async activateMembership(input: TrustedMembershipActivation): Promise<MembershipActivation> {
-    if (!input || typeof input !== 'object' || Array.isArray(input)
-      || Object.keys(input).some(key => !['userId', 'planId', 'verifiedPaymentAt', 'verifiedEventId', 'idempotencyKey', 'deferTierChange'].includes(key))
-      || (input.deferTierChange !== undefined && input.deferTierChange !== true)) return fail(400, 'INVALID_MEMBERSHIP_ACTIVATION', '可信会员事件无效。');
-    validId(input.userId); validId(input.verifiedEventId); validId(input.idempotencyKey);
-    if (!['basic', 'premium'].includes(input.planId) || !quotaInstant(input.verifiedPaymentAt)
-      || Date.parse(input.verifiedPaymentAt) > this.now().getTime()) return fail(400, 'INVALID_MEMBERSHIP_ACTIVATION', '可信会员事件的等级或时间无效。');
-    return this.store.mutate(storage => {
-      for (const membership of storage.memberships) {
-        const previous = membership.activations.find(event => event.verifiedEventId === input.verifiedEventId || event.idempotencyKey === input.idempotencyKey);
-        if (previous) {
-          if (membership.userId !== input.userId || previous.verifiedEventId !== input.verifiedEventId || previous.idempotencyKey !== input.idempotencyKey
-            || previous.planId !== input.planId || previous.verifiedPaymentAt !== input.verifiedPaymentAt
-            || previous.deferTierChange !== input.deferTierChange) return fail(409, 'MEMBERSHIP_EVENT_CONFLICT', '相同会员事件不能携带不同输入。');
-          return previous;
-        }
-      }
-      const previous = storage.memberships.find(record => record.userId === input.userId);
-      const paidAt = Date.parse(input.verifiedPaymentAt);
-      const latest = previous?.activations.at(-1);
-      const latestAt = latest ? Date.parse(latest.appliedAt ?? latest.verifiedPaymentAt) : paidAt;
-      const usageAfterPayment = storage.aiUsage.some(row => row.userId === input.userId && row.mode === 'metered' && Date.parse(row.createdAt) > paidAt);
-      const now = this.now().getTime();
-      const at = paidAt < latestAt || usageAfterPayment ? Math.max(latestAt, now) : paidAt;
-      const refunds = storage.refunds ?? [];
-      const { basis: base, term: period } = planMembershipPeriod(membershipPeriods(previous, refunds, at), input.planId, at, input.deferTierChange);
-      const basis: MembershipBasis | null = base ? {
-        planId: base.planId, startsAt: base.startsAt, expiresAt: base.expiresAt, quotaAnchorAt: base.quotaAnchorAt,
-      } : null;
-      const changedBasis = previous && (!basis || basis.planId !== previous.planId || basis.startsAt !== previous.startsAt
-        || basis.expiresAt !== previous.expiresAt || basis.quotaAnchorAt !== previous.quotaAnchorAt);
-      const appliedAt = at > paidAt ? new Date(at).toISOString() : undefined;
-      const quotaAnchorAt = period.kind === 'purchase' ? period.startsAt : basis!.quotaAnchorAt;
-      const activation: MembershipActivation = { verifiedEventId: input.verifiedEventId, idempotencyKey: input.idempotencyKey,
-        verifiedPaymentAt: input.verifiedPaymentAt, ...period, quotaAnchorAt, ...(changedBasis ? { basis } : {}),
-        ...(appliedAt ? { appliedAt } : {}), ...(input.deferTierChange ? { deferTierChange: true as const } : {}) };
-      const record: StoredMembership = { userId: input.userId, planId: input.planId,
-        startsAt: period.kind === 'renewal' ? basis!.startsAt : period.startsAt, expiresAt: period.expiresAt,
-        quotaAnchorAt, updatedAt: new Date(Math.max(at, now)).toISOString(),
-        activations: [...(previous?.activations ?? []), activation] };
-      if (previous) storage.memberships[storage.memberships.indexOf(previous)] = record;
-      else storage.memberships.push(record);
-      if (storage.version !== undefined && (period.kind === 'scheduled' || appliedAt || input.deferTierChange)) storage.version = 6;
-      // Keep the same strict schema used when the process next loads the ledger.
-      normalizeQuotaStorage(storage, refunds);
-      return activation;
-    });
+    return this.store.mutate(storage => recordMembershipActivation(storage, input, this.now().getTime()));
   }
+}
+
+/** Allows an authenticated payment receipt and its membership event to commit together. */
+export function recordMembershipActivation(storage: QuotaStorage, input: TrustedMembershipActivation, now: number): MembershipActivation {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).some(key => !['userId', 'planId', 'verifiedPaymentAt', 'verifiedEventId', 'idempotencyKey', 'deferTierChange'].includes(key))
+    || (input.deferTierChange !== undefined && input.deferTierChange !== true)) return fail(400, 'INVALID_MEMBERSHIP_ACTIVATION', '可信会员事件无效。');
+  validId(input.userId); validId(input.verifiedEventId); validId(input.idempotencyKey);
+  if (!['basic', 'premium'].includes(input.planId) || !quotaInstant(input.verifiedPaymentAt)
+    || Date.parse(input.verifiedPaymentAt) > now) return fail(400, 'INVALID_MEMBERSHIP_ACTIVATION', '可信会员事件的等级或时间无效。');
+  for (const membership of storage.memberships) {
+    const previous = membership.activations.find(event => event.verifiedEventId === input.verifiedEventId || event.idempotencyKey === input.idempotencyKey);
+    if (previous) {
+      if (membership.userId !== input.userId || previous.verifiedEventId !== input.verifiedEventId || previous.idempotencyKey !== input.idempotencyKey
+        || previous.planId !== input.planId || previous.verifiedPaymentAt !== input.verifiedPaymentAt
+        || previous.deferTierChange !== input.deferTierChange) return fail(409, 'MEMBERSHIP_EVENT_CONFLICT', '相同会员事件不能携带不同输入。');
+      return previous;
+    }
+  }
+  const previous = storage.memberships.find(record => record.userId === input.userId);
+  const paidAt = Date.parse(input.verifiedPaymentAt);
+  const latest = previous?.activations.at(-1);
+  const latestAt = latest ? Date.parse(latest.appliedAt ?? latest.verifiedPaymentAt) : paidAt;
+  const usageAfterPayment = storage.aiUsage.some(row => row.userId === input.userId && row.mode === 'metered' && Date.parse(row.createdAt) > paidAt);
+  const at = paidAt < latestAt || usageAfterPayment ? Math.max(latestAt, now) : paidAt;
+  const refunds = storage.refunds ?? [];
+  const { basis: base, term: period } = planMembershipPeriod(membershipPeriods(previous, refunds, at), input.planId, at, input.deferTierChange);
+  const basis: MembershipBasis | null = base ? {
+    planId: base.planId, startsAt: base.startsAt, expiresAt: base.expiresAt, quotaAnchorAt: base.quotaAnchorAt,
+  } : null;
+  const changedBasis = previous && (!basis || basis.planId !== previous.planId || basis.startsAt !== previous.startsAt
+    || basis.expiresAt !== previous.expiresAt || basis.quotaAnchorAt !== previous.quotaAnchorAt);
+  const appliedAt = at > paidAt ? new Date(at).toISOString() : undefined;
+  const quotaAnchorAt = period.kind === 'purchase' ? period.startsAt : basis!.quotaAnchorAt;
+  const activation: MembershipActivation = { verifiedEventId: input.verifiedEventId, idempotencyKey: input.idempotencyKey,
+    verifiedPaymentAt: input.verifiedPaymentAt, ...period, quotaAnchorAt, ...(changedBasis ? { basis } : {}),
+    ...(appliedAt ? { appliedAt } : {}), ...(input.deferTierChange ? { deferTierChange: true as const } : {}) };
+  const record: StoredMembership = { userId: input.userId, planId: input.planId,
+    startsAt: period.kind === 'renewal' ? basis!.startsAt : period.startsAt, expiresAt: period.expiresAt,
+    quotaAnchorAt, updatedAt: new Date(Math.max(at, now)).toISOString(),
+    activations: [...(previous?.activations ?? []), activation] };
+  if (previous) storage.memberships[storage.memberships.indexOf(previous)] = record;
+  else storage.memberships.push(record);
+  if (storage.version !== undefined && storage.version < 6 && (period.kind === 'scheduled' || appliedAt || input.deferTierChange)) storage.version = 6;
+  // Keep the same strict schema used when the process next loads the ledger.
+  normalizeQuotaStorage(storage, refunds);
+  return activation;
 }

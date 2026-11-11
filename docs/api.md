@@ -57,7 +57,7 @@ H5 使用名为 `youfang_session` 的 HttpOnly、SameSite=Lax Cookie，生产环
 
 H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 `AUTH_TRUSTED_ORIGINS` 配置精确来源列表，不把客户端传入的 Host 或转发头视为授权；小程序 Bearer 通道不依赖浏览器 Cookie。`AUTH_SECURE_COOKIES` 控制 Cookie 的 Secure 属性，默认随 `NODE_ENV=production` 启用，公网 HTTPS 不应关闭。
 
-`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信小程序静默免登按 openid 建立账号，已有邮箱/手机账号不会自动合并；微信授权手机号仍未接入。短信验证码登录、注册和绑定已接入代码，是否可用由 `phone` 能力字段与真实配置决定，关闭时返回 `SMS_NOT_CONFIGURED`，不返回假验证码或登录成功。
+`emailVerified` 仅在完成邮箱证明后为 `true`。旧账号保留原状态，缺省为 `false`，必须先凭原密码登录后完成本人邮箱验证，才能使用找回密码；找回流程不用于认领或提升未验证的旧账号。客户端提交 `emailVerified` 不能授予验证状态。微信小程序静默免登按 openid 建立账号，已有邮箱/手机账号不会自动合并；微信授权手机号与短信验证码分别开放，是否启用看 wechatPhone 与 phone。短信验证码登录、注册和绑定已接入代码，是否可用由 `phone` 能力字段与真实配置决定，关闭时返回 `SMS_NOT_CONFIGURED`，不返回假验证码或登录成功。
 
 ## 手机号验证码与绑定
 
@@ -65,7 +65,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 手机号登录只接受号码、随机挑战 ID 和六位验证码，不信任客户端传入的 `userId`、验证状态或会员身份。已绑定号码登录原账号；未绑定号码验证后原子创建 phone-only 账号，不生成假邮箱或默认密码。新绑定只增加当前账号登录标识，保持原账号 ID、简历、会员与会话范围；目标标识属于其他账号时拒绝，不自动合并。
 
-绑定要求有效会话、目标 `bind-phone / bind-email` 验证码和当前身份证明：已有密码使用 `currentPassword`，phone-only 使用当前已绑定手机号的 `verify-account` 验证码 `currentCode/currentChallengeId`；无密码账号绑定邮箱还须设置合规新密码。用途、目标、挑战 ID 与用户均须匹配，登录码不能作绑定码。现有邮箱不直接替换，当前没有改绑或解绑接口。
+绑定要求有效会话、目标 `bind-phone / bind-email` 验证码和当前身份证明：已有密码使用 `currentPassword`，phone-only 使用当前已绑定手机号的 `verify-account` 验证码 `currentCode/currentChallengeId`，无密码的微信账号可用 `wechatCode` 核对当前 OpenID。无密码账号绑定邮箱还须设置合规新密码。用途、目标、挑战 ID 与用户均须匹配，登录码不能作绑定码。现有邮箱不直接替换，当前没有改绑或解绑接口。
 
 短信验证码有效 5 分钟、60 秒冷却、最多 5 次错误。发送先持久化预占，供应商确认提交后才有效；失败也计入发送限额，不自动重试。默认单号 5 条/小时、10 条/24 小时，单 IP 标签 10 条/小时、30 条/24 小时，全服务 100 次/24 小时、2 并发。验证码只保存 HMAC，不进入响应或日志。供应商接受不证明最终送达，本地超时也不证明没有计费。
 
@@ -88,12 +88,16 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
 | GET | `/membership/workbench` | 返回 `WorkbenchAccess`：`{planId,expiresAt,features}`，仅服务端当前有效会员记录授予相应工作台权限；无效会话为 401，不接受查询参数 |
 | GET | `/plans` | 返回 `free / basic / premium` 三档权益与服务器价格（分）；未配置支付时 `paymentAvailable` 为 false，价格仍返回当前服务端配置 |
-| GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade`、当前方案；升级补差价由服务端计算 |
-| GET | `/billing/payment-methods` | 公开；返回 `{wechat:boolean,alipay:boolean}`，即服务器当前已配置并启用的支付渠道，前端据此决定按钮是否展示 |
-| POST | `/billing/checkout` | `{planId,requestId,channel?}`，`channel` 为 `jsapi`（默认，小程序）、`native`（H5 微信扫码）或 `alipay-page`/`alipay-wap`（H5 支付宝）→ 201 创建或复用 `pending` 订单；JSAPI 返回订单摘要 + `wx.requestPayment` 参数，Native 返回订单摘要 + `native.codeUrl/qrCodeDataUrl/expiresAt`，支付宝返回订单摘要 + `alipay.redirectUrl`；未配置对应渠道返回 503 `PAYMENT_NOT_CONFIGURED`；JSAPI 未绑定微信返回 409 `WECHAT_NOT_BOUND`；同一 `requestId` 换方案/金额/支付方式返回 409 `IDEMPOTENCY_KEY_CONFLICT` |
-| GET | `/billing/orders/:id` | 返回当前会话本人的订单摘要（不含 prepayId 或其他用户订单）；不存在按 404 |
+| GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade/scheduled`、当前方案、确认标识及可选 `virtualProductAvailable`。升级补差价由服务端计算 |
+| GET | `/billing/payment-methods` | 公开，返回 `{wechat:boolean,alipay:boolean}`。小程序请求在虚拟支付启用后还返回 `wechatVirtual:{ios:boolean}` |
+| POST | `/billing/checkout` | 创建或复用本人订单。网页使用 `native` / `alipay-page` / `alipay-wap`；旧 `jsapi` 订单沿用 v3 处理。小程序 `wechat-virtual` 还须提供 `expectedAmountCents,reviewId,wechatCode,device`（`ios 或 other`），返回订单与微信签名参数。渠道启用、价格、商品与报价均由服务端核对。同一幂等键换方案、金额、报价或设备类型返回 409 |
+| GET | `/billing/orders/:id` | 返回本人订单摘要。虚拟支付订单可触发限频的服务端查单和到账核验。其他账号订单返回 404 |
 | POST | `/billing/wechat/notify` | 微信支付 v3 异步通知入口，公开但必须通过平台公钥验签；处理成功返回 `{code:'SUCCESS'}`，失败返回错误且不发放会员 |
 | POST | `/billing/alipay/notify` | 支付宝异步通知入口，公开但必须通过 RSA2 验签；校验 app_id/seller_id/订单/金额后入账，成功返回纯文本 `success`，失败返回 `failure` 且不发放会员 |
+| GET / POST | `/billing/wechat-virtual/notify` | 微信后台消息推送。GET 校验配置挑战，POST 验签解密安全模式 JSON 通知；通过核对才发放或撤销对应权益 |
+| POST | `/auth/wechat/phone/bind` | `{wechatCode,phoneCode}` → 同一账号的 `AuthUser`。需要会话和已配置的微信手机号实时验证。OpenID 不匹配或号码已属于其他账号时拒绝 |
+| PUT | `/auth/profile` | `{nickname,avatar?}` → 本人 `AuthUser`。昵称可传 null 清空；头像为最多 128 KB 的 JPG/PNG Base64，省略保留，null 移除 |
+| GET | `/auth/profile/avatar/:id` | 当前会话本人的头像二进制，私有响应。其他账号和已移除图片返回 404 |
 | POST | `/auth/wechat/bind` | `{code}` → `{bound:true,openidMasked}`；服务端用小程序 code 换 openid 并绑定当前账号，绑定其他账号返回 409 |
 | GET | `/resumes` | 返回本人简历数组，按更新时间倒序 |
 | POST | `/resumes` | `{title, targetRole?, text}` → 201 + 归属当前会话用户的简历 |

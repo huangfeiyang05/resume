@@ -20,11 +20,13 @@ export interface ResumeExportFile extends ResumeExportInput {
 }
 export type { PlanId, PaidPlanId, Plan, MembershipPolicy, MembershipPreview, MembershipActive, MembershipState, CheckoutInput, MembershipPrices, MembershipTerm, MembershipTermKind } from './membership.js';
 export type { PaymentOrder, PaymentOrderStatus, PaymentChannel, WechatPaymentParams, NativePaymentParams, AlipayPaymentParams, CheckoutResult, MembershipQuote, WechatBindResult } from './payment.js';
+export type { PaymentMethods, WechatVirtualDevice, WechatVirtualPaymentParams, WechatVirtualCheckoutProof } from './payment.js';
 export type { AiQuotaSummary } from './quota.js';
 export type { WorkbenchAccess, WorkbenchFeature } from './workbench.js';
 export type { ApplicationStatus, CareerJob, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
 export type { CareerContentKind, CareerContentValue, CareerContentAction, CareerContentSummary, CareerContentHistory, CareerContentDetail, CareerContentDraft, SaveCareerContentDraft, ReviewCareerContent, CareerContentReview, ApplyCareerContent, CareerContentReceipt } from './career-content.js';
 export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, WechatLoginInput, PhoneLoginInput } from './auth.js';
+export type { BindWechatPhoneInput, AccountProfileInput } from './auth.js';
 export type { EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput } from './auth.js';
 export type { PhoneCodePurpose, SendPhoneCodeInput, PhoneCodeChallenge, CurrentIdentityProof, BindPhoneInput, BindEmailInput } from './auth.js';
 export type IssueCategory = 'impact' | 'structure' | 'keywords' | 'clarity';

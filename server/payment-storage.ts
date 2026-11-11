@@ -1,11 +1,22 @@
-import { paymentChannels, paymentOrderStatuses, type PaymentChannel, type PaymentOrder, type PaymentOrderStatus } from '../shared/payment.js';
+import { paymentChannels, paymentOrderStatuses, type PaymentChannel, type PaymentOrder, type PaymentOrderStatus, type WechatVirtualDevice } from '../shared/payment.js';
 import type { PaidPlanId } from '../shared/membership.js';
 import { randomBytes } from 'node:crypto';
 import type { MembershipActivation } from './quota-storage.js';
 
 export const orderTtlMilliseconds = 2 * 60 * 60 * 1000;
+export const virtualProductIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
+export const virtualOfferIdPattern = /^\d{1,32}$/;
+export const virtualTransactionIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
 
-/** Server-only order record. Out-trade numbers and openids never leave the API boundary. */
+export interface StoredVirtualOrder {
+  offerId: string;
+  productId: string;
+  device: WechatVirtualDevice;
+  wxOrderId?: string;
+  delivered?: true;
+}
+
+/** Server-only order record. Trade numbers appear only in provider checkout parameters. */
 export interface StoredPaymentOrder extends PaymentOrder {
   userId: string;
   outTradeNo: string;
@@ -17,6 +28,7 @@ export interface StoredPaymentOrder extends PaymentOrder {
   deferTierChange?: true;
   transactionId?: string;
   paymentEventId?: string;
+  virtual?: StoredVirtualOrder;
 }
 
 export interface PaymentStorage { orders: StoredPaymentOrder[] }
@@ -24,7 +36,7 @@ export interface PaymentStorage { orders: StoredPaymentOrder[] }
 export function paymentActivation(order: StoredPaymentOrder, events: readonly MembershipActivation[] = []) {
   const { paymentEventId, paidAt } = order;
   if (!paymentEventId || !paidAt) return undefined;
-  const provider = order.channel.startsWith('alipay-') ? 'alipay' : 'wechat';
+  const provider = order.channel === 'wechat-virtual' ? order.channel : order.channel.startsWith('alipay-') ? 'alipay' : 'wechat';
   return events.find(event => event.verifiedEventId === paymentEventId && event.idempotencyKey === `${provider}:${paymentEventId}`
     && event.planId === order.planId && Date.parse(event.verifiedPaymentAt) === Date.parse(paidAt));
 }
@@ -60,7 +72,7 @@ function optionalString(value: unknown, pattern: RegExp): boolean {
 function normalizeOrder(value: unknown): StoredPaymentOrder {
   const item = object(value,
     ['id', 'userId', 'planId', 'amountCents', 'status', 'createdAt', 'expiresAt', 'outTradeNo', 'description'],
-    ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'reviewId', 'deferTierChange', 'transactionId', 'paymentEventId', 'channel']);
+    ['paidAt', 'prepayId', 'codeUrl', 'requestId', 'reviewId', 'deferTierChange', 'transactionId', 'paymentEventId', 'channel', 'virtual']);
   const channel = item.channel === undefined ? 'jsapi' : item.channel;
   if (!paymentChannels.includes(channel as PaymentChannel)) return malformed();
   if (!identifier(item.id) || !identifier(item.userId) || !plans.includes(item.planId as PaidPlanId)
@@ -80,6 +92,15 @@ function normalizeOrder(value: unknown): StoredPaymentOrder {
     || !optionalString(item.paymentEventId, /^[A-Za-z0-9_-]{6,128}$/)) return malformed();
   const status = item.status as PaymentOrderStatus;
   if ((status === 'paid') !== (item.paidAt !== undefined) || (status === 'paid') !== (item.transactionId !== undefined) || (status === 'paid') !== (item.paymentEventId !== undefined)) return malformed();
+  if (channel === 'wechat-virtual') {
+    const virtual = object(item.virtual, ['offerId', 'productId', 'device'], ['wxOrderId', 'delivered']);
+    if (typeof virtual.offerId !== 'string' || !virtualOfferIdPattern.test(virtual.offerId)
+      || typeof virtual.productId !== 'string' || !virtualProductIdPattern.test(virtual.productId)
+      || (virtual.device !== 'ios' && virtual.device !== 'other') || !item.reviewId || !item.requestId
+      || item.prepayId !== undefined || item.codeUrl !== undefined
+      || !optionalString(virtual.wxOrderId, virtualTransactionIdPattern) || (status === 'paid') !== (virtual.wxOrderId !== undefined)
+      || (virtual.delivered !== undefined && (virtual.delivered !== true || status !== 'paid'))) return malformed();
+  } else if (item.virtual !== undefined) return malformed();
   return { ...(structuredClone(item) as unknown as StoredPaymentOrder), channel: channel as PaymentChannel };
 }
 

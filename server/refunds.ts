@@ -55,6 +55,7 @@ export class AdminRefunds {
   }
 
   available(channel: PaymentChannel) {
+    if (channel === 'wechat-virtual') return false;
     const alipay = channel.startsWith('alipay-');
     const gateway = alipay ? this.gateways.alipay : this.gateways.wechat;
     return !!(gateway?.submitRefund && gateway.queryRefund && (alipay || (this.notifyUrl && this.gateways.wechat?.parseRefundNotification)));
@@ -231,7 +232,7 @@ export class AdminRefunds {
     const refund = database.refunds.find(item => item.id === notification.id);
     if (!refund) throw new HttpError(404, 'REFUND_NOT_FOUND', '退款记录不存在。');
     const order = orderFor(database, refund.orderId), expected = target(order, refund);
-    if (order.channel.startsWith('alipay-') || expected.outTradeNo !== notification.outTradeNo
+    if ((order.channel !== 'jsapi' && order.channel !== 'native') || expected.outTradeNo !== notification.outTradeNo
       || expected.transactionId !== notification.transactionId || expected.amountCents !== notification.amountCents) {
       throw new HttpError(409, 'REFUND_RESULT_MISMATCH', '微信退款通知与订单不匹配。');
     }

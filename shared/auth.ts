@@ -9,6 +9,8 @@ export interface AuthUser {
   emailVerified: boolean;
   /** A mini-program account signed in silently through a server-verified WeChat openid. */
   wechat?: boolean;
+  nickname?: string;
+  avatarId?: string;
 }
 
 export interface EmailPasswordInput { email: string; password: string; code?: string; challengeId?: string }
@@ -26,14 +28,30 @@ export interface AuthSession {
 export interface AuthCapabilities {
   emailPassword: true; wechat: boolean; phone: boolean;
   emailVerification: boolean; passwordReset: boolean;
+  wechatPhone?: true;
 }
-/** Future server-side exchange, never a client-provided openId or phone as proof. */
 export interface WechatLoginInput { code: string }
+export interface BindWechatPhoneInput { wechatCode: string; phoneCode: string }
+export interface AccountProfileInput {
+  nickname: string | null;
+  /** Base64 JPEG/PNG. Omit to keep the current avatar, or pass null to remove it. */
+  avatar?: string | null;
+}
+export const accountAvatarMaxBytes = 128 * 1024;
+export const accountAvatarMaxSide = 512;
+export const accountNicknameMaxLength = 24;
+export const accountAvatarIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export function isAccountNickname(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= accountNicknameMaxLength * 2
+    && value === value.trim() && value === value.normalize('NFC')
+    && [...value].length >= 1 && [...value].length <= accountNicknameMaxLength
+    && !/[\p{Cc}\uD800-\uDFFF\u2028-\u202E\u2066-\u2069]/u.test(value);
+}
 export type PhoneCodePurpose = 'login' | 'bind-phone' | 'verify-account';
 export interface SendPhoneCodeInput { phone: string; purpose: PhoneCodePurpose }
 export interface PhoneCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
 export interface PhoneLoginInput { phone: string; code: string; challengeId: string }
-export interface CurrentIdentityProof { currentPassword?: string; currentCode?: string; currentChallengeId?: string }
+export interface CurrentIdentityProof { currentPassword?: string; currentCode?: string; currentChallengeId?: string; wechatCode?: string }
 export interface BindPhoneInput extends PhoneLoginInput, CurrentIdentityProof {}
 export interface BindEmailInput extends CurrentIdentityProof { email: string; code: string; challengeId: string; password?: string }
 

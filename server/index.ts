@@ -13,6 +13,9 @@ import { loadAlipayConfig, loadBillingPricing, loadPaymentConfig } from './payme
 import { WechatPayClient } from './wechat-pay.js';
 import { AlipayClient } from './alipay.js';
 import { WechatCodeExchange } from './wechat-identity.js';
+import { loadWechatAppCredentials, WechatApi, WechatPhoneVerification, wechatFlag } from './wechat-api.js';
+import { loadWechatVirtualConfig, WechatVirtualGateway } from './wechat-virtual-gateway.js';
+import { WechatMessagePush } from './wechat-message-push.js';
 import { parseAdminUserIds } from './admin.js';
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 3001);
@@ -31,6 +34,15 @@ const store = new JsonStore();
 const pricing = loadBillingPricing();
 const paymentConfig = loadPaymentConfig();
 const gateway = paymentConfig ? new WechatPayClient(paymentConfig) : undefined;
+const wechatApp = loadWechatAppCredentials();
+const wechatApi = wechatApp && new WechatApi(wechatApp);
+const phoneAuthorization = wechatFlag('WECHAT_PHONE_ENABLED', process.env);
+const virtualConfig = loadWechatVirtualConfig();
+if ((phoneAuthorization || virtualConfig) && !wechatApi) throw new Error('WeChat phone or virtual payment requires mini-program credentials.');
+const paymentVirtual = virtualConfig && wechatApi && wechatApp ? {
+  gateway: new WechatVirtualGateway(virtualConfig, wechatApi),
+  push: new WechatMessagePush(wechatApp.appid, virtualConfig.pushToken, virtualConfig.pushAesKey),
+} : undefined;
 const alipayConfig = loadAlipayConfig();
 const alipayGateway = alipayConfig ? new AlipayClient(alipayConfig) : undefined;
 const mailConfig = loadMailConfig();
@@ -41,7 +53,8 @@ const auth = new AuthService(store, {
   ...(mailConfig.enabled ? { emailCodes: new EmailCodeService(store, mailer, { secret: mailConfig.codeSecret }) } : {}),
   requireEmailVerification: process.env.NODE_ENV === 'production',
   ...(smsConfig.enabled ? { phoneCodes: new PhoneCodeService(store, createSmsSender(smsConfig), { secret: smsConfig.codeSecret, dailyLimit: smsDailyLimit }) } : {}),
-  ...(paymentConfig ? { wechat: new WechatCodeExchange(paymentConfig.appid, paymentConfig.appSecret) } : {}),
+  ...(wechatApp ? { wechat: new WechatCodeExchange(wechatApp.appid, wechatApp.appSecret) } : {}),
+  ...(phoneAuthorization && wechatApi && wechatApp ? { wechatPhone: new WechatPhoneVerification(wechatApi, wechatApp.appid) } : {}),
 });
 const server = createApiServer(new ResumeService(store, provider), {
   auth,
@@ -50,6 +63,7 @@ const server = createApiServer(new ResumeService(store, provider), {
   pricing,
   ...(paymentConfig && gateway ? { paymentGateway: gateway, paymentAppid: paymentConfig.appid, paymentMchid: paymentConfig.mchid, paymentNotifyUrl: paymentConfig.notifyUrl } : {}),
   ...(alipayGateway ? { paymentAlipay: alipayGateway } : {}),
+  ...(paymentVirtual ? { paymentVirtual } : {}),
 });
 server.listen(port, '127.0.0.1', () => {
   console.log(`Resume API: http://127.0.0.1:${port} · ${config.enabled ? `百炼 ${config.model}（待请求验证）` : '本地规则诊断'}`);

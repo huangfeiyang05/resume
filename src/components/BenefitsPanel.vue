@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import type { MembershipQuote, MembershipState, NativePaymentParams, Plan, PlanId } from '../../shared/types';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import type { MembershipQuote, MembershipState, NativePaymentParams, PaymentMethods, Plan, PlanId } from '../../shared/types';
 import type { PaidPlanId } from '../../shared/membership';
+import { wechatVirtualIosMinimumCents } from '../../shared/payment';
 import { membershipApi } from '../services/membership';
 import { ApiError } from '../services/api';
+import { requestWechatLoginCode } from '../services/auth';
+import { requestWechatVirtualPayment, wechatVirtualSupported, WechatPaymentClientError } from '../services/wechatPayment';
 import AppIcon from './AppIcon.vue';
 import AppModal from './AppModal.vue';
 
-const props = defineProps<{ initialPlan?: PaidPlanId }>();
+const props = defineProps<{ userId: string; initialPlan?: PaidPlanId }>();
 let initialPlanOpened = false;
 const membership = ref<MembershipState>();
 const plans = ref<Plan[]>([]);
@@ -24,21 +27,46 @@ let quoteRequest = 0;
 const paying = ref(false);
 const paymentError = ref('');
 const nativePayment = ref<NativePaymentParams>();
-const paymentMethods = ref<{ wechat: boolean; alipay: boolean }>();
+const paymentMethods = ref<PaymentMethods>();
+const virtualStorageKey = 'resume-youfang:pending-virtual-order:' + props.userId;
+const pendingVirtual = ref<{ id: string; expiresAt: string }>();
+const checkingVirtual = ref(false);
+const virtualStatus = ref('');
+const virtualExpired = ref(false);
+let disposed = false;
 const ALIPAY_PENDING_KEY = 'resume-youfang:pending-alipay-order';
 let miniProgram = false;
 // #ifdef MP-WEIXIN
 miniProgram = true;
 // #endif
-const iosDevice = (() => { try { return miniProgram && uni.getSystemInfoSync().platform === 'ios'; } catch { return false; } })();
+const deviceInfo = (() => { try { return uni.getSystemInfoSync(); } catch { return undefined; } })();
+const iosDevice = miniProgram && deviceInfo?.platform === 'ios';
+const virtualDevice = iosDevice ? 'ios' : 'other';
+const iosMajor = /^iOS\s+(\d+)/i.exec(deviceInfo?.system ?? '')?.[1];
+const wechatVersion = /^(\d+)\.(\d+)\.(\d+)/.exec(deviceInfo?.version ?? '');
+const iosClientTooOld = iosDevice && ((iosMajor !== undefined && Number(iosMajor) < 15)
+  || (wechatVersion !== null && (Number(wechatVersion[1]) < 8
+    || (Number(wechatVersion[1]) === 8 && Number(wechatVersion[2]) === 0 && Number(wechatVersion[3]) < 68))));
+const supportedClient = wechatVirtualSupported() && !iosClientTooOld;
 const paidPlans = computed(() => plans.value.filter((plan) => plan.id !== 'free'));
 const selectedPlan = computed(() => paidPlans.value.find((plan) => plan.id === selectedPlanId.value));
 const selectedAmount = computed(() => quote.value?.amountCents ?? selectedPlan.value?.priceCents ?? null);
 const simulated = computed(() => membership.value?.paymentMode === 'simulation');
-const canPayWechat = computed(() => !simulated.value && membership.value?.paymentAvailable === true && paymentMethods.value?.wechat === true && !iosDevice);
+const canPayWechat = computed(() => !miniProgram && !simulated.value && membership.value?.paymentAvailable === true && paymentMethods.value?.wechat === true);
 const canPayAlipay = computed(() => !simulated.value && membership.value?.paymentAvailable === true && !miniProgram && paymentMethods.value?.alipay === true);
-const canPay = computed(() => simulated.value || canPayWechat.value || canPayAlipay.value);
-const payActionCount = computed(() => simulated.value ? 1 : Number(canPayWechat.value) + Number(canPayAlipay.value) + Number(!canPay.value));
+const virtualOpen = computed(() => !!paymentMethods.value?.wechatVirtual && (!iosDevice || paymentMethods.value.wechatVirtual.ios));
+const virtualUnavailable = computed(() => {
+  if (!miniProgram || simulated.value) return '';
+  if (iosDevice && quote.value && quote.value.amountCents < wechatVirtualIosMinimumCents) return 'iOS 虚拟支付最低金额为 ¥1，当前报价暂不可购买。';
+  if (!virtualOpen.value) return '小程序虚拟支付暂未开放。';
+  if (iosClientTooOld) return 'Apple 内购需要 iOS 15 及微信 8.0.68 或以上版本。';
+  if (!supportedClient) return '请更新微信后使用小程序支付。';
+  if (quote.value && !quote.value.virtualProductAvailable) return '当前报价对应的小程序商品暂不可购买。';
+  return '';
+});
+const canPayVirtual = computed(() => miniProgram && !simulated.value && virtualOpen.value && !virtualUnavailable.value);
+const canPay = computed(() => simulated.value || canPayWechat.value || canPayAlipay.value || canPayVirtual.value);
+const payActionCount = computed(() => canPayWechat.value && canPayAlipay.value ? 2 : 1);
 function mobileBrowser(): boolean {
   try { const platform = uni.getSystemInfoSync().platform; return platform === 'ios' || platform === 'android'; } catch { return false; }
 }
@@ -69,7 +97,7 @@ const quoteExplanation = computed(() => {
   return '';
 });
 const payMethodNames = computed(() => {
-  if (miniProgram) return ['微信支付'];
+  if (miniProgram) return virtualOpen.value && supportedClient ? [iosDevice ? 'Apple 内购' : '微信虚拟支付'] : [];
   const names: string[] = [];
   if (paymentMethods.value?.wechat) names.push('微信扫码');
   if (paymentMethods.value?.alipay) names.push('支付宝');
@@ -79,15 +107,15 @@ const payMethodNote = computed(() => simulated.value ? '测试环境 · 模拟�
   : payMethodNames.value.length ? `${payMethodNames.value.join(' / ')} · 一个自然月 · 手动续费` : '一个自然月 · 手动续费');
 const paymentPreviewNote = computed(() => {
   if (simulated.value) return '测试环境 · 模拟支付';
-  if (!membership.value?.paymentAvailable) return membership.value?.mode === 'active' ? '支付暂未开放' : '方案预览 · 支付暂未开放';
-  return payMethodNames.value.length ? `${payMethodNames.value.join(' / ')}已开启 · 一个自然月 · 手动续费` : '支付已开启 · 一个自然月 · 手动续费';
+  return payMethodNames.value.length ? payMethodNote.value : membership.value?.mode === 'active' ? '支付暂未开放' : '方案预览 · 支付暂未开放';
 });
 const paymentHint = computed(() => {
   if (simulated.value) return '本次支付只记录到测试环境。';
+  if (pendingVirtual.value) return '上一笔订单待确认，可先查询支付结果。';
+  if (virtualUnavailable.value) return virtualUnavailable.value;
   if (!membership.value?.paymentAvailable) return '支付未开放，不会扣费或开通会员。';
-  if (miniProgram && iosDevice) return 'iOS 端暂不支持购买虚拟会员。';
   if (quote.value?.kind === 'scheduled' || quote.value?.kind === 'renewal') return '支付成功后，续费周期按已付会员时间顺延。';
-  if (miniProgram) return '支付由微信安全处理，权益到账后立即生效。';
+  if (miniProgram) return '支付确认后开通会员权益。';
   if (paymentMethods.value?.wechat && paymentMethods.value?.alipay) return '支持微信扫码或支付宝支付，权益到账后立即生效。';
   if (paymentMethods.value?.alipay) return '支付宝安全支付，权益到账后立即生效。';
   return '请使用微信扫描二维码完成支付，权益到账后立即生效。';
@@ -135,7 +163,7 @@ async function load() {
   } finally { loading.value = false; }
 }
 async function openPurchase(id?: PlanId) {
-  if (!membership.value || !paidPlans.value.length) return;
+  if (!membership.value || !paidPlans.value.length || paying.value) return;
   const target = id ?? membership.value.currentPlanId;
   selectedPlanId.value = target === 'free' ? 'basic' : target;
   purchaseOpen.value = true;
@@ -175,19 +203,6 @@ function requestId() {
   const random = () => Math.random().toString(36).slice(2).padEnd(8, '0');
   return `pay_${Date.now().toString(36)}_${random()}${random()}`.slice(0, 32);
 }
-function loginCode(): Promise<string> {
-  return new Promise((resolve, reject) => uni.login({
-    provider: 'weixin',
-    success: (result) => result.code ? resolve(result.code) : reject(new Error('微信登录未返回有效凭证。')),
-    fail: () => reject(new Error('微信登录失败，请稍后重试。')),
-  }));
-}
-function requestPayment(payment: { timeStamp: string; nonceStr: string; package: string; signType: 'RSA'; paySign: string }): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const options = { provider: 'wxpay', ...payment, success: () => resolve(), fail: (error: unknown) => reject(new Error((error as { errMsg?: string })?.errMsg || '支付未完成。')) };
-    uni.requestPayment(options as unknown as UniApp.RequestPaymentOptions);
-  });
-}
 async function waitForPayment(orderId: string, attempts = 10): Promise<boolean> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (!purchaseOpen.value) return false;
@@ -220,27 +235,79 @@ async function payNative(approved: MembershipQuote) {
     await reportPaymentError(cause);
   }
 }
+function forgetVirtualOrder(id: string) {
+  if (pendingVirtual.value?.id !== id) return;
+  pendingVirtual.value = undefined;
+  virtualExpired.value = false;
+  virtualStatus.value = '';
+  try { uni.removeStorageSync(virtualStorageKey); } catch { /* The order can be rechecked on return. */ }
+}
+async function checkVirtualOrder(attempts = 1) {
+  const id = pendingVirtual.value?.id;
+  if (!id || checkingVirtual.value || disposed) return;
+  checkingVirtual.value = true;
+  virtualStatus.value = '';
+  try {
+    for (let index = 0; index < attempts && !disposed && pendingVirtual.value?.id === id; index++) {
+      if (index) await new Promise(resolve => setTimeout(resolve, 2600));
+      if (disposed || pendingVirtual.value?.id !== id) return;
+      try {
+        const order = await membershipApi.order(id);
+        if (disposed || pendingVirtual.value?.id !== id) return;
+        if (order.status === 'paid') {
+          forgetVirtualOrder(id);
+          closePurchase();
+          await load();
+          if (!disposed) uni.showToast({ title: '支付成功', icon: 'success' });
+          return;
+        }
+        if (order.status === 'closed' || order.status === 'failed') {
+          forgetVirtualOrder(id);
+          virtualStatus.value = '订单已关闭，可以重新购买。';
+          return;
+        }
+        virtualExpired.value = Date.parse(order.expiresAt) <= Date.now();
+      } catch (cause) {
+        if (cause instanceof ApiError && cause.code === 'ORDER_NOT_FOUND') { forgetVirtualOrder(id); return; }
+      }
+    }
+    if (!disposed) virtualStatus.value = '支付结果待确认。';
+  } finally { checkingVirtual.value = false; }
+}
+function stopWaitingForVirtualOrder() {
+  const id = pendingVirtual.value?.id;
+  if (!id || !virtualExpired.value || paying.value || checkingVirtual.value) return;
+  uni.showModal({
+    title: '结束等待',
+    content: '确认这笔订单未扣款后，可以发起新订单。已扣款请继续查询结果。',
+    confirmText: '结束等待',
+    success: result => { if (result.confirm && !disposed) forgetVirtualOrder(id); },
+  });
+}
 async function pay() {
   const approved = quote.value;
-  if (!canPayWechat.value || !approved || approved.planId !== selectedPlanId.value || paying.value) return;
-  if (miniProgram && iosDevice) { paymentError.value = 'iOS 端暂不支持购买虚拟会员，请使用 Android 或后续开放的方式。'; return; }
+  if (!(canPayWechat.value || canPayVirtual.value) || !approved || approved.planId !== selectedPlanId.value || paying.value || pendingVirtual.value) return;
   paying.value = true;
   paymentError.value = '';
   try {
     if (!miniProgram) { await payNative(approved); return; }
-    const code = await loginCode();
-    await membershipApi.bindWechat(code);
-    const result = await membershipApi.checkout(approved.planId, requestId(), 'jsapi', approved.amountCents, approved.reviewId);
-    if (!result.payment) throw new Error('支付参数缺失，请稍后重试。');
-    await requestPayment(result.payment);
-    const confirmed = await waitForPayment(result.order.id);
-    await load();
-    if (confirmed) {
-      purchaseOpen.value = false;
-      uni.showToast({ title: '支付成功', icon: 'success' });
-    } else {
-      paymentError.value = '支付已完成，权益正在确认中，请稍后刷新查看。';
+    const wechatCode = await requestWechatLoginCode();
+    if (disposed || !purchaseOpen.value) return;
+    const result = await membershipApi.checkout(approved.planId, requestId(), 'wechat-virtual', approved.amountCents, approved.reviewId,
+      { wechatCode, device: virtualDevice });
+    if (disposed || !purchaseOpen.value) return;
+    if (!result.virtual || result.order.status !== 'pending') throw new Error('支付参数缺失，请稍后重试。');
+    const pending = { id: result.order.id, expiresAt: result.order.expiresAt };
+    uni.setStorageSync(virtualStorageKey, pending);
+    pendingVirtual.value = pending;
+    try { await requestWechatVirtualPayment(result.virtual); }
+    catch (cause) {
+      if (cause instanceof WechatPaymentClientError && cause.result !== 'unknown') {
+        forgetVirtualOrder(pending.id);
+        throw cause;
+      }
     }
+    await checkVirtualOrder(8);
   } catch (cause) {
     await reportPaymentError(cause);
   } finally { paying.value = false; }
@@ -291,12 +358,29 @@ async function resumeAlipayOrder() {
     await new Promise((resolve) => setTimeout(resolve, 1500));
   }
 }
-onMounted(async () => { await load(); await resumeAlipayOrder(); });
+onMounted(async () => {
+  if (miniProgram) {
+    const saved = uni.getStorageSync(virtualStorageKey) as { id?: unknown; expiresAt?: unknown } | undefined;
+    if (saved && typeof saved.id === 'string' && /^[a-f0-9-]{36}$/.test(saved.id)
+      && typeof saved.expiresAt === 'string' && Number.isFinite(Date.parse(saved.expiresAt))) {
+      pendingVirtual.value = { id: saved.id, expiresAt: saved.expiresAt };
+    }
+  }
+  await load();
+  if (miniProgram) await checkVirtualOrder();
+  else await resumeAlipayOrder();
+});
+onUnmounted(() => { disposed = true; });
 </script>
 
 <template>
   <view class="benefits-panel">
     <text class="benefits-preview-note">{{ paymentPreviewNote }}</text>
+    <view v-if="pendingVirtual || virtualStatus" class="benefits-checkout-message benefits-pending" role="status">
+      <text>{{ virtualStatus || '正在确认小程序支付结果…' }}</text>
+      <button v-if="pendingVirtual" class="text-button" :disabled="checkingVirtual || paying" @click="checkVirtualOrder()">查询支付结果</button>
+      <button v-if="virtualExpired" class="text-button" :disabled="checkingVirtual || paying" @click="stopWaitingForVirtualOrder">结束等待</button>
+    </view>
     <view v-if="loading" class="glass-panel benefits-state" role="status" aria-live="polite"><view class="benefits-loading" /><text>正在读取你的权益…</text></view>
     <view v-else-if="error" class="glass-panel benefits-state" role="alert"><AppIcon name="info" :size="24" /><text>{{ error }}</text><button class="button secondary" @click="load" role="button" tabindex="0">重新加载</button></view>
     <template v-else-if="membership">
@@ -359,7 +443,7 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
       </view></scroll-view>
     </template>
 
-    <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="membership?.paymentAvailable ? payMethodNote : '当前为方案预览，支付暂未开放'" @close="closePurchase">
+    <AppModal v-if="purchaseOpen && selectedPlan" title="会员方案" :subtitle="payMethodNote" @close="closePurchase">
       <view class="benefits-checkout-options" role="radiogroup" aria-label="会员方案"><button v-for="plan in paidPlans" :key="plan.id" class="benefits-checkout-option" :class="{ selected: selectedPlanId === plan.id }" @click="selectPlan(plan.id)" role="radio" :aria-checked="selectedPlanId === plan.id" tabindex="0"><text>{{ plan.name }}</text><text v-if="optionListPrice(plan)" class="benefits-checkout-option-list">{{ price(optionListPrice(plan)) }}</text><text>{{ price(optionPrice(plan)) }}</text></button></view>
       <view class="glass-panel benefits-checkout-summary">
         <view class="benefits-checkout-summary-heading">
@@ -386,11 +470,15 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
       <text v-if="paymentError" class="benefits-checkout-error" role="alert">{{ paymentError }}</text>
       <view class="benefits-checkout-footer">
         <text class="benefits-pay-hint">{{ paymentHint }}</text>
-        <view class="benefits-pay-actions" :class="{ 'is-single': payActionCount < 2 }">
+        <view v-if="pendingVirtual" class="benefits-pay-actions is-single">
+          <button class="button secondary benefits-pay-button" :disabled="checkingVirtual || paying" @click="checkVirtualOrder()">{{ checkingVirtual || paying ? '正在确认…' : '查询支付结果' }}</button>
+          <button v-if="virtualExpired" class="text-button" :disabled="checkingVirtual || paying" @click="stopWaitingForVirtualOrder">结束等待</button>
+        </view>
+        <view v-else class="benefits-pay-actions" :class="{ 'is-single': payActionCount < 2 }">
           <button v-if="simulated" class="button primary benefits-pay-button" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="simulatePayment" role="button">{{ paying ? '正在模拟支付…' : `模拟支付 ${price(selectedAmount)}` }}</button>
-          <button v-if="canPayWechat" class="button primary benefits-pay-button" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : (miniProgram ? `微信支付 ${price(selectedAmount)}` : nativePayment ? '重新获取二维码' : `微信扫码支付 ${price(selectedAmount)}`) }}</button>
+          <button v-if="canPayWechat || canPayVirtual" class="button primary benefits-pay-button" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="pay" role="button">{{ paying ? '正在支付…' : nativePayment ? '重新获取二维码' : `${payMethodNames[0]} ${price(selectedAmount)}` }}</button>
           <button v-if="canPayAlipay" class="button primary benefits-pay-button" :disabled="paying || quoteLoading || !quote || !!quoteError" @click="payAlipay" role="button">{{ paying ? '正在支付…' : `支付宝支付 ${price(selectedAmount)}` }}</button>
-          <button v-if="!canPay" class="button secondary benefits-pay-button" disabled role="button">{{ !membership?.paymentAvailable ? '支付暂未开放' : iosDevice ? 'iOS 暂不支持' : '暂不可支付' }}</button>
+          <button v-if="!canPay" class="button secondary benefits-pay-button" disabled role="button">暂不可支付</button>
         </view>
       </view>
     </AppModal>
@@ -400,6 +488,8 @@ onMounted(async () => { await load(); await resumeAlipayOrder(); });
 <style scoped>
 .benefits-panel { min-width: 0; padding-bottom: 18px; }
 .benefits-preview-note { display: block; color: #536174; font-size: 13px; margin-bottom: 16px; }
+.benefits-checkout-message.benefits-pending { align-items: center; flex-wrap: wrap; margin: 0 0 16px; }
+.benefits-pending .text-button { min-height: 30px; padding: 0; font-size: 13px; color: var(--blue); }
 .benefits-current,.benefits-quota,.benefit-plan,.benefits-comparison,.benefits-state { background: var(--glass-surface); border: 1px solid var(--glass-line); border-radius: 14px; box-shadow: var(--glass-shadow); backdrop-filter: blur(20px) saturate(135%); -webkit-backdrop-filter: blur(20px) saturate(135%); }
 .benefits-current { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px; }
 .benefits-current-main { display: flex; align-items: center; gap: 18px; min-width: 0; }

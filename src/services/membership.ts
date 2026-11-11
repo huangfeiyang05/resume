@@ -1,4 +1,6 @@
-import type { AiQuotaSummary, AlipayPaymentParams, CheckoutResult, MembershipQuote, MembershipState, NativePaymentParams, PaymentChannel, PaymentOrder, Plan, PlanId, WechatPaymentParams } from '../../shared/types';
+import type { AiQuotaSummary, AlipayPaymentParams, CheckoutResult, MembershipQuote, MembershipState, NativePaymentParams, PaymentChannel,
+  PaymentMethods, PaymentOrder, Plan, PlanId, WechatPaymentParams, WechatVirtualCheckoutProof } from '../../shared/types';
+import { paymentChannels } from '../../shared/payment';
 import { request } from './api';
 
 export class MembershipApiError extends Error {
@@ -86,6 +88,7 @@ export const membershipApi = {
       || (quote.kind === 'upgrade' && quote.currentPlanId !== 'basic')
       || (quote.listPriceCents !== undefined && (!Number.isSafeInteger(quote.listPriceCents) || quote.listPriceCents < quote.amountCents))
       || (quote.promotionLabel !== undefined && (typeof quote.promotionLabel !== 'string' || !quote.promotionLabel))
+      || (quote.virtualProductAvailable !== undefined && typeof quote.virtualProductAvailable !== 'boolean')
       || (quote.reviewId !== undefined && (typeof quote.reviewId !== 'string' || !/^[a-f0-9]{64}$/.test(quote.reviewId)))) invalidResponse();
     const period = quote.period;
     if (period !== undefined && (!period || typeof period !== 'object' || Array.isArray(period) || quote.kind === 'purchase'
@@ -94,23 +97,39 @@ export const membershipApi = {
     if ((quote.kind === 'scheduled' && !quote.reviewId) || (quote.reviewId && quote.kind !== 'purchase' && !period)) invalidResponse();
     return quote;
   },
-  async bindWechat(code: string): Promise<{ bound: true; openidMasked: string }> {
-    const result = await request<{ bound: true; openidMasked: string }>('/auth/wechat/bind', 'POST', { code });
-    if (!result || result.bound !== true || typeof result.openidMasked !== 'string') invalidResponse();
-    return result;
-  },
-  async methods(): Promise<{ wechat: boolean; alipay: boolean }> {
-    const result = await request<{ wechat: boolean; alipay: boolean }>('/billing/payment-methods');
+  async methods(): Promise<PaymentMethods> {
+    const result = await request<PaymentMethods>('/billing/payment-methods');
     if (!result || typeof result !== 'object' || Array.isArray(result)
-      || Object.keys(result).some(key => !['wechat', 'alipay'].includes(key))
+      || Object.keys(result).some(key => !['wechat', 'alipay', 'wechatVirtual'].includes(key))
+      || (result.wechatVirtual !== undefined && (!result.wechatVirtual || Object.keys(result.wechatVirtual).length !== 1
+        || typeof result.wechatVirtual.ios !== 'boolean'))
       || typeof result.wechat !== 'boolean' || typeof result.alipay !== 'boolean') invalidResponse();
     return result;
   },
-  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi', expectedAmountCents?: number, reviewId?: string): Promise<CheckoutResult> {
+  async checkout(planId: PlanId, requestId: string, channel: PaymentChannel = 'jsapi', expectedAmountCents?: number,
+    reviewId?: string, proof?: WechatVirtualCheckoutProof): Promise<CheckoutResult> {
     const result = await request<CheckoutResult>('/billing/checkout', 'POST', { planId, requestId, channel,
-      ...(expectedAmountCents === undefined ? {} : { expectedAmountCents }), ...(reviewId ? { reviewId } : {}) });
+      ...(expectedAmountCents === undefined ? {} : { expectedAmountCents }), ...(reviewId ? { reviewId } : {}), ...proof });
     if (!result || typeof result !== 'object' || Array.isArray(result)) invalidResponse();
     const order = validateOrder(result.order);
+    if (order.channel !== channel || order.planId !== planId
+      || (expectedAmountCents !== undefined && order.amountCents !== expectedAmountCents)) invalidResponse();
+    if (order.channel === 'wechat-virtual') {
+      const virtual = result.virtual;
+      if (!virtual || typeof virtual !== 'object' || Array.isArray(virtual) || virtual.mode !== 'short_series_goods'
+        || !/^[a-f0-9]{64}$/.test(virtual.paySig) || !/^[a-f0-9]{64}$/.test(virtual.signature)
+        || typeof virtual.signData !== 'string' || virtual.signData.length > 1024
+        || result.payment !== undefined || result.native !== undefined || result.alipay !== undefined) invalidResponse();
+      let signed: Record<string, unknown>;
+      try { signed = JSON.parse(virtual.signData); } catch { invalidResponse(); }
+      if (!signed || typeof signed !== 'object' || Array.isArray(signed)
+        || signed.goodsPrice !== order.amountCents || signed.currencyType !== 'CNY' || signed.env !== 0 || signed.buyQuantity !== 1
+        || typeof signed.offerId !== 'string' || !/^\d{1,32}$/.test(signed.offerId)
+        || typeof signed.productId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(signed.productId)
+        || typeof signed.outTradeNo !== 'string' || !/^[A-Za-z0-9_-]{20,32}$/.test(signed.outTradeNo)) invalidResponse();
+      return { order, virtual };
+    }
+    if (result.virtual !== undefined) invalidResponse();
     if (order.channel === 'alipay-page' || order.channel === 'alipay-wap') {
       const alipay = result.alipay as AlipayPaymentParams;
       if (!alipay || typeof alipay !== 'object' || Array.isArray(alipay)
@@ -138,7 +157,9 @@ export const membershipApi = {
     return { order, payment };
   },
   async order(orderId: string): Promise<PaymentOrder> {
-    return validateOrder(await request<PaymentOrder>(`/billing/orders/${encodeURIComponent(orderId)}`));
+    const order = validateOrder(await request<PaymentOrder>('/billing/orders/' + encodeURIComponent(orderId)));
+    if (order.id !== orderId) invalidResponse();
+    return order;
   },
   async simulateCheckout(planId: PlanId, requestId: string, expectedAmountCents: number, reviewId?: string): Promise<PaymentOrder> {
     const order = validateOrder(await request<PaymentOrder>('/billing/simulate', 'POST', { planId, requestId, expectedAmountCents, ...(reviewId ? { reviewId } : {}) }));
@@ -152,7 +173,7 @@ function validateOrder(value: unknown): PaymentOrder {
   const order = value as PaymentOrder;
   if (typeof order.id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(order.id)
     || !['basic', 'premium'].includes(order.planId) || !Number.isSafeInteger(order.amountCents) || order.amountCents <= 0
-    || !['pending', 'paid', 'closed', 'failed'].includes(order.status) || !['jsapi', 'native', 'alipay-page', 'alipay-wap'].includes(order.channel)
+    || !['pending', 'paid', 'closed', 'failed'].includes(order.status) || !paymentChannels.includes(order.channel)
     || !isInstant(order.createdAt) || !isInstant(order.expiresAt)
     || (order.paidAt !== undefined && !isInstant(order.paidAt))
     || Object.keys(order).some(key => !['id', 'planId', 'amountCents', 'status', 'channel', 'createdAt', 'expiresAt', 'paidAt'].includes(key))) invalidResponse();

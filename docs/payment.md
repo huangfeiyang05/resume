@@ -1,5 +1,19 @@
 # 微信支付与支付宝网页支付接入
 
+## 小程序虚拟会员直购
+
+小程序新版使用微信虚拟支付的道具直购，Android 等端由微信支付处理，iOS 由 Apple 内购处理。用户仍按一个自然月购买或手动续费，会员报价和生效日期沿用本站规则。网页端继续使用已配置的微信扫码和支付宝网页支付。微信要求虚拟商品购买在小程序内走虚拟支付通道，并禁止把购买引导到外部网页或应用。参见 [微信虚拟支付运营指南](https://developers.weixin.qq.com/community/minihome/doc/00002cf077cd4810fee42f4b865c01) 和 [虚拟支付接入指引](https://developers.weixin.qq.com/miniprogram/dev/platform-capabilities/business-capabilities/virtual-payment.html)。
+
+1. 在同一小程序的「支付与交易 → 虚拟支付」开通能力，发布初级、高级会员对应的道具商品。续费、首充价和升级补差价使用服务端报价匹配商品。需要 iOS 时先配置小程序简称，开通 Apple IAP 并确认对应商品可售。微信文档列出的 iOS 最低金额为 ¥1。页面按现有价格报价，低于门槛的订单会拒绝创建。
+2. 在小程序后台配置消息推送为 **安全模式、JSON**，地址为本站公网 HTTPS 的 /api/v1/billing/wechat-virtual/notify。使用独立 Token 和 EncodingAESKey。平台验证、支付及退款通知均由此处理。现有 AppID 若已配置其他推送业务，先确认该入口的路由范围。
+3. 在服务端受限环境文件中设置 WECHAT_VIRTUAL_PAY_OFFER_ID、WECHAT_VIRTUAL_PAY_APP_KEY（现网）、WECHAT_VIRTUAL_PAY_PUSH_TOKEN、WECHAT_VIRTUAL_PAY_PUSH_AES_KEY 和 WECHAT_VIRTUAL_PAY_PRODUCTS。身份服务可沿用同一 AppID 的 WECHAT_PAY_APPID / WECHAT_PAY_APP_SECRET，也可明确设置 WECHAT_APP_ID / WECHAT_APP_SECRET。配置完成后才设置 WECHAT_VIRTUAL_PAY_ENABLED=true。Apple IAP 通过后台配置后再设置 WECHAT_VIRTUAL_PAY_IOS_ENABLED=true。普通代码部署不改这些值。
+4. WECHAT_VIRTUAL_PAY_PRODUCTS 是按方案和精确金额（分）索引的 JSON。示例为 {"basic":{"990":"basic_month"},"premium":{"2490":"premium_first","2990":"premium_month","2000":"premium_upgrade"}}。用实际已发布的道具 ID 替换示例，并以当期报价为准。调整价格后，只有当前报价在配置中有对应道具时才可支付。服务端核对报价并保留订单创建时的商品和金额。
+5. 小程序用新的微信登录凭证换取服务端签名，调用 wx.requestVirtualPayment。前端成功回调仅用于触发查单。服务端验签解密发货通知或主动查单，核对 AppID、订单、付款账号、交易标识和金额，在同一次持久化写入中确认订单和发放会员。重复通知复用同一笔会员事件。已确认的全额退款撤销对应会员周期，iOS 退款结果由 Apple 决定并经微信通知。后台微信支付 v3 的原路退款功能不用于虚拟支付订单。
+
+虚拟支付开关默认关闭。开通后停止接受新的普通 JSAPI 会员下单，原订单查单、通知和退款继续可用。第一次创建虚拟支付订单后，账本版本为 7，回退须使用可读取该版本的程序。停用新下单时保留原虚拟支付参数和回调，以便处理已产生订单。启用前核对正式商品、生产消息推送和受限环境配置，之后在 iOS 与 Android 真机分别验收取消、重复通知、到账和退款路径。
+
+## 网页支付与旧版小程序订单
+
 2026-11-05 按用户确认的价格接入微信支付 v3（小程序 JSAPI + H5 Native 扫码）与支付宝网页支付（电脑网站 `alipay.trade.page.pay`、手机网站 `alipay.trade.wap.pay`）：初级会员 ¥9.90/月，高级会员 ¥29.90/月；高级首次付费优惠价 ¥24.90/月，界面写“首充优惠”；仅首次付费可享，再次购买/升级按原价 ¥29.90 计算，不虚构“前 100 名”等与实际规则不符的稀缺数量。会员按一个自然月手动续费，不自动扣款。
 
 代码已实现，但**没有服务器支付密钥时不启用**：微信或支付宝变量全部缺失时对应渠道不展示，`/billing/checkout` 返回 503 `PAYMENT_NOT_CONFIGURED`。真实扣款还须运营者配置商户参数、证书/密钥和回调地址，并完成小额真实支付验收。
@@ -111,10 +125,9 @@ H5 会员弹窗在支付宝已配置时显示“支付宝支付”按钮。前�
 ## 平台限制
 
 - 微信支付没有公开的沙箱环境，代码测试使用注入的假网关；真实支付只能用小额订单验收，并在验收后按需退款。
-- iOS 小程序不允许用微信支付购买虚拟会员/虚拟服务。本项目在 iOS 端不展示可支付状态，提示用户使用 Android 或后续开放的方式；不能绕过平台规则。
+- 新版小程序购买虚拟会员走小程序虚拟支付，开关和商品配置见本页首节。
 - H5 端支持 **微信 Native 扫码** 与 **支付宝电脑/手机网站支付**；电脑网页优先，手机浏览器里微信扫码体验较差，支付宝手机网站支付会跳转支付宝 App 或网页收银台。未接公众号 JSAPI 网页支付。
 - 支付宝网页支付需在开放平台签约电脑网站支付、手机网站支付；测试环境可使用支付宝沙箱，但本项目尚未配置沙箱，真实验收需商家账号。`ALIPAY_RETURN_URL` 只负责跳回站点，不能作为发放权益的依据。
-- iOS 小程序端继续屏蔽虚拟会员购买；H5 扫码不受小程序 iOS 限制，但仍需遵守微信支付及平台规则。
 - Native 支付需在商户平台开通产品；商户平台的“Native 支付回调链接”应填 `https://www.youfangcv.site/api/v1/billing/wechat/notify`，与 `WECHAT_PAY_NOTIFY_URL` 保持一致。
 - 管理后台支持支付订单查询及全额退款。关单、账单下载和跨渠道账单对账列入后续工作。
 - 当前为单进程 JSON 存储，不具备生产级并发/多实例一致性；真实支付前应按 AGENTS.md 的数据一致性要求迁移到持久化数据库并做事务与幂等验收。

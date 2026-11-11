@@ -135,6 +135,28 @@ test('mini-program rejects an expired saved token before restoring private accou
   assert.equal(requests.some(item => item.url.endsWith('/auth/me')), false);
 });
 
+test('mini-program restores WeChat identity when its cached app session has been revoked', async t => {
+  const { auth, storage, requests, respond } = fixture(t, true);
+  storage.set('youfang-auth-session-v1', { token: 'a'.repeat(43), expiresAt: new Date(Date.now() + 60_000).toISOString() });
+  const native = globalThis as unknown as { uni: { login(options: { success(result: { code: string }): void }): void } };
+  native.uni.login = options => options.success({ code: 'fresh-wechat-code' });
+  const capabilities = { emailPassword: true, wechat: true, phone: false, emailVerification: false, passwordReset: false };
+  respond(options => {
+    if (options.url.endsWith('/auth/me')) {
+      options.success({ statusCode: 401, data: { error: { code: 'AUTH_REQUIRED', message: 'expired' } } });
+    } else {
+      options.success({ statusCode: 200, data: { data: options.url.endsWith('/auth/providers') ? capabilities : session('A', 'b'.repeat(43)) } });
+    }
+  });
+  await auth.restore();
+  const wechat = requests.find(request => request.url.endsWith('/auth/wechat'));
+  assert.deepEqual(wechat?.data, { code: 'fresh-wechat-code' });
+  assert.equal(wechat?.header.Authorization, undefined);
+  assert.equal(auth.signedIn.value, true);
+  assert.equal(auth.user.value?.id, 'A');
+  assert.equal((storage.get('youfang-auth-session-v1') as { token: string }).token, 'b'.repeat(43));
+});
+
 test('registered accounts have separate draft namespaces and cannot read old anonymous drafts', async t => {
   const { storage } = fixture(t);
   t.mock.timers.enable({ apis: ['setTimeout'] });

@@ -65,7 +65,7 @@ export interface StoredAiUsage {
   reconciliations: QuotaReconciliation[];
 }
 
-export interface QuotaStorage { version?: 3 | 4 | 5 | 6; memberships: StoredMembership[]; aiUsage: StoredAiUsage[]; refunds?: StoredRefund[] }
+export interface QuotaStorage { version?: 3 | 4 | 5 | 6 | 7; memberships: StoredMembership[]; aiUsage: StoredAiUsage[]; refunds?: StoredRefund[] }
 
 function malformed(): never { throw new Error('Unsupported or malformed quota database.'); }
 

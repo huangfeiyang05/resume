@@ -1,6 +1,6 @@
 node_modules/
 dist/
-# Local resumes, career/company catalogues, company batch snapshots, career-files attachments, and import reports/backups.
+# Local resumes, private account-avatars, career/company catalogues, career-files and backups.
 .data/
 # Independent local test accounts, simulated payments, and test frontend builds.
 .test-data/

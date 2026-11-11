@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AdminPricePublication, Analysis, Resume } from '../shared/types.js';
 import type { AuthUser } from '../shared/auth.js';
+import { accountAvatarIdPattern, isAccountNickname } from '../shared/auth.js';
 import type { EmailCodePurpose, PhoneCodePurpose } from '../shared/auth.js';
 import { normalizeCareerStorage, type CareerStorage } from './career-validation.js';
 import { normalizeCareerAttachments, normalizeCareerContent, type CareerMediaStorage, type StoredCareerContent } from './career-content-storage.js';
@@ -37,7 +38,7 @@ export interface StoredPhoneChallenge extends Omit<StoredEmailChallenge, 'email'
 }
 
 export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStorage, PaymentStorage, CareerMediaStorage {
-  version: 3 | 4 | 5 | 6;
+  version: 3 | 4 | 5 | 6 | 7;
   environment?: 'test';
   refunds: StoredRefund[];
   pricingHistory: AdminPricePublication[];
@@ -77,7 +78,7 @@ export class JsonStore {
   protected async loadFile(): Promise<Database> {
     try {
       const parsed = JSON.parse(await readFile(this.path, 'utf8'));
-      if (!parsed || ![1, 2, 3, 4, 5, 6].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
+      if (!parsed || ![1, 2, 3, 4, 5, 6, 7].includes(parsed.version) || !Array.isArray(parsed.resumes) || !Array.isArray(parsed.analyses)) {
         throw new Error('Unsupported or malformed local database.');
       }
       if (this.environment === 'test' ? parsed.environment !== 'test' || parsed.version < 5 : parsed.environment !== undefined) {
@@ -101,6 +102,8 @@ export class JsonStore {
           || (user.passwordHash !== undefined && typeof user.passwordHash !== 'string')
           || (user.phone !== undefined && (typeof user.phone !== 'string' || !/^1[3-9]\d{9}$/.test(user.phone) || user.phoneVerified !== true))
           || (user.wechatOpenid !== undefined && (typeof user.wechatOpenid !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(user.wechatOpenid)))
+          || (user.nickname !== undefined && !isAccountNickname(user.nickname))
+          || (user.avatarId !== undefined && (typeof user.avatarId !== 'string' || !accountAvatarIdPattern.test(user.avatarId)))
           || (!user.email && !user.phone && !user.wechatOpenid) || (!user.phone && !user.passwordHash && !user.wechatOpenid)
           || (user.phoneVerified !== undefined && typeof user.phoneVerified !== 'boolean')
           || (user.emailVerified === true && !user.email))
@@ -147,6 +150,9 @@ export class JsonStore {
       const careerVideos = normalizeCareerAttachments(parsed.careerVideos, careerContent, true);
       if (Object.keys(careerVideos).some(key => Object.hasOwn(careerAttachments, key))) throw new Error('Duplicate career media reference.');
       const payment = normalizePaymentStorage(parsed);
+      if (parsed.version < 7 && payment.orders.some(order => order.channel === 'wechat-virtual')) {
+        throw new Error('WeChat virtual payment orders require database version 7.');
+      }
       const refunds = normalizeRefunds(parsed.refunds, payment.orders);
       const pricingHistory = normalizePricingHistory(parsed.pricingHistory);
       if (parsed.version < 4 && refunds.length) throw new Error('Refund records require database version 4 or later.');

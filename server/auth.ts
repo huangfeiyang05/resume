@@ -1,7 +1,9 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import type { AuthCapabilities, AuthSession, AuthUser, EmailCodePurpose, EmailPasswordInput } from '../shared/auth.js';
 import type { WechatBindResult } from '../shared/payment.js';
-import type { WechatIdentityProvider } from './wechat-identity.js';
+import { wechatLoginCode, type WechatIdentity, type WechatIdentityProvider } from './wechat-identity.js';
+import type { WechatPhoneProvider } from './wechat-api.js';
+import { AccountProfiles } from './account-profile.js';
 import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../shared/auth.js';
 import { HttpError, invalid } from './errors.js';
 import { JsonStore, type Database, type StoredUser } from './store.js';
@@ -19,7 +21,8 @@ const sessionDigest = (token: string, scope?: 'admin') => digest(scope === 'admi
 function publicUser(user: StoredUser): AuthUser {
   return { id: user.id, ...(user.email ? { email: user.email } : {}), ...(user.phone ? { phone: user.phone } : {}),
     createdAt: user.createdAt, emailVerified: user.emailVerified === true, phoneVerified: user.phoneVerified === true,
-    hasPassword: !!user.passwordHash, ...(user.wechatOpenid ? { wechat: true } : {}) };
+    hasPassword: !!user.passwordHash, ...(user.wechatOpenid ? { wechat: true } : {}),
+    ...(user.nickname ? { nickname: user.nickname } : {}), ...(user.avatarId ? { avatarId: user.avatarId } : {}) };
 }
 
 function object(body: unknown, allowed: string[]): Record<string, unknown> {
@@ -45,7 +48,15 @@ export function validateCredentials(body: unknown, allowProof = false, passwordP
   return { email, password: passwordText };
 }
 
-export interface AuthOptions { now?: () => number; sessionTtlMs?: number; emailCodes?: EmailCodeService; phoneCodes?: PhoneCodeService; requireEmailVerification?: boolean; wechat?: WechatIdentityProvider }
+export interface AuthOptions {
+  now?: () => number;
+  sessionTtlMs?: number;
+  emailCodes?: EmailCodeService;
+  phoneCodes?: PhoneCodeService;
+  requireEmailVerification?: boolean;
+  wechat?: WechatIdentityProvider;
+  wechatPhone?: WechatPhoneProvider;
+}
 export class AuthService {
   private hashing = 0;
   private attempts = new Map<string, { count: number; until: number }>();
@@ -55,6 +66,8 @@ export class AuthService {
   readonly phoneCodes?: PhoneCodeService;
   private requireEmailVerification: boolean;
   private wechat?: WechatIdentityProvider;
+  private wechatPhone?: WechatPhoneProvider;
+  private profiles: AccountProfiles;
   constructor(readonly store: JsonStore, options: AuthOptions = {}) {
     this.now = options.now ?? Date.now;
     this.emailCodes = options.emailCodes;
@@ -62,12 +75,15 @@ export class AuthService {
     this.requireEmailVerification = options.requireEmailVerification ?? options.emailCodes?.enabled ?? false;
     this.sessionTtlMs = options.sessionTtlMs ?? ttl;
     this.wechat = options.wechat;
+    this.wechatPhone = this.wechat && options.wechatPhone;
+    this.profiles = new AccountProfiles(store);
     if (!Number.isSafeInteger(this.sessionTtlMs) || this.sessionTtlMs < 1) throw new Error('Invalid session lifetime.');
   }
 
   capabilities(): AuthCapabilities {
     const configured = this.emailCodes?.enabled === true;
-    return { emailPassword: true, wechat: this.wechat !== undefined, phone: this.phoneCodes?.enabled === true, emailVerification: configured, passwordReset: configured };
+    return { emailPassword: true, wechat: this.wechat !== undefined, phone: this.phoneCodes?.enabled === true,
+      emailVerification: configured, passwordReset: configured, ...(this.wechatPhone ? { wechatPhone: true as const } : {}) };
   }
 
   private configuredCodes(): EmailCodeService {
@@ -271,13 +287,18 @@ export class AuthService {
     if (!snapshot) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
     this.checkRateLimit(client, snapshot.email ?? snapshot.phone);
     if (snapshot.passwordHash) {
-      if (input.currentCode !== undefined || input.currentChallengeId !== undefined) invalid('请使用当前账号密码验证身份。');
+      if (input.currentCode !== undefined || input.currentChallengeId !== undefined || input.wechatCode !== undefined) invalid('请使用当前账号密码验证身份。');
       const text = input.currentPassword;
       if (typeof text !== 'string' || text.length < 6 || text.length > 128 || /[\u0000-\u001f\u007f]/.test(text)) throw new HttpError(401, 'CURRENT_IDENTITY_REQUIRED', '请填写当前账号密码以确认绑定。');
       const parts = snapshot.passwordHash.split('$');
       const valid = parts.length === 6 && parts.slice(0, 4).join('$') === 'scrypt$65536$8$2' && /^[a-f0-9]{32}$/.test(parts[4]) && /^[a-f0-9]{128}$/.test(parts[5]);
       const actual = await this.derive(text, valid ? Buffer.from(parts[4], 'hex') : dummySalt);
       if (!valid || !timingSafeEqual(actual, valid ? Buffer.from(parts[5], 'hex') : Buffer.alloc(64))) throw new HttpError(401, 'CURRENT_IDENTITY_INVALID', '当前账号密码不正确。');
+      return { snapshot, currentProof: undefined };
+    }
+    if (input.wechatCode !== undefined) {
+      if (input.currentPassword !== undefined || input.currentCode !== undefined || input.currentChallengeId !== undefined) invalid('请只使用一种当前账号的验证方式。');
+      await this.verifyCurrentWechat(snapshot, input.wechatCode);
       return { snapshot, currentProof: undefined };
     }
     if (input.currentPassword !== undefined || !snapshot.phone || snapshot.phoneVerified !== true) throw new HttpError(401, 'CURRENT_IDENTITY_REQUIRED', '请验证当前账号已绑定的手机号。');
@@ -288,14 +309,15 @@ export class AuthService {
 
   private currentBindingUser(database: Database, snapshot: StoredUser): StoredUser {
     const current = database.users.find(user => user.id === snapshot.id);
-    if (!current || current.passwordHash !== snapshot.passwordHash || current.email !== snapshot.email || current.phone !== snapshot.phone) {
+    if (!current || current.passwordHash !== snapshot.passwordHash || current.email !== snapshot.email
+      || current.phone !== snapshot.phone || current.wechatOpenid !== snapshot.wechatOpenid) {
       throw new HttpError(409, 'ACCOUNT_CHANGED', '账号登录信息已变化，请刷新后重新验证。');
     }
     return current;
   }
 
   async bindPhone(userId: string, body: unknown, client = 'local'): Promise<AuthUser> {
-    const input = object(body, ['phone', 'code', 'challengeId', 'currentPassword', 'currentCode', 'currentChallengeId']);
+    const input = object(body, ['phone', 'code', 'challengeId', 'currentPassword', 'currentCode', 'currentChallengeId', 'wechatCode']);
     const phone = validatePhone(input.phone), proof = validateProof(input);
     const codes = this.configuredPhoneCodes();
     const existing = (await this.store.read()).users.find(user => user.id === userId);
@@ -307,8 +329,7 @@ export class AuthService {
       const latest = database.users.find(user => user.id === userId);
       if (latest?.phone === phone && latest.phoneVerified === true) return publicUser(latest);
       const current = this.currentBindingUser(database, identity.snapshot);
-      if (current.phone && current.phone !== phone) throw new HttpError(409, 'PHONE_CHANGE_NOT_SUPPORTED', '当前账号已有手机号，暂不支持直接更换。');
-      if (database.users.some(user => user.id !== userId && user.phone === phone)) throw new HttpError(409, 'PHONE_ALREADY_BOUND', '该手机号已属于其他账号，请使用原账号登录；不会自动合并资料。');
+      this.checkPhoneBinding(database, current, phone);
       // A phone-only account already has a verified phone and cannot replace it through this method.
       if (identity.currentProof) {
         codeError = codes.consume(database, current.phone!, 'verify-account', identity.currentProof, userId);
@@ -324,7 +345,7 @@ export class AuthService {
   }
 
   async bindEmail(userId: string, body: unknown, client = 'local'): Promise<AuthUser> {
-    const input = object(body, ['email', 'code', 'challengeId', 'password', 'currentPassword', 'currentCode', 'currentChallengeId']);
+    const input = object(body, ['email', 'code', 'challengeId', 'password', 'currentPassword', 'currentCode', 'currentChallengeId', 'wechatCode']);
     const email = validateEmail(input.email), proof = validateProof(input);
     const codes = this.configuredCodes();
     const existing = (await this.store.read()).users.find(user => user.id === userId);
@@ -364,13 +385,53 @@ export class AuthService {
     return result!;
   }
 
+  private checkPhoneBinding(database: Database, user: StoredUser, phone: string) {
+    if (user.phone && user.phone !== phone) throw new HttpError(409, 'PHONE_CHANGE_NOT_SUPPORTED', '当前账号已有手机号，暂不支持直接更换。');
+    if (database.users.some(other => other.id !== user.id && other.phone === phone)) {
+      throw new HttpError(409, 'PHONE_ALREADY_BOUND', '该手机号已属于其他账号，请使用原账号登录。');
+    }
+  }
+
+  private async verifyCurrentWechat(user: StoredUser, code: unknown) {
+    if (!this.wechat || !user.wechatOpenid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '请先使用当前账号关联的微信登录。');
+    const identity = await this.wechat.exchange(wechatLoginCode(code));
+    if (identity.openid !== user.wechatOpenid) throw new HttpError(403, 'WECHAT_IDENTITY_MISMATCH', '当前微信与此账号关联的微信不一致。');
+  }
+
+  async bindWechatPhone(userId: string, body: unknown, client = 'local'): Promise<AuthUser> {
+    if (!this.wechatPhone) throw new HttpError(503, 'WECHAT_PHONE_NOT_CONFIGURED', '微信手机号授权暂未开放。');
+    const input = object(body, ['wechatCode', 'phoneCode']);
+    if (typeof input.phoneCode !== 'string' || !/^[A-Za-z0-9_-]{1,256}$/.test(input.phoneCode)) invalid('微信手机号授权凭证无效。');
+    const existing = (await this.store.read()).users.find(user => user.id === userId);
+    if (!existing) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
+    this.checkRateLimit(client, userId);
+    await this.verifyCurrentWechat(existing, input.wechatCode);
+    const phone = validatePhone(await this.wechatPhone.redeem(input.phoneCode));
+    return this.store.mutate(database => {
+      const latest = database.users.find(user => user.id === userId);
+      if (latest?.phone === phone && latest.phoneVerified === true && latest.wechatOpenid === existing.wechatOpenid) return publicUser(latest);
+      const user = this.currentBindingUser(database, existing);
+      this.checkPhoneBinding(database, user, phone);
+      user.phone = phone;
+      user.phoneVerified = true;
+      return publicUser(user);
+    });
+  }
+
+  async updateProfile(userId: string, body: unknown, client = 'local'): Promise<AuthUser> {
+    this.checkRateLimit(client, userId);
+    return publicUser(await this.profiles.update(userId, body));
+  }
+
+  profileAvatar(userId: string, avatarId: string) { return this.profiles.read(userId, avatarId); }
+
   /** Silent mini-program sign-in: the server exchanges a one-time code and keys the account by openid. */
   async wechatLogin(body: unknown, client = 'local') {
     if (!this.wechat) throw new HttpError(501, 'WECHAT_LOGIN_NOT_CONFIGURED', '微信小程序免登尚未接入，请先使用邮箱登录。');
     const input = object(body, ['code']);
-    if (typeof input.code !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.code)) invalid('微信登录凭证无效。');
+    const code = wechatLoginCode(input.code);
     this.checkRateLimit(client);
-    const identity = await this.wechat.exchange(input.code);
+    const identity = await this.wechat.exchange(code);
     return this.store.mutate(database => {
       let user = database.users.find(candidate => candidate.wechatOpenid === identity.openid);
       if (!user) {
@@ -383,13 +444,19 @@ export class AuthService {
 
   /** Binds a mini-program openid to an already-authenticated account. Never accepts a client openid. */
   async bindWechat(userId: string, body: unknown, client = 'local'): Promise<WechatBindResult> {
-    if (!this.wechat) throw new HttpError(503, 'WECHAT_NOT_CONFIGURED', '微信绑定暂未开放，请稍后再试。');
     const input = object(body, ['code']);
-    if (typeof input.code !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.code)) invalid('微信登录凭证无效。');
-    this.checkRateLimit(client);
-    const identity = await this.wechat.exchange(input.code);
-    const masked = `${identity.openid.slice(0, 6)}***${identity.openid.slice(-4)}`;
-    const result = await this.store.mutate(database => {
+    const identity = await this.bindWechatIdentity(userId, input.code, client);
+    return { bound: true, openidMasked: identity.openid.slice(0, 6) + '***' + identity.openid.slice(-4) };
+  }
+
+  /** A fresh WeChat session key can sign virtual checkout, but never leaves the server. */
+  async bindWechatIdentity(userId: string, code: unknown, client: string, requireSessionKey = false): Promise<WechatIdentity> {
+    if (!this.wechat) throw new HttpError(503, 'WECHAT_NOT_CONFIGURED', '微信绑定暂未开放，请稍后再试。');
+    this.checkRateLimit(client, userId);
+    const identity = await this.wechat.exchange(wechatLoginCode(code));
+    if (requireSessionKey && !identity.sessionKey) throw new HttpError(502, 'WECHAT_SESSION_INVALID', '微信支付凭证暂不可用，请重试。');
+    if ((await this.store.read()).users.some(user => user.id === userId && user.wechatOpenid === identity.openid)) return identity;
+    await this.store.mutate(database => {
       const current = database.users.find(user => user.id === userId);
       if (!current) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
       const owner = database.users.find(user => user.id !== userId && user.wechatOpenid === identity.openid);
@@ -398,9 +465,8 @@ export class AuthService {
         throw new HttpError(409, 'WECHAT_ALREADY_BOUND', '当前账号已绑定其他微信。');
       }
       current.wechatOpenid = identity.openid;
-      return { bound: true as const, openidMasked: masked };
     });
-    return result;
+    return identity;
   }
 
   async authenticate(token: string | undefined, scope?: 'admin'): Promise<AuthSession> {
