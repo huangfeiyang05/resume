@@ -16,6 +16,9 @@ import DiagnosisReport from './DiagnosisReport.vue';
 import BenefitsPanel from './BenefitsPanel.vue';
 import CareerPanel from './CareerPanel.vue';
 import SiteFooter from './SiteFooter.vue';
+// #ifdef MP-WEIXIN
+import WebResumeImportHint from './WebResumeImportHint.vue';
+// #endif
 import { useWorkspace, type Page } from '../services/workspace';
 import { api, ApiError } from '../services/api';
 import { useEmailChallenge } from '../services/auth';
@@ -34,6 +37,10 @@ const { code: verifyCode, busy: verifyCodeBusy, error: verifyCodeError, message:
 const verifyOpen = ref(false);
 const verificationAvailable = computed(() => props.capabilities?.emailVerification === true);
 const verifyMessage = computed(() => verifyCodeError.value || props.logoutError || '');
+// #ifdef MP-WEIXIN
+const hasWebLogin = computed(() => !!(props.user.email && props.user.hasPassword !== false)
+  || !!(props.user.phone && props.user.phoneVerified && props.capabilities?.phone));
+// #endif
 watch(() => props.user.email, email => { if (email) verification.setTarget(email, 'verify-email'); }, { immediate: true });
 watch(() => props.user.emailVerified, verified => {
   if (!verified || !verifyOpen.value) return;
@@ -110,7 +117,15 @@ const formatDate = (date: string) => new Date(date).toLocaleDateString('zh-CN', 
 watch(activeSuggestion, value => { suggestionText.value = value?.replacement || ''; });
 watch([editorTitle, editorRole, editorText], () => w.saveDraft());
 const requestedMembershipPlan = ref<PaidPlanId>();
-function navigate(next: Page) { requestedMembershipPlan.value = undefined; navigationRevision++; page.value = next; nextTick(() => uni.pageScrollTo({ scrollTop: 0, duration: 0 })); }
+function navigate(next: Page) {
+  requestedMembershipPlan.value = undefined;
+  navigationRevision++;
+  page.value = next;
+  // #ifdef MP-WEIXIN
+  if (next === 'resumes' && !loading.value && !busy.value) void w.refresh();
+  // #endif
+  nextTick(() => uni.pageScrollTo({ scrollTop: 0, duration: 0 }));
+}
 function openMembershipUpgrade(planId: PaidPlanId) {
   navigate('benefits');
   requestedMembershipPlan.value = planId;
@@ -245,7 +260,20 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
           <view id="resume-section" class="glass-panel flow-card resume-input-card"><view class="flow-card-heading"><view><text class="flow-card-title">简历内容</text></view><button class="text-button" @click="openEditor()" role="button" tabindex="0"><AppIcon name="plus" :size="15" />新建</button></view>
             <view v-if="loading" class="inline-load"><view class="spinner" /><text>正在打开简历…</text></view><view v-else-if="loadError" class="connection-error"><text>{{ loadError }}</text><button class="text-button" @click="w.refresh()" role="button" tabindex="0">重新连接</button></view>
             <view v-else-if="selected" class="selected-resume"><view class="selected-resume-top"><view class="document-icon"><AppIcon name="file" :size="25" /></view><view class="selected-resume-info"><text>{{ selected.title }}</text><text>{{ selected.text.length }} 字 · V{{ selected.revision }} · {{ formatDate(selected.updatedAt) }}更新</text></view><view class="ready-check"><AppIcon name="check" :size="15" /></view></view><view class="selected-resume-excerpt">{{ selected.text.slice(0, 160) }}</view><view class="selected-resume-actions"><button class="text-button" @click="openEditor(selected)" role="button" tabindex="0"><AppIcon name="edit" :size="15" />编辑正文</button><button class="text-button" :disabled="!!busy" @click="historyTarget = selected" role="button" tabindex="0"><AppIcon name="clock" :size="15" />版本记录</button><button class="text-button" @click="importOpen = true" role="button" tabindex="0">更换简历<AppIcon name="upload" :size="14" /></button></view></view>
-            <view v-else class="home-upload"><!-- #ifdef H5 --><button class="upload-trigger" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="upload" :size="28" /></view><text>点击选择简历</text><text>PDF、DOCX、TXT、Markdown</text></button><!-- #endif --><!-- #ifdef MP-WEIXIN --><button class="upload-trigger" :disabled="!!busy" @click="importOpen = true" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="file" :size="28" /></view><text>导入简历正文</text><text>粘贴文字或读取剪贴板</text></button><!-- #endif --><button class="paste-entry" @click="importOpen = true" role="button" tabindex="0"><AppIcon name="copy" :size="15" />直接粘贴简历正文<AppIcon name="chevron" :size="13" /></button></view>
+            <template v-else>
+              <view class="home-upload">
+                <!-- #ifdef H5 -->
+                <button class="upload-trigger" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="upload" :size="28" /></view><text>点击选择简历</text><text>PDF、DOCX、TXT、Markdown</text></button>
+                <!-- #endif -->
+                <!-- #ifdef MP-WEIXIN -->
+                <button class="upload-trigger" :disabled="!!busy" @click="importOpen = true" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="file" :size="28" /></view><text>导入简历正文</text><text>粘贴文字或读取剪贴板</text></button>
+                <!-- #endif -->
+                <button class="paste-entry" @click="importOpen = true" role="button" tabindex="0"><AppIcon name="copy" :size="15" />直接粘贴简历正文<AppIcon name="chevron" :size="13" /></button>
+              </view>
+              <!-- #ifdef MP-WEIXIN -->
+              <WebResumeImportHint :has-web-login="hasWebLogin" />
+              <!-- #endif -->
+            </template>
             <view v-if="resumes.length > 1" class="switch-resume"><text>切换简历</text><picker :range="resumes" range-key="title" :value="Math.max(0, resumes.findIndex(r => r.id === selectedId))" @change="selectChange"><view><text>{{ selected?.title }}</text><AppIcon name="chevron" :size="13" /></view></picker></view>
           </view>
           <view id="job-section" class="glass-panel flow-card job-input-card"><view class="flow-card-heading"><view><text class="flow-card-title">优化要求</text></view><button class="text-button" @click="jobDescription = exampleJob; targetRole = '产品经理'" role="button" tabindex="0">填入示例</button></view><text class="field-label">目标岗位</text><input v-model="targetRole" class="text-input" placeholder="例如：Java 开发工程师" :maxlength="inputLimits.targetRole" aria-label="目标岗位" /><view class="field-label-row"><text class="field-label">岗位描述 / 优化方向</text><text class="optional-label">选填</text></view><textarea v-model="jobDescription" class="large-textarea home-job-textarea" placeholder="粘贴岗位职责、任职要求，帮助找出值得补充的能力与经历。" :maxlength="inputLimits.jobDescription" aria-label="岗位描述与优化方向" /></view>
@@ -274,7 +302,23 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
       <SiteFooter />
     </view>
     <view class="liquid-dock" role="navigation" aria-label="主导航"><button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" :aria-current="activeTab === tab.id ? 'page' : undefined" @click="navigate(tab.id)" role="button" tabindex="0"><view><AppIcon :name="tab.icon" :size="21" /></view><text>{{ tab.label }}</text></button></view>
-    <AppModal v-if="importOpen" title="导入简历" @close="importOpen = false"><view class="import-body"><!-- #ifdef H5 --><button class="upload-dropzone" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-cloud"><AppIcon name="upload" :size="30" /></view><text class="upload-title">选择你的简历文件</text><text class="upload-description">PDF、Word（.docx）、TXT、Markdown · 最大 10 MB</text><text class="upload-local"><AppIcon name="shield" :size="13" />文件在本机解析，不上传原文件</text></button><!-- #endif --><view class="or-divider"><view /><text>或直接粘贴正文</text><view /></view><input v-model="pasteTitle" class="text-input" placeholder="简历名称（选填）" :maxlength="100" aria-label="导入简历名称" /><textarea v-model="pasteText" class="large-textarea paste-textarea" placeholder="在这里粘贴简历正文，请保留教育、工作与项目经历等内容。" :maxlength="inputLimits.resumeText" aria-label="粘贴简历正文" /><!-- #ifdef MP-WEIXIN --><button class="text-button" @click="readClipboard" role="button" tabindex="0">从剪贴板读取</button><!-- #endif --><view class="modal-footer"><button class="button primary" :disabled="!!busy" @click="pasteImport" role="button" tabindex="0">继续整理<AppIcon name="arrow" :size="16" /></button></view></view></AppModal>
+    <AppModal v-if="importOpen" title="导入简历" @close="importOpen = false">
+      <view class="import-body">
+        <!-- #ifdef H5 -->
+        <button class="upload-dropzone" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-cloud"><AppIcon name="upload" :size="30" /></view><text class="upload-title">选择你的简历文件</text><text class="upload-description">PDF、Word（.docx）、TXT、Markdown · 最大 10 MB</text><text class="upload-local"><AppIcon name="shield" :size="13" />文件在本机解析，不上传原文件</text></button>
+        <!-- #endif -->
+        <!-- #ifdef MP-WEIXIN -->
+        <WebResumeImportHint :has-web-login="hasWebLogin" />
+        <!-- #endif -->
+        <view class="or-divider"><view /><text>或直接粘贴正文</text><view /></view>
+        <input v-model="pasteTitle" class="text-input" placeholder="简历名称（选填）" :maxlength="100" aria-label="导入简历名称" />
+        <textarea v-model="pasteText" class="large-textarea paste-textarea" placeholder="在这里粘贴简历正文，请保留教育、工作与项目经历等内容。" :maxlength="inputLimits.resumeText" aria-label="粘贴简历正文" />
+        <!-- #ifdef MP-WEIXIN -->
+        <button class="text-button" @click="readClipboard" role="button" tabindex="0">从剪贴板读取</button>
+        <!-- #endif -->
+        <view class="modal-footer"><button class="button primary" :disabled="!!busy" @click="pasteImport" role="button" tabindex="0">继续整理<AppIcon name="arrow" :size="16" /></button></view>
+      </view>
+    </AppModal>
     <AppModal v-if="editorOpen" :title="editorId ? '编辑简历' : '新建简历'" wide @close="w.closeEditor()">
       <view v-if="editorConflict" class="info-banner"><AppIcon name="info" :size="17" /><text>草稿基于旧版本。请先复制要保留的内容，再载入最新版本。</text><button class="text-button" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="w.reloadEditor()" role="button" tabindex="0">载入最新版本</button></view>
       <view class="editor-grid"><view class="editor-form">
@@ -286,7 +330,7 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
           <!-- #endif -->
           <!-- #ifdef MP-WEIXIN -->
           <view class="editor-import-row"><view><text class="editor-import-title">导入已有简历正文</text><text class="editor-import-description">复制文字后填入，也可以直接在下方编辑</text></view><button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="importEditorClipboard" role="button" tabindex="0"><AppIcon name="copy" :size="17" />{{ editorImportBusy ? '正在读取…' : '从剪贴板导入' }}</button></view>
-          <text class="editor-import-hint">Word / PDF 文件请在网页端导入，微信端可粘贴正文。</text>
+          <WebResumeImportHint :has-web-login="hasWebLogin" />
           <!-- #endif -->
           <button v-if="editorImportBusy" class="text-button editor-import-cancel" @click="w.cancelEditorImport()" role="button" tabindex="0">取消导入，保留当前正文</button>
         </view>
