@@ -18,9 +18,9 @@ function chooseChatFile() {
       success: result => resolve(result.tempFiles[0]),
       fail: ({ errMsg }) => {
         if (/cancel/i.test(errMsg)) resolve(undefined);
-        else if (/not declared|privacy api banned/i.test(errMsg)) reject(new Error('微信暂未开放聊天文件选择，可在网页版导入手机文件。'));
+        else if (/not declared|privacy api banned/i.test(errMsg)) reject(new Error('微信暂未开放聊天文件选择，可在网页版导入手机本地文件。'));
         else if (/privacy|deny/i.test(errMsg)) reject(new Error('微信未授权选取文件，请同意隐私授权后重试。'));
-        else reject(new Error('无法打开聊天文件，请重试或在网页版导入手机文件。'));
+        else reject(new Error('无法打开聊天文件，请重试或在网页版导入手机本地文件。'));
       },
     });
   });
