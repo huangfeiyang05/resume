@@ -2,6 +2,15 @@
 import AuthPanel from '../../components/AuthPanel.vue';
 import WorkspacePanel from '../../components/WorkspacePanel.vue';
 import { useAuth } from '../../services/auth';
+// #ifdef MP-WEIXIN
+import { onShareAppMessage } from '@dcloudio/uni-app';
+
+onShareAppMessage(() => ({
+  title: '简历有方',
+  path: '/pages/index/index',
+  imageUrl: '/static/brand/logo.png',
+}));
+// #endif
 
 const auth = useAuth();
 const { user, signedIn, status, busy, operation, error, notice, capabilities } = auth;
