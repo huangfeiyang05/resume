@@ -78,6 +78,32 @@ try {
   assert.equal((await request('/admin/overview')).body.error.code, 'ADMIN_NOT_CONFIGURED');
   checks.push('admin-disabled-without-allowlist');
   const operator = await account(), owner = operator.cookie, { cookie: other } = await account(), { cookie: quotaAccount } = await account();
+  const { renderResumeFile } = await load('export-renderer.js');
+  const { RESUME_IMPORT_CHUNK_BYTES } = await load('../shared/resume-import.js');
+  const sample = {
+    id: 'import-fixture', title: '导入测试', targetRole: '', text: '项目经历\n核对简历正文。', revision: 1,
+    createdAt: '2026-11-12T00:00:00.000Z', updatedAt: '2026-11-12T00:00:00.000Z',
+  };
+  assert.equal((await request('/resume-imports', 'POST', { fileName: 'sample.pdf', size: 8 })).status, 401);
+  for (const format of ['docx', 'pdf']) {
+    const bytes = await renderResumeFile(sample, format, 'minimal');
+    const fileName = `导入测试.${format}`;
+    const started = await request('/resume-imports', 'POST', { fileName, size: bytes.length }, owner);
+    assert.equal(started.status, 201);
+    const route = `/resume-imports/${started.body.data.id}`;
+    assert.equal((await request(`${route}/parse`, 'POST', undefined, other)).status, 404);
+    for (let offset = 0; offset < bytes.length; offset += RESUME_IMPORT_CHUNK_BYTES) {
+      const contentBase64 = bytes.subarray(offset, offset + RESUME_IMPORT_CHUNK_BYTES).toString('base64');
+      assert.equal((await request(`${route}/chunks`, 'PUT', { offset, contentBase64 }, owner)).status, 200);
+    }
+    const parsed = await request(`${route}/parse`, 'POST', undefined, owner);
+    assert.equal(parsed.status, 200, JSON.stringify(parsed.body.error));
+    assert.equal(parsed.body.data.fileName, fileName);
+    assert.match(parsed.body.data.text, /核对简历正文。/);
+    assert.equal((await request(route, 'DELETE', undefined, owner)).status, 404);
+  }
+  assert.deepEqual((await request('/resumes', 'GET', undefined, owner)).body.data, []);
+  checks.push('wechat-import-owner-only-word-pdf-parser-no-implicit-save');
   const preview = await request('/membership', 'GET', undefined, owner);
   assert.equal(preview.body.data.quota.status, 'preview');
   assert.equal(preview.body.data.quota.remainingPercent, null);

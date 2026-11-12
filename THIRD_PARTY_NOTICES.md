@@ -40,6 +40,8 @@ SOFTWARE.
 The packaged Node server (`api/` in the release) bundles the following third-party packages so that Word (`.docx`)/PDF export and H5 WeChat scan-payment QR codes work without an internet connection.
 Packages under the MIT license use the MIT permission text reproduced above; the copyright notice for each package is listed in the table below.
 
+The mini-program file import also uses Mammoth (BSD-2-Clause), PDF.js (Apache-2.0), yauzl (MIT) and their runtime dependencies. Their license files and PDF font/CMap notices are included in the corresponding directories under `api/node_modules/`.
+
 | Package | Version | License | Copyright notice |
 | --- | --- | --- | --- |
 | `@noble/ciphers` | 1.3.0 | MIT | Paul Miller (https://paulmillr.com) |

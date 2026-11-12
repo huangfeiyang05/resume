@@ -38,7 +38,8 @@
     "qrcode-generator": "^2.0.4",
     "vue": "^3.4.21",
     "vue-i18n": "^9.1.9",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@dcloudio/types": "^3.4.8",
@@ -48,6 +49,7 @@
     "@types/node": "^24.0.0",
     "@types/nodemailer": "^8.0.2",
     "@types/pdfkit": "^0.17.6",
+    "@types/yauzl": "3.4.0",
     "@vue/runtime-core": "^3.4.21",
     "concurrently": "^9.2.0",
     "tsx": "^4.20.0",

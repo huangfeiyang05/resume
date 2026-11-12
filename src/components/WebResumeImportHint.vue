@@ -15,8 +15,8 @@ function copyWebsite() {
 
 <template>
   <view class="web-resume-import">
-    <text v-if="hasWebLogin" class="web-resume-import-note">用同一账号登录网页版导入 Word / PDF。</text>
-    <text v-else class="web-resume-import-note">绑定{{ phoneLoginAvailable ? '邮箱或手机号' : '邮箱' }}后，登录网页版导入 Word / PDF。</text>
+    <text v-if="hasWebLogin" class="web-resume-import-note">手机文件用网页版，登录同一账号。</text>
+    <text v-else class="web-resume-import-note">手机文件用网页版，绑定{{ phoneLoginAvailable ? '邮箱或手机号' : '邮箱' }}后登录。</text>
     <view class="web-resume-import-address">
       <text class="web-resume-import-url" selectable>{{ legalConfig.website }}</text>
       <button class="web-resume-import-copy" @click="copyWebsite" role="button" tabindex="0"><text class="web-resume-import-copy-label">复制网址</text></button>

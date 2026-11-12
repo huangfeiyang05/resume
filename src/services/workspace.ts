@@ -238,7 +238,10 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string; imp
     saveDraft();
     toast('内容已填入正文，请核对后保存。');
   }
-  async function importEditorFile(loader: (signal: ImportSignal, onParsing: () => void) => Promise<ImportedResume | undefined>): Promise<boolean> {
+  async function importEditorFile(
+    loader: (signal: ImportSignal, onParsing: () => void) => Promise<ImportedResume | undefined>,
+    timeoutMs = options.importTimeoutMs ?? 30_000,
+  ): Promise<boolean> {
     if (disposed || !editorOpen.value) return false;
     if (busy.value) { editorImportError.value = '请等待当前操作完成后再导入文件。'; return false; }
     cancelEditorImport();
@@ -256,7 +259,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string; imp
     editorImportBusy.value = true;
     const onParsing = () => {
       if (timer !== undefined || controller.signal.aborted || activeEditorImport?.controller !== controller || !currentEditorImport(guard)) return;
-      timer = setTimeout(() => { timedOut = true; controller.abort(); }, options.importTimeoutMs ?? 30_000);
+      timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
     };
     try {
       const result = await Promise.race([loader(controller.signal, onParsing), stopped]);

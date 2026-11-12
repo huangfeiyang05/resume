@@ -4,7 +4,7 @@ import { legalConfig } from '../../config/legal';
 </script>
 
 <template>
-  <LegalPage title="隐私政策" updated-at="2026-11-11">
+  <LegalPage title="隐私政策" updated-at="2026-11-12">
     <view class="legal-section">
       <text class="legal-paragraph">“简历有方”网站（{{ legalConfig.website }}）与微信小程序由 {{ legalConfig.operatorName }}（{{ legalConfig.operatorType }}，以下简称“我们”）运营。我们重视你的个人信息保护，并按照《中华人民共和国个人信息保护法》等法律法规处理你的个人信息。本政策说明我们收集哪些信息、如何使用与保存、与谁共享，以及你可以如何行使权利。</text>
       <text class="legal-paragraph">使用本网站前，请仔细阅读本政策。你注册账号、使用简历编辑、分析、导出或求职助手等功能，即表示你已理解本政策所述的信息处理规则。</text>
@@ -15,7 +15,7 @@ import { legalConfig } from '../../config/legal';
       <text class="legal-paragraph">我们只收集为你提供服务所必需的信息，主要包括：</text>
       <text class="legal-item">1. 账号信息：你选择邮箱方式时提交的邮箱地址、密码（仅以不可逆的加盐散列值保存，不保存明文密码）和邮箱验证状态；你选择手机号验证码登录、注册或绑定时提交的手机号和验证状态。未绑定的手机号或邮箱不会被虚构补齐，同一账号可绑定两个登录标识。验证码仅用于本次身份核验，服务端保存与号码、用途及挑战标识绑定的散列值，不保存明文验证码。H5 端的登录会话标识保存在 HttpOnly Cookie 中，小程序端以 Bearer 令牌形式随请求发送。</text>
       <text class="legal-item">2. 简历与求职信息：你主动填写或粘贴的简历标题、目标岗位、简历正文、模板与版式选择、版本历史、诊断结果、建议内容、投递计划、收藏以及求职助手对话内容。</text>
-      <text class="legal-item">3. 文件导入：H5 端导入 PDF、Word、TXT 简历时，文件在你的浏览器本机解析，原文件不会上传到服务器；解析出的文本仅在你保存或提交分析时发送到服务端。小程序端不提供本地文件解析能力，以粘贴文本方式录入。</text>
+      <text class="legal-item">3. 文件导入。网页版在浏览器内提取正文，原文件保留在本机。小程序经你选择聊天中的 Word 或 PDF 文件并确认后，会临时上传所选文件以提取正文，完成、取消或超时后清理上传内容。提取结果返回编辑页，由你核对并保存后写入简历。</text>
       <text class="legal-item">4. 企业资料检索：你输入的关键词、筛选条件与分页参数，用于返回匹配结果；我们不用这些信息建立你的个人画像。</text>
       <text class="legal-item">5. 运行与安全信息：IP 地址、请求时间、浏览器或设备类型、页面错误等信息，用于保障服务稳定与安全、排查故障。我们不把完整简历正文、手机号、密码或邮箱及短信验证码写入应用日志。</text>
       <text class="legal-item">6. 本地存储：为保持登录状态、界面偏好和求职助手历史，我们会在你的浏览器或设备本地保存必要数据。你可以通过浏览器或小程序设置清除这些本地数据，但可能影响登录状态与历史记录。</text>

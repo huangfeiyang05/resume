@@ -22,6 +22,7 @@ import { careerId } from './career-validation.js';
 import { isIP } from 'node:net';
 import { CareerService } from './career.js';
 import { exportResume } from './exports.js';
+import { ResumeImports } from './resume-imports.js';
 import { dirname, join } from 'node:path';
 import { CompanyCatalogRepository } from './company-catalog.js';
 import { CompanyBatches } from './company-batches.js';
@@ -163,6 +164,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
   }
   const auth = options.auth ?? new AuthService(baseService.store);
   const careerFiles = new CareerFiles(baseService.store.path);
+  const resumeImports = new ResumeImports();
   const careerContent = new AdminCareerContent(baseService.store, options.careerCatalogPath, careerFiles);
   const jobs = new AnalysisJobs(baseService);
   const virtual = options.paymentVirtual && new WechatVirtualPayments(baseService.store, options.paymentVirtual.gateway);
@@ -555,6 +557,25 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         }
         else if (method === 'DELETE') json(response, 200, { data: await career.deleteApplication(match[1], await body(request)) });
         else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+      } else if (path === '/api/v1/resume-imports') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        json(response, 201, { data: resumeImports.start(service.userId, await body(request)) });
+      } else if ((match = path.match(/^\/api\/v1\/resume-imports\/([^/]+)(?:\/(chunks|parse))?$/))) {
+        const [, id, action] = match;
+        if (action === 'chunks' && method === 'PUT') {
+          json(response, 200, { data: resumeImports.append(service.userId, id, await body(request)) });
+        } else if (action === 'parse' && method === 'POST') {
+          const controller = new AbortController();
+          const cancel = () => controller.abort();
+          response.once('close', cancel);
+          try {
+            if (response.destroyed) cancel();
+            const result = await resumeImports.parse(service.userId, id, controller.signal);
+            if (!response.destroyed) json(response, 200, { data: result });
+          } finally { response.off('close', cancel); }
+        } else if (!action && method === 'DELETE') {
+          json(response, 200, { data: resumeImports.cancel(service.userId, id) });
+        } else throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
       } else if ((match = path.match(/^\/api\/v1\/resumes\/([^/]+)\/versions\/([^/]+)\/restore$/))) {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: await service.restoreVersion(match[1], validateVersionRevision(match[2]), await body(request)) });
@@ -614,6 +635,9 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
     }
   });
   server.on('listening', () => { void refunds.recover().catch(() => console.error('[resume-api] refund recovery unavailable')); });
-  server.on('close', () => refunds.stop());
+  server.on('close', () => {
+    refunds.stop();
+    resumeImports.stop();
+  });
   return server;
 }

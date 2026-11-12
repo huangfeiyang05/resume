@@ -6,6 +6,7 @@ export type { CareerAssistantInput, CareerAssistantResult } from './career-assis
 export type { CompanySource, CompanyRecord, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
 export type { ResumeExportTemplate } from './resume-layout.js';
 export type ResumeExportFormat = 'docx' | 'pdf';
+export type { ImportedResume, ResumeImportChunk, ResumeImportStart, ResumeImportUpload } from './resume-import.js';
 export type { ResumeVersionSource, ResumeVersionSummary, ResumeVersion, RestoreResumeInput, RestoreResumeResult } from './resume-history.js';
 export interface ResumeExportInput {
   revision: number;

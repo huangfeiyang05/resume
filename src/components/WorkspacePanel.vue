@@ -18,6 +18,7 @@ import CareerPanel from './CareerPanel.vue';
 import SiteFooter from './SiteFooter.vue';
 // #ifdef MP-WEIXIN
 import WebResumeImportHint from './WebResumeImportHint.vue';
+import { selectWechatResumeFile } from '../utils/selectWechatResumeFile';
 // #endif
 import { useWorkspace, type Page } from '../services/workspace';
 import { api, ApiError } from '../services/api';
@@ -188,6 +189,16 @@ function chooseFile() {
 function chooseEditorFile() {
   void w.importEditorFile((signal, onParsing) => selectResumeFile({ signal, onParsing }));
 }
+// #ifdef MP-WEIXIN
+function chooseWechatFile() {
+  importOpen.value = false;
+  openEditor();
+  chooseWechatEditorFile();
+}
+function chooseWechatEditorFile() {
+  void w.importEditorFile((signal, onParsing) => selectWechatResumeFile({ signal, onParsing }), 120_000);
+}
+// #endif
 function importEditorClipboard() {
   void w.importEditorFile((_signal, onParsing) => new Promise((resolve, reject) => {
     onParsing();
@@ -266,13 +277,10 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
                 <button class="upload-trigger" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="upload" :size="28" /></view><text>点击选择简历</text><text>PDF、DOCX、TXT、Markdown</text></button>
                 <!-- #endif -->
                 <!-- #ifdef MP-WEIXIN -->
-                <button class="upload-trigger" :disabled="!!busy" @click="importOpen = true" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="file" :size="28" /></view><text>导入简历正文</text><text>粘贴文字或读取剪贴板</text></button>
+                <button class="upload-trigger" :disabled="!!busy" @click="importOpen = true" role="button" tabindex="0"><view class="upload-button-icon"><AppIcon name="file" :size="28" /></view><text>导入简历</text><text>Word / PDF 或粘贴正文</text></button>
                 <!-- #endif -->
                 <button class="paste-entry" @click="importOpen = true" role="button" tabindex="0"><AppIcon name="copy" :size="15" />直接粘贴简历正文<AppIcon name="chevron" :size="13" /></button>
               </view>
-              <!-- #ifdef MP-WEIXIN -->
-              <WebResumeImportHint :has-web-login="hasWebLogin" :phone-login-available="capabilities?.phone === true" />
-              <!-- #endif -->
             </template>
             <view v-if="resumes.length > 1" class="switch-resume"><text>切换简历</text><picker :range="resumes" range-key="title" :value="Math.max(0, resumes.findIndex(r => r.id === selectedId))" @change="selectChange"><view><text>{{ selected?.title }}</text><AppIcon name="chevron" :size="13" /></view></picker></view>
           </view>
@@ -308,6 +316,10 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
         <button class="upload-dropzone" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-cloud"><AppIcon name="upload" :size="30" /></view><text class="upload-title">选择你的简历文件</text><text class="upload-description">PDF、Word（.docx）、TXT、Markdown · 最大 10 MB</text><text class="upload-local"><AppIcon name="shield" :size="13" />文件在本机解析，不上传原文件</text></button>
         <!-- #endif -->
         <!-- #ifdef MP-WEIXIN -->
+        <button class="button secondary wechat-file-button" :disabled="!!busy" @click="chooseWechatFile" role="button" tabindex="0">
+          <AppIcon name="upload" :size="17" />从微信聊天选文件
+        </button>
+        <text class="editor-import-hint">.docx 或文字型 PDF · 最大 10 MB</text>
         <WebResumeImportHint :has-web-login="hasWebLogin" :phone-login-available="capabilities?.phone === true" />
         <!-- #endif -->
         <view class="or-divider"><view /><text>或直接粘贴正文</text><view /></view>
@@ -329,7 +341,14 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
           <text class="editor-import-local"><AppIcon name="shield" :size="13" />在本机提取文字，不上传原文件；请核对内容后保存。</text>
           <!-- #endif -->
           <!-- #ifdef MP-WEIXIN -->
-          <view class="editor-import-row"><view><text class="editor-import-title">导入已有简历正文</text><text class="editor-import-description">复制文字后填入，也可以直接在下方编辑</text></view><button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="importEditorClipboard" role="button" tabindex="0"><AppIcon name="copy" :size="17" />{{ editorImportBusy ? '正在读取…' : '从剪贴板导入' }}</button></view>
+          <view class="wechat-editor-import-actions">
+            <button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="chooseWechatEditorFile" role="button" tabindex="0">
+              <view v-if="editorImportBusy" class="spinner" /><AppIcon v-else name="upload" :size="17" />
+              {{ editorImportBusy ? '正在导入…' : '从微信聊天选文件' }}
+            </button>
+            <button class="text-button" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="importEditorClipboard" role="button" tabindex="0">读剪贴板</button>
+          </view>
+          <text class="editor-import-hint">.docx 或文字型 PDF · 最大 10 MB</text>
           <WebResumeImportHint :has-web-login="hasWebLogin" :phone-login-available="capabilities?.phone === true" />
           <!-- #endif -->
           <button v-if="editorImportBusy" class="text-button editor-import-cancel" @click="w.cancelEditorImport()" role="button" tabindex="0">取消导入，保留当前正文</button>
@@ -378,6 +397,9 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
 
 <style scoped>
 .editor-import-entry { border: 1px dashed #b6c9e2; border-radius: 12px; padding: 17px 18px; background: rgba(240,246,255,.55); margin-bottom: 20px; }
+.wechat-file-button { width: 100%; justify-content: center; }
+.wechat-editor-import-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.wechat-editor-import-actions > button { font-size: 14px; }
 .editor-import-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .editor-import-row > view { min-width: 0; }
 .editor-import-row > .button { flex-shrink: 0; font-size: 14px; }

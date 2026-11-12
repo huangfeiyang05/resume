@@ -1,6 +1,7 @@
-import type { Analysis, AnalysisInput, AnalysisJob, Health, ApplySuggestionInput, ApplySuggestionResult, CareerAttachment, Resume, ResumeExportFile, ResumeExportInput, ResumeInput, ResumeUpdateInput, ResumeVersionSummary, ResumeVersion, RestoreResumeInput, RestoreResumeResult } from '../../shared/types';
+import type { Analysis, AnalysisInput, AnalysisJob, Health, ApplySuggestionInput, ApplySuggestionResult, CareerAttachment, ImportedResume, Resume, ResumeExportFile, ResumeExportInput, ResumeImportChunk, ResumeImportStart, ResumeImportUpload, ResumeInput, ResumeUpdateInput, ResumeVersionSummary, ResumeVersion, RestoreResumeInput, RestoreResumeResult } from '../../shared/types';
 import { careerFileTypes, isCareerAttachment } from '../../shared/career-attachment';
 import { accountAvatarIdPattern } from '../../shared/auth';
+import type { ImportSignal } from '../../shared/resume-import';
 
 const base = import.meta.env?.VITE_API_BASE_URL || '';
 export class ApiError extends Error {
@@ -182,21 +183,33 @@ async function prepareCareerVideo(materialId: string, file: CareerAttachment, ca
   // #endif
 }
 
-export function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', data?: unknown, options: { notifyUnauthorized?: boolean } = {}): Promise<T> {
+export function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', data?: unknown, options: { notifyUnauthorized?: boolean; signal?: ImportSignal; timeoutMs?: number } = {}): Promise<T> {
   const revision = transportRevision;
+  const { signal } = options;
+  const cancelled = () => new ApiError('请求已取消。', 'REQUEST_CANCELLED', 0);
+  if (signal?.aborted) return Promise.reject(cancelled());
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (isMiniProgramClient()) {
     headers['X-Auth-Client'] = 'mp-weixin';
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
   }
   return new Promise((resolve, reject) => {
-    uni.request({
+    let task: UniNamespace.RequestTask | undefined;
+    const cleanup = () => signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      cleanup();
+      reject(cancelled());
+      task?.abort();
+    };
+    task = uni.request({
       url: `${base}/api/v1${path}`, method, data: data as object,
-      header: headers, timeout: 30000,
+      header: headers, timeout: options.timeoutMs ?? 30000,
       // #ifdef H5
       withCredentials: true,
       // #endif
       success(response) {
+        if (signal?.aborted) return;
+        if (signal && revision !== transportRevision) { reject(cancelled()); return; }
         const body = response.data as { data?: T; error?: { message: string; code: string } };
         if (response.statusCode >= 200 && response.statusCode < 300 && body && typeof body === 'object' && 'data' in body) resolve(body.data as T);
         else {
@@ -207,9 +220,13 @@ export function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELET
         }
       },
       fail: () => reject(new ApiError('暂时无法连接服务，请检查网络或稍后重试。', 'NETWORK_ERROR', 0)),
+      complete: cleanup,
     });
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }
+const importPath = (id: string) => `/resume-imports/${encodeURIComponent(id)}`;
 export const api = {
   health: () => request<Health>('/health'),
   startAnalysis: (data: AnalysisInput) => request<AnalysisJob>('/analysis-jobs', 'POST', data),
@@ -225,6 +242,10 @@ export const api = {
   updateResume: (id: string, data: ResumeUpdateInput) => request<Resume>(`/resumes/${encodeURIComponent(id)}`, 'PUT', data),
   deleteResume: (id: string) => request<{ id: string }>(`/resumes/${encodeURIComponent(id)}`, 'DELETE'),
   exportResume: (id: string, data: ResumeExportInput) => request<ResumeExportFile>(`/resumes/${encodeURIComponent(id)}/export`, 'POST', data),
+  startResumeImport: (data: ResumeImportStart, signal: ImportSignal) => request<ResumeImportUpload>('/resume-imports', 'POST', data, { signal, timeoutMs: 15_000 }),
+  uploadResumeChunk: (id: string, data: ResumeImportChunk, signal: ImportSignal) => request<{ uploadedBytes: number }>(`${importPath(id)}/chunks`, 'PUT', data, { signal, timeoutMs: 15_000 }),
+  parseResumeImport: (id: string, signal: ImportSignal) => request<ImportedResume>(`${importPath(id)}/parse`, 'POST', undefined, { signal }),
+  cancelResumeImport: (id: string) => request<ResumeImportUpload>(importPath(id), 'DELETE', undefined, { notifyUnauthorized: false, timeoutMs: 5_000 }),
   analyze: (data: AnalysisInput) => request<Analysis>('/analyses', 'POST', data),
   analyses: (id: string) => request<Analysis[]>(`/resumes/${encodeURIComponent(id)}/analyses`),
   apply: (analysisId: string, suggestionId: string, data: ApplySuggestionInput) => request<ApplySuggestionResult>(`/analyses/${encodeURIComponent(analysisId)}/suggestions/${encodeURIComponent(suggestionId)}/apply`, 'POST', data),

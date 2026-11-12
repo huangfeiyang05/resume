@@ -1,9 +1,5 @@
-/** Only the cancellation contract needed by local import; available in H5 and WeChat. */
-export interface ImportSignal {
-  readonly aborted: boolean;
-  addEventListener(type: 'abort', listener: () => void, options?: { once?: boolean }): void;
-  removeEventListener(type: 'abort', listener: () => void): void;
-}
+import type { ImportSignal } from '../../shared/resume-import';
+export type { ImportSignal } from '../../shared/resume-import';
 
 export function createImportController(): { signal: ImportSignal; abort: () => void } {
   let aborted = false;

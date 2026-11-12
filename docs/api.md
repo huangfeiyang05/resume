@@ -108,6 +108,10 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/resumes/:id/versions/:revision` | 返回完整 `ResumeVersion`，包括当时保存的 `snapshot`、来源、内容 hash 和时间 |
 | POST | `/resumes/:id/versions/:revision/restore` | `{revision,confirmed,idempotencyKey}` → `{resume,restoredFromRevision,alreadyRestored,noChange}`；路径为历史修订号，请求体为当前修订号 |
 | POST | `/resumes/:id/export` | `{revision, format: "docx" \| "pdf", template: "minimal" \| "modern" \| "business"}` → 200 + `ResumeExportFile`：`{revision, format, template, resumeId, fileName, mimeType, contentBase64}`；正文由服务端读取，文件上限 8 MB |
+| POST | `/resume-imports` | `{fileName,size}` → 201 + `{id}`；创建归属当前会话账号的临时导入 |
+| PUT | `/resume-imports/:id/chunks` | `{offset,contentBase64}` → `{uploadedBytes}`；按顺序上传 180 KiB 分段，末段可更短，相同分段可重传 |
+| POST | `/resume-imports/:id/parse` | 上传完整后返回 `{fileName,format,text,pageCount?}`，供用户核对与编辑 |
+| DELETE | `/resume-imports/:id` | 取消上传或解析并清理会话 |
 | POST | `/analyses` | 接收同下方任务的输入，规则模式同步诊断；启用百炼时返回 `USE_ANALYSIS_JOB` |
 | POST | `/analysis-jobs` | `{resumeId, resumeRevision?, jobDescription?, targetRole?, aiConsent?, idempotencyKey?}` → 202 + 持久化任务；百炼模式必须 `aiConsent: true`，有效会员的真实模型请求还必须带修订号及幂等键 |
 | GET | `/analysis-jobs/:id` | `queued / running / completed / failed / cancelled`；成功后含 `analysisId`，失败含安全错误 |
@@ -144,7 +148,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 ## 限制与错误
 
-请求体上限 256 KB；简历正文 50,000 字符；JD 15,000 字符；简历名称及目标岗位各 120 字符；单条修改文本 20,000 字符。字符串统一换行并移除首尾空白，不接受空正文、空名称、未知字段及错误类型。写入使用 `application/json`；文件解析由前端完成，API 不接收文件二进制。导出接口只接收版本、格式和版式，正文由服务端从已保存简历读取，文件以 JSON 中的 `contentBase64` 返回。
+请求体上限 256 KB；简历正文 50,000 字符；JD 15,000 字符；简历名称及目标岗位各 120 字符；单条修改文本 20,000 字符。字符串统一换行并移除首尾空白，不接受空正文、空名称、未知字段及错误类型。写入使用 `application/json`。微信导入支持最多 10 MB 的 DOCX 或 PDF，PDF 上限 50 页。上传会话 3 分钟过期，服务端每次只解析一份文件，单次解析最长 20 秒。导出接口只接收版本、格式和版式，正文由服务端从已保存简历读取，文件以 JSON 中的 `contentBase64` 返回。
 
 | HTTP | 常见 code | 含义 |
 | --- | --- | --- |

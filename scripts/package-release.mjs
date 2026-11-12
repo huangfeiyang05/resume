@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, '..');
 const destination = resolve(root, 'dist/release');
-const runtimeDependencies = ['yaml', 'nodemailer', 'pdfkit', 'jszip', 'qrcode-generator'];
+const runtimeDependencies = ['yaml', 'nodemailer', 'pdfkit', 'jszip', 'qrcode-generator', 'mammoth', 'pdfjs-dist', 'yauzl'];
 const runtimePackages = new Map();
 /** Some packages block the package.json subpath, so locate the install directory from the entry point. */
 async function packageDirectory(name) {
@@ -44,7 +44,17 @@ await mkdir(resolve(destination, 'api/node_modules'), { recursive: true });
 await cp(resolve(root, 'dist/build/h5'), resolve(destination, 'www'), { recursive: true });
 await cp(resolve(root, 'dist/admin'), resolve(destination, 'www/admin'), { recursive: true });
 await cp(resolve(root, 'dist/server'), resolve(destination, 'api'), { recursive: true });
-for (const dependency of packages) await cp(dependency.directory, resolve(destination, `api/node_modules/${dependency.name}`), { recursive: true });
+for (const dependency of packages) {
+  const target = resolve(destination, `api/node_modules/${dependency.name}`);
+  if (dependency.name === 'pdfjs-dist') {
+    // Text extraction needs the legacy worker and its font assets, without browser or native canvas builds.
+    for (const part of ['package.json', 'LICENSE', 'legacy/build/pdf.mjs', 'legacy/build/pdf.worker.mjs', 'cmaps', 'standard_fonts']) {
+      await cp(resolve(dependency.directory, part), resolve(target, part), { recursive: true });
+    }
+  } else {
+    await cp(dependency.directory, target, { recursive: true });
+  }
+}
 await cp(resolve(root, 'deploy'), resolve(destination, 'ops'), { recursive: true });
 await cp(resolve(root, 'THIRD_PARTY_NOTICES.md'), resolve(destination, 'THIRD_PARTY_NOTICES.md'));
 await writeFile(resolve(destination, 'api/package.json'), `${JSON.stringify({
