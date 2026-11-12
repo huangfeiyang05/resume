@@ -271,7 +271,7 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
                 <button class="paste-entry" @click="importOpen = true" role="button" tabindex="0"><AppIcon name="copy" :size="15" />直接粘贴简历正文<AppIcon name="chevron" :size="13" /></button>
               </view>
               <!-- #ifdef MP-WEIXIN -->
-              <WebResumeImportHint :has-web-login="hasWebLogin" />
+              <WebResumeImportHint :has-web-login="hasWebLogin" :phone-login-available="capabilities?.phone === true" />
               <!-- #endif -->
             </template>
             <view v-if="resumes.length > 1" class="switch-resume"><text>切换简历</text><picker :range="resumes" range-key="title" :value="Math.max(0, resumes.findIndex(r => r.id === selectedId))" @change="selectChange"><view><text>{{ selected?.title }}</text><AppIcon name="chevron" :size="13" /></view></picker></view>
@@ -308,7 +308,7 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
         <button class="upload-dropzone" :disabled="!!busy" @click="chooseFile" role="button" tabindex="0"><view class="upload-cloud"><AppIcon name="upload" :size="30" /></view><text class="upload-title">选择你的简历文件</text><text class="upload-description">PDF、Word（.docx）、TXT、Markdown · 最大 10 MB</text><text class="upload-local"><AppIcon name="shield" :size="13" />文件在本机解析，不上传原文件</text></button>
         <!-- #endif -->
         <!-- #ifdef MP-WEIXIN -->
-        <WebResumeImportHint :has-web-login="hasWebLogin" />
+        <WebResumeImportHint :has-web-login="hasWebLogin" :phone-login-available="capabilities?.phone === true" />
         <!-- #endif -->
         <view class="or-divider"><view /><text>或直接粘贴正文</text><view /></view>
         <input v-model="pasteTitle" class="text-input" placeholder="简历名称（选填）" :maxlength="100" aria-label="导入简历名称" />
@@ -330,7 +330,7 @@ function selectLayout(item: ResumeWordTemplate) { template.value = item.layout; 
           <!-- #endif -->
           <!-- #ifdef MP-WEIXIN -->
           <view class="editor-import-row"><view><text class="editor-import-title">导入已有简历正文</text><text class="editor-import-description">复制文字后填入，也可以直接在下方编辑</text></view><button class="button secondary" :disabled="!!busy || editorImportBusy || !!editorImportPreview" @click="importEditorClipboard" role="button" tabindex="0"><AppIcon name="copy" :size="17" />{{ editorImportBusy ? '正在读取…' : '从剪贴板导入' }}</button></view>
-          <WebResumeImportHint :has-web-login="hasWebLogin" />
+          <WebResumeImportHint :has-web-login="hasWebLogin" :phone-login-available="capabilities?.phone === true" />
           <!-- #endif -->
           <button v-if="editorImportBusy" class="text-button editor-import-cancel" @click="w.cancelEditorImport()" role="button" tabindex="0">取消导入，保留当前正文</button>
         </view>

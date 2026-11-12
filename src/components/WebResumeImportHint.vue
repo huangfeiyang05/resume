@@ -1,36 +1,34 @@
 <script setup lang="ts">
 import { legalConfig } from '../config/legal';
 
-defineProps<{ hasWebLogin: boolean }>();
+defineProps<{ hasWebLogin: boolean; phoneLoginAvailable: boolean }>();
 
 function copyWebsite() {
   uni.setClipboardData({
     data: legalConfig.website,
     showToast: false,
-    success: () => uni.showToast({ title: '已复制，请在浏览器打开', icon: 'none' }),
-    fail: () => uni.showToast({ title: '复制失败，可长按网址复制', icon: 'none' }),
+    success: () => uni.showToast({ title: '网址已复制', icon: 'none' }),
+    fail: () => uni.showToast({ title: '请长按网址复制', icon: 'none' }),
   });
 }
 </script>
 
 <template>
   <view class="web-resume-import">
-    <text class="web-resume-import-title">Word / PDF 网页导入</text>
+    <text v-if="hasWebLogin" class="web-resume-import-note">用同一账号登录网页版导入 Word / PDF。</text>
+    <text v-else class="web-resume-import-note">绑定{{ phoneLoginAvailable ? '邮箱或手机号' : '邮箱' }}后，登录网页版导入 Word / PDF。</text>
     <view class="web-resume-import-address">
       <text class="web-resume-import-url" selectable>{{ legalConfig.website }}</text>
-      <button class="text-button web-resume-import-copy" @click="copyWebsite" role="button" tabindex="0">复制网址</button>
+      <button class="web-resume-import-copy" @click="copyWebsite" role="button" tabindex="0"><text class="web-resume-import-copy-label">复制网址</text></button>
     </view>
-    <text class="web-resume-import-note">在手机或电脑浏览器打开，用同一账号登录。点「新建」上传并保存，回小程序点「我的」查看。</text>
-    <text v-if="!hasWebLogin" class="web-resume-import-note">请先在小程序「我的 → 账号登录方式」绑定邮箱。</text>
   </view>
 </template>
 
 <style scoped>
-.web-resume-import { margin-top: 12px; padding-top: 12px; border-top: 1px solid #d8e2ef; }
-.web-resume-import-title { display: block; color: var(--ink); font-size: 14px; font-weight: 600; }
-.web-resume-import-address { display: flex; align-items: center; gap: 8px 12px; }
-.web-resume-import-url { flex: 1; min-width: 0; color: var(--blue); font-size: 13px; word-break: break-all; }
-.web-resume-import-copy { flex-shrink: 0; min-height: 40px; white-space: nowrap; }
-.web-resume-import-note { display: block; color: var(--muted); font-size: 13px; line-height: 1.7; }
-.web-resume-import-note + .web-resume-import-note { margin-top: 4px; }
+.web-resume-import { margin-top: 8px; }
+.web-resume-import-note { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.web-resume-import-address { display: flex; align-items: center; gap: 10px; }
+.web-resume-import-url { min-width: 0; color: var(--blue); font-size: 12px; word-break: break-all; }
+.web-resume-import-copy { display: inline-flex; align-items: center; flex-shrink: 0; min-height: 32px; padding: 0 4px; white-space: nowrap; }
+.web-resume-import-copy-label { color: var(--blue); font-size: 12px; line-height: 1.5; }
 </style>
