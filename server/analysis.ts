@@ -1,11 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Analysis, AnalysisDimension, AnalysisIssue, AnalysisSuggestion, Resume } from '../shared/types.js';
 import { inputLimits } from '../shared/limits.js';
+import { reviewJobDescription } from './job-review.js';
+import { hasTerm, retrieveRoleGuide, reviewTerms } from './role-guides.js';
+
+export const analysisWorkflowVersion = 'jd-evidence-v1';
 
 export interface AnalysisContext {
   resume: Resume;
   jobDescription?: string;
   targetRole?: string;
+  roleGuide?: Analysis['roleGuide'] | null;
   signal?: AbortSignal;
   /** Server-only hooks: dispatch is recorded before sending; usage is supplier-reported. */
   metering?: {
@@ -18,6 +23,7 @@ export interface AnalysisContext {
 export interface AnalysisProvider {
   readonly name: string;
   readonly model?: string;
+  readonly modelSettings?: { promptVersion: string; temperature: number; maxTokens: number };
   /** Conservative reservation only; never an actual usage or settlement amount. */
   estimateReservation?(context: AnalysisContext): number;
   analyze(context: AnalysisContext): Promise<Analysis>;
@@ -40,29 +46,9 @@ const catalog = [...new Set([
   'REST', 'GraphQL', '微服务', '分布式', '高并发', '单元测试', '自动化测试', 'CI/CD', '沟通', '团队协作', '项目管理',
 ])];
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-function hasKeyword(text: string, keyword: string): boolean {
-  const aliases: Record<string, string[]> = {
-    'Spring Boot': ['Spring Boot', 'SpringBoot'],
-    'Node.js': ['Node.js', 'NodeJS', 'Node JS'],
-    'Next.js': ['Next.js', 'NextJS'],
-    'JavaScript': ['JavaScript', 'JS'],
-    'TypeScript': ['TypeScript', 'TS'],
-    'PostgreSQL': ['PostgreSQL', 'Postgres'],
-    'CSS': ['CSS', 'CSS3'],
-    'HTML': ['HTML', 'HTML5'],
-  };
-  return (aliases[keyword] ?? [keyword]).some((word) => {
-    if (/[\u3400-\u9fff]/.test(word)) return text.toLowerCase().includes(word.toLowerCase());
-    return new RegExp(`(?<![a-z0-9])${escapeRegExp(word)}(?![a-z0-9])`, 'i').test(text);
-  });
-}
-
 function expectedKeywords(targetRole: string, jobDescription: string): string[] {
-  const fromJob = catalog.filter((keyword) => hasKeyword(jobDescription, keyword));
   // A supplied JD is the source of expectations; role presets are only a fallback.
-  if (jobDescription.trim()) return fromJob.slice(0, 20);
+  if (jobDescription.trim()) return reviewTerms(jobDescription, catalog).slice(0, 20);
   return [...new Set(roleKeywords.filter(({ pattern }) => pattern.test(targetRole)).flatMap(({ keywords }) => keywords))].slice(0, 16);
 }
 
@@ -119,7 +105,7 @@ function uniquelyLocated(text: string, original: string): boolean {
 export class RuleAnalysisProvider implements AnalysisProvider {
   readonly name = 'rules';
 
-  async analyze({ resume, jobDescription = '', targetRole = resume.targetRole }: AnalysisContext): Promise<Analysis> {
+  async analyze({ resume, jobDescription = '', targetRole = resume.targetRole, roleGuide = retrieveRoleGuide(targetRole, jobDescription) }: AnalysisContext): Promise<Analysis> {
     const text = resume.text;
     const lines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean);
     const workHeading = /^(?:[一二三四五六七八九十\d.、\s]*)?(?:工作经历|实习经历|项目经历|项目经验|工作经验|专业经历|experience|projects?)(?:\s*[:：]|\s*$)/i;
@@ -136,8 +122,9 @@ export class RuleAnalysisProvider implements AnalysisProvider {
     const measured = workLines.filter((line) => hasMeasuredImpact(line) || hasDeliveryEvidence(line));
     const responsibilityOnly = workLines.filter((line) => responsibilityPattern.test(line) && !actionPattern.test(line));
     const expected = expectedKeywords(targetRole, jobDescription);
-    const matched = expected.filter((keyword) => hasKeyword(text, keyword));
-    const missing = expected.filter((keyword) => !hasKeyword(text, keyword));
+    const matched = expected.filter((keyword) => hasTerm(text, keyword));
+    const missing = expected.filter((keyword) => !hasTerm(text, keyword));
+    const jobReview = reviewJobDescription(jobDescription, text, catalog);
     const sections = [
       { label: '工作或项目经历', exists: /工作经历|实习经历|项目经历|项目经验|工作经验|专业经历|experience|projects?/i.test(text) },
       { label: '教育背景', exists: /教育背景|教育经历|学历|毕业|本科|硕士|博士|专科|大学|学院|education|bachelor|master|university/i.test(text) },
@@ -151,11 +138,14 @@ export class RuleAnalysisProvider implements AnalysisProvider {
 
     const addIssue = (issue: Omit<AnalysisIssue, 'id'>) => issues.push({ id: randomUUID(), ...issue });
     const addSuggestion = (suggestion: Omit<AnalysisSuggestion, 'id' | 'applied'>) => suggestions.push({ id: randomUUID(), applied: false, ...suggestion });
+    const evidenceLines = new Set(jobReview?.items.filter(item => item.priority === 'required')
+      .flatMap(item => item.evidence.flatMap(({ excerpt }) => excerpt ? [excerpt] : [])));
     const candidates = [...new Set(unmeasured)].filter(original => uniquelyLocated(text, original))
+      .sort((a, b) => Number(evidenceLines.has(b)) - Number(evidenceLines.has(a)))
       .map(contributionSuggestion).filter(suggestion => suggestion.replacement.length <= inputLimits.replacement).slice(0, 3);
 
     if (unmeasured.length) {
-      const evidence = unmeasured[0];
+      const evidence = candidates[0]?.original ?? unmeasured[0];
       addIssue({
         title: '经历写了做什么，还缺少结果证据', severity: 'high', category: 'impact',
         description: `${workLines.length} 条可识别经历中，${unmeasured.length} 条没有可识别的规模、效率或业务结果。招聘者难以判断你的贡献。`,
@@ -206,7 +196,8 @@ export class RuleAnalysisProvider implements AnalysisProvider {
       ? `规则诊断得分 ${score} / 100。优先处理${issues.filter(({ severity }) => severity === 'high').length ? '高优先级问题' : '表达与匹配细节'}：${issues.slice(0, 2).map(({ title }) => title).join('；')}。分数仅供修改前后比较，不代表录用概率。`
       : `规则诊断得分 ${score} / 100。核心模块、成果表达和岗位关键词覆盖较完整，请继续核对事实与岗位相关性。分数不代表录用概率。`;
     const inputSnapshot = { text, targetRole, jobDescription };
-    const inputHash = createHash('sha256').update(JSON.stringify(inputSnapshot)).digest('hex');
-    return { id: randomUUID(), resumeId: resume.id, resumeRevision: resume.revision, inputHash, inputSnapshot, engine: 'rules', score, summary, dimensions, issues, suggestions, keywords: { matched, missing }, createdAt: new Date().toISOString(), status: 'completed' };
+    const inputHash = createHash('sha256').update(JSON.stringify({ ...inputSnapshot, roleGuide, workflowVersion: analysisWorkflowVersion })).digest('hex');
+    return { id: randomUUID(), resumeId: resume.id, resumeRevision: resume.revision, inputHash, inputSnapshot, engine: 'rules', workflowVersion: analysisWorkflowVersion, score, summary, dimensions, issues, suggestions, keywords: { matched, missing },
+      ...(jobReview ? { jobReview } : {}), ...(roleGuide ? { roleGuide } : {}), createdAt: new Date().toISOString(), status: 'completed' };
   }
 }

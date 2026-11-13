@@ -47,7 +47,10 @@ test('model uses redacted input, bounded JSON output and confirmed suggestions; 
   assert.equal(report.engine, 'bailian');
   assert.equal(report.inputSnapshot.text, text);
   assert.equal(report.modelRun?.model, defaultModel);
-  assert.equal(report.modelRun?.knowledgeScope, 'none');
+  assert.equal(report.modelRun?.knowledgeScope, 'public-role-guides');
+  const userMessage = JSON.parse(sent.messages[1].content);
+  assert.equal(userMessage.roleGuide.reference, `cs-software@${report.roleGuide?.version}`);
+  assert.deepEqual(report.modelRun?.knowledgeReferences, [userMessage.roleGuide.reference]);
   assert.equal(report.suggestions[0].needsConfirmation, true);
   assert.equal(report.suggestions[0].applied, false);
   assert.equal(report.modelRun?.maxTokens, sent.max_tokens);
@@ -57,6 +60,26 @@ test('model uses redacted input, bounded JSON output and confirmed suggestions; 
   assert.equal(sent.response_format.type, 'json_object');
   assert.match(redactContacts(text), /已隐藏手机号/);
   assert.equal(redactContacts('手机：+86 138 0000 0000 / 138-0000-0000').includes('138'), false);
+});
+
+test('only the retrieved project guide may be cited and resume evidence still comes from the original', async () => {
+  const fakeFetch: typeof fetch = async (_url, options) => {
+    const sent = JSON.parse(JSON.parse(options!.body as string).messages[1].content);
+    const report = output();
+    return response({ ...report, suggestions: report.suggestions.map(item => ({ ...item, guideReference: sent.roleGuide.reference })) });
+  };
+  const result = await new BailianAnalysisProvider(config, fakeFetch).analyze({ resume: sample });
+  assert.equal(result.suggestions[0].guideReference, result.modelRun?.knowledgeReferences?.[0]);
+  assert.equal(result.suggestions[0].original, original);
+  assert.equal(result.suggestions[0].needsConfirmation, true);
+  const fakeCitation = new BailianAnalysisProvider(config, async () => {
+    const report = output();
+    return response({ ...report, suggestions: report.suggestions.map(item => ({ ...item, guideReference: 'fake@v1' })) });
+  });
+  await assert.rejects(fakeCitation.analyze({ resume: sample }), hasCode('MODEL_INVALID_OUTPUT'));
+  const withoutGuide = await new BailianAnalysisProvider(config, async () => response()).analyze({ resume: sample, targetRole: '其他', jobDescription: '需要 Excel' });
+  assert.equal(withoutGuide.modelRun?.knowledgeScope, 'none');
+  assert.equal(withoutGuide.roleGuide, undefined);
 });
 
 test('invalid sources, fabricated numbers, overlapping rewrites and malformed outputs are rejected', () => {

@@ -1,4 +1,5 @@
-import type { AnalysisInput, AnalysisJob, Resume } from '../shared/types.js';
+import type { AnalysisInput, AnalysisJob, Resume, RoleGuide } from '../shared/types.js';
+import { analysisWorkflowVersion, type AnalysisProvider } from './analysis.js';
 import { validateAnalysisInput, validateResumeInput } from './validation.js';
 
 export interface StoredAnalysisTask {
@@ -10,10 +11,23 @@ export interface StoredAnalysisTask {
   snapshot: Resume;
   engine: 'rules' | 'bailian';
   model?: string;
+  /** Legacy queue format identifier, retained for release rollback. */
   workflowVersion: 'rules-and-model-v1';
+  analysisVersion?: typeof analysisWorkflowVersion;
+  modelSettings?: AnalysisProvider['modelSettings'];
+  roleGuide?: RoleGuide | null;
 }
 
 export interface AnalysisTaskStorage { analysisTasks: StoredAnalysisTask[] }
+
+function validGuide(guide: RoleGuide) {
+  const boundedList = (value: unknown, limit: number) => Array.isArray(value) && value.length <= limit
+    && value.every(item => typeof item === 'string' && item.trim() && item.length <= 200);
+  return typeof guide.id === 'string' && /^[a-z-]{1,100}$/.test(guide.id)
+    && typeof guide.version === 'string' && /^\d{4}-\d{2}-\d{2}\.v\d+$/.test(guide.version)
+    && typeof guide.title === 'string' && guide.title.trim() && guide.title.length <= 160
+    && boundedList(guide.terms, 10) && boundedList(guide.questions, 3) && guide.questions.length === 3;
+}
 
 /** Older JSON files have no tasks. Present but invalid task data must fail closed. */
 export function normalizeAnalysisTasks(source: Record<string, unknown>): AnalysisTaskStorage {
@@ -24,6 +38,10 @@ export function normalizeAnalysisTasks(source: Record<string, unknown>): Analysi
     const task = value as StoredAnalysisTask;
     if (!task || typeof task.userId !== 'string' || !task.userId || !task.job || !task.snapshot
       || !['rules', 'bailian'].includes(task.engine) || task.workflowVersion !== 'rules-and-model-v1'
+      || (task.analysisVersion !== undefined && (task.analysisVersion !== analysisWorkflowVersion || task.roleGuide === undefined))
+      || (task.roleGuide != null && !validGuide(task.roleGuide))
+      || (task.modelSettings !== undefined && (!task.modelSettings || typeof task.modelSettings.promptVersion !== 'string'
+        || !Number.isFinite(task.modelSettings.temperature) || !Number.isSafeInteger(task.modelSettings.maxTokens) || task.modelSettings.maxTokens < 1))
       || (task.model !== undefined && (typeof task.model !== 'string' || task.model.length > 100))
       || !/^[a-f0-9]{64}$/.test(task.requestHash) || !/^[a-f0-9]{64}$/.test(task.inputHash)
       || typeof task.job.id !== 'string' || !task.job.id || typeof task.job.resumeId !== 'string'

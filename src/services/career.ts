@@ -2,6 +2,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { ApplicationCreateInput, ApplicationStatus, ApplicationUpdateInput, CareerApplication, CareerJob, CareerJobInput, CareerMaterial, CareerRecruitmentPortal, CareerWorkspace, Resume } from '../../shared/types';
 import { ApiError, request } from './api';
 import { isCareerAttachment } from '../../shared/career-attachment';
+import { careerJobAudienceLabels, careerJobIsStale } from '../../shared/career';
 
 export const applicationStatusLabels: Record<ApplicationStatus, string> = {
   planned: '待投递', applied: '已投递', interview: '面试中', offer: '收到录用', rejected: '未通过', withdrawn: '已撤回',
@@ -19,10 +20,12 @@ const revision = (value: unknown): value is number => Number.isSafeInteger(value
 const status = (value: unknown): value is ApplicationStatus => typeof value === 'string' && Object.hasOwn(applicationStatusLabels, value);
 const sourceUrl = (value: unknown) => value === undefined || (text(value, 2000) && /^https?:\/\/[^/\s@?#]+(?:[/?#][^\s]*)?$/.test(value));
 
-function job(value: unknown): value is CareerJob {
+export function isCareerJob(value: unknown): value is CareerJob {
   return record(value) && text(value.id, 100) && !!value.id && ['catalog', 'personal'].includes(value.origin as string)
     && ['company', 'title', 'major', 'location', 'description', 'companyOverview', 'sourceLabel'].every(key => text(value[key]))
     && ['open', 'closed'].includes(value.availability as string) && instant(value.updatedAt) && sourceUrl(value.sourceUrl)
+    && (value.audience === undefined || (typeof value.audience === 'string' && Object.hasOwn(careerJobAudienceLabels, value.audience)))
+    && (value.checkedAt === undefined || instant(value.checkedAt))
     && (value.deadline === undefined || (text(value.deadline, 10) && /^\d{4}-\d{2}-\d{2}$/.test(value.deadline)));
 }
 function material(value: unknown): value is CareerMaterial {
@@ -44,7 +47,7 @@ function resume(value: unknown): value is Resume {
 }
 function application(value: unknown): value is CareerApplication {
   return record(value) && text(value.id, 100) && !!value.id && text(value.jobId, 100)
-    && job(value.jobSnapshot) && value.jobSnapshot.id === value.jobId && resume(value.resumeSnapshot)
+    && isCareerJob(value.jobSnapshot) && value.jobSnapshot.id === value.jobId && resume(value.resumeSnapshot)
     && text(value.resumeHash, 64) && /^[a-f0-9]{64}$/.test(value.resumeHash) && status(value.status)
     && text(value.note, 2000) && revision(value.revision) && instant(value.createdAt) && instant(value.updatedAt)
     && value.submissionMode === 'manual' && Array.isArray(value.history) && value.history.length > 0
@@ -58,7 +61,7 @@ export const careerApi = {
     const value = await request<unknown>('/career');
     if (!record(value) || value.mode !== 'preview' || value.externalDeliveryAvailable !== false
       || !['empty', 'ready', 'unavailable'].includes(value.catalogState as string) || !text(value.catalogMessage, 2000)
-      || !Array.isArray(value.jobs) || !value.jobs.every(job) || new Set(value.jobs.map(item => item.id)).size !== value.jobs.length
+      || !Array.isArray(value.jobs) || !value.jobs.every(isCareerJob) || new Set(value.jobs.map(item => item.id)).size !== value.jobs.length
       || !Array.isArray(value.materials) || !value.materials.every(material)
       || new Set(value.materials.map(item => item.id)).size !== value.materials.length
       || !Array.isArray(value.portals) || !value.portals.every(portal) || new Set(value.portals.map(item => item.id)).size !== value.portals.length
@@ -66,7 +69,7 @@ export const careerApi = {
       || !Array.isArray(value.applications) || !value.applications.every(application)) invalidResponse();
     return value as unknown as CareerWorkspace;
   },
-  async createJob(input: CareerJobInput) { return checked(await request<unknown>('/career/jobs', 'POST', input), job); },
+  async createJob(input: CareerJobInput) { return checked(await request<unknown>('/career/jobs', 'POST', input), isCareerJob); },
   async removeJob(id: string) {
     const result = await request<unknown>(`/career/jobs/${encodeURIComponent(id)}`, 'DELETE');
     if (!record(result) || result.id !== id) invalidResponse();
@@ -98,7 +101,7 @@ export const careerApi = {
 
 /** End dates are inclusive Shanghai dates; this is a display aid, not authorization. */
 export function jobAcceptingPlans(value: CareerJob, now = Date.now()): boolean {
-  return value.availability === 'open' && (!value.deadline || now < Date.parse(`${value.deadline}T23:59:59.999+08:00`) + 1);
+  return value.availability === 'open' && !careerJobIsStale(value, now) && (!value.deadline || now < Date.parse(`${value.deadline}T23:59:59.999+08:00`) + 1);
 }
 export function newCareerRequestKey(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, value => {

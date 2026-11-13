@@ -526,7 +526,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '求职助手不接受查询参数。');
         await assertWorkbenchFeature(service.store, service.userId, 'careerAssistant');
-        json(response, 200, { data: await answerCareerAssistant(service, companies, await body(request)) });
+        json(response, 200, { data: await answerCareerAssistant(service, companies, await body(request), () => career.catalogJobs()) });
       } else if ((match = path.match(/^\/api\/v1\/career\/companies\/([^/]+)$/))) {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         if (url.searchParams.size) throw new HttpError(400, 'VALIDATION_ERROR', '企业详情不接受查询参数。');

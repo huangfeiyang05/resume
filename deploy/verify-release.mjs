@@ -1,7 +1,7 @@
 // Command-line checks against compiled artifacts and an isolated temporary database.
 // No real accounts, SMTP, SMS, model calls, production writes, browser or visual checks.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -150,6 +150,33 @@ try {
   assert.deepEqual(workspace.body.data.jobs, [...catalog.jobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   assert.equal(workspace.body.data.externalDeliveryAvailable, false);
   checks.push('bundled-materials-and-portals-separate-from-jobs');
+  const sourcedJob = workspace.body.data.jobs.find(job => job.id === 'poizon-7670431050971711798');
+  assert.equal(sourcedJob?.audience, 'campus');
+  assert.ok(sourcedJob.sourceUrl.startsWith('https://'));
+  // Use a just-reviewed isolated fixture so this verifier remains valid after the bundled records age.
+  const sourceOverride = join(directory, 'career-catalog.json');
+  await writeFile(sourceOverride, JSON.stringify({ ...catalog, jobs: [{ ...sourcedJob, checkedAt: new Date().toISOString() }] }));
+  try {
+    const sourced = await request('/career/assistant', 'POST', { message: '找上海2027届校招供应链岗位', requirements: '' }, owner);
+    assert.equal(sourced.status, 200);
+    assert.deepEqual(sourced.body.data.officialJobs.map(job => job.id), [sourcedJob.id]);
+  } finally { await rm(sourceOverride, { force: true }); }
+  const applicant = await request('/resumes', 'POST', {
+    title: '合成供应链验收', targetRole: '供应链规划运营',
+    text: '项目经历\n参与库存盘点，使用 Excel 核对出入库台账。',
+  }, owner);
+  assert.equal(applicant.status, 201);
+  const evidenceReport = await request('/analyses', 'POST', {
+    resumeId: applicant.body.data.id, resumeRevision: 1, jobDescription: sourcedJob.description,
+  }, owner);
+  assert.equal(evidenceReport.status, 201);
+  assert.equal(evidenceReport.body.data.engine, 'rules');
+  assert.equal(evidenceReport.body.data.roleGuide.id, 'supply-chain-logistics');
+  assert.equal(evidenceReport.body.data.jobReview.items[0].priority, 'eligibility');
+  assert.ok(evidenceReport.body.data.jobReview.items.flatMap(item => item.evidence)
+    .some(item => item.term === 'Excel' && item.excerpt?.includes('核对出入库台账')));
+  assert.equal((await request(`/resumes/${applicant.body.data.id}`, 'DELETE', undefined, owner)).status, 200);
+  checks.push('official-job-search-and-source-backed-jd-evidence');
   adminIds.add(userId);
   await store.mutate(data => { data.users.find(user => user.id === userId).emailVerified = true; });
   assert.equal((await request('/admin/career-content', 'GET', undefined, owner)).status, 401);

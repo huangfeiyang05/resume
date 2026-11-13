@@ -24,7 +24,7 @@ export type { PaymentOrder, PaymentOrderStatus, PaymentChannel, WechatPaymentPar
 export type { PaymentMethods, WechatVirtualDevice, WechatVirtualPaymentParams, WechatVirtualCheckoutProof, WechatVirtualOrderStatus } from './payment.js';
 export type { AiQuotaSummary } from './quota.js';
 export type { WorkbenchAccess, WorkbenchFeature } from './workbench.js';
-export type { ApplicationStatus, CareerJob, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
+export type { ApplicationStatus, CareerJob, CareerJobAudience, CareerMaterial, CareerRecruitmentPortal, CareerJobInput, ApplicationEvent, CareerApplication, ApplicationCreateInput, ApplicationUpdateInput, CareerWorkspace } from './career.js';
 export type { CareerContentKind, CareerContentValue, CareerContentAction, CareerContentSummary, CareerContentHistory, CareerContentDetail, CareerContentDraft, SaveCareerContentDraft, ReviewCareerContent, CareerContentReview, ApplyCareerContent, CareerContentReceipt } from './career-content.js';
 export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, WechatLoginInput, PhoneLoginInput } from './auth.js';
 export type { BindWechatPhoneInput, AccountProfileInput } from './auth.js';
@@ -72,6 +72,7 @@ export interface AnalysisIssue {
   evidence: string;
   suggestion: string;
   actionable: boolean;
+  guideReference?: string;
 }
 
 export interface AnalysisSuggestion {
@@ -84,6 +85,21 @@ export interface AnalysisSuggestion {
   applied: boolean;
   appliedAt?: string;
   appliedRevision?: number;
+  guideReference?: string;
+}
+
+export interface JobRequirementReview {
+  requirement: string;
+  priority: 'eligibility' | 'required' | 'preferred' | 'review';
+  evidence: Array<{ term: string; excerpt?: string }>;
+}
+
+export interface RoleGuide {
+  id: string;
+  version: string;
+  title: string;
+  terms: string[];
+  questions: string[];
 }
 
 export interface Analysis {
@@ -93,12 +109,14 @@ export interface Analysis {
   inputHash: string;
   inputSnapshot: { text: string; targetRole: string; jobDescription: string };
   engine: 'rules' | 'bailian';
+  workflowVersion?: string;
   /** AI annotations supplement deterministic rule scores and keyword coverage. */
   modelRun?: {
     model: string;
     promptVersion: string;
     workflowVersion: string;
-    knowledgeScope: 'none';
+    knowledgeScope: 'none' | 'public-role-guides';
+    knowledgeReferences?: string[];
     temperature: number;
     maxTokens: number;
     sentInputHash: string;
@@ -111,6 +129,8 @@ export interface Analysis {
   issues: AnalysisIssue[];
   suggestions: AnalysisSuggestion[];
   keywords: { matched: string[]; missing: string[] };
+  jobReview?: { items: JobRequirementReview[]; omitted: number };
+  roleGuide?: RoleGuide;
   createdAt: string;
   status: 'completed';
 }

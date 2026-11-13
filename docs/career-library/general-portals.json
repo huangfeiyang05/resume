@@ -2,7 +2,11 @@
   {
     "id": "portal-ey-cn-students",
     "organization": "安永中国",
-    "majors": ["经管、财会与金融", "语言、翻译与国际业务", "法学、公共管理与政策"],
+    "majors": [
+      "经管、财会与金融",
+      "语言、翻译与国际业务",
+      "法学、公共管理与政策"
+    ],
     "audience": "中国大陆校园招聘与实习",
     "description": "官方学生项目介绍及申请入口，包含毕业生与实习项目说明。专业分类仅帮助发现入口，实际专业、毕业时间、岗位和截止日期须查看官方公告；不表示当前存在适合你的空缺。",
     "sourceUrl": "https://www.ey.com/zh_cn/careers/student-programs-in-chinese-mainland",
@@ -11,7 +15,12 @@
   {
     "id": "portal-loreal-students",
     "organization": "欧莱雅集团",
-    "majors": ["市场、新闻传播与产品运营", "设计、艺术与创意", "经管、财会与金融", "供应链、物流与工业工程"],
+    "majors": [
+      "市场、新闻传播与产品运营",
+      "设计、艺术与创意",
+      "经管、财会与金融",
+      "供应链、物流与工业工程"
+    ],
     "audience": "学生实习与毕业生项目（全球入口）",
     "description": "官方职业网站设有学生与毕业生、实习和管理培训项目入口，并可按地区查找。专业分类是本项目整理的检索线索，不是录用条件；中国岗位、语言和申请资格须以具体公告为准。",
     "sourceUrl": "https://careers.loreal.com/en",
@@ -20,7 +29,11 @@
   {
     "id": "portal-dhl-students",
     "organization": "DHL 集团",
-    "majors": ["供应链、物流与工业工程", "经管、财会与金融", "语言、翻译与国际业务"],
+    "majors": [
+      "供应链、物流与工业工程",
+      "经管、财会与金融",
+      "语言、翻译与国际业务"
+    ],
     "audience": "学生实习与毕业生项目（全球入口）",
     "description": "官方学生与毕业生页面介绍实习、培训及初入职场路径。各项目地区、学历、工作许可和申请时间不同，需要在官方入口重新筛选；本目录不承诺中国地区当期开放岗位。",
     "sourceUrl": "https://careers.dhl.com/global/en/students-graduates",
@@ -29,10 +42,158 @@
   {
     "id": "portal-unesco-internships",
     "organization": "联合国教科文组织（UNESCO）",
-    "majors": ["教育、师范与教学", "语言、翻译与国际业务", "法学、公共管理与政策", "心理学、社会学与社会工作"],
+    "majors": [
+      "教育、师范与教学",
+      "语言、翻译与国际业务",
+      "法学、公共管理与政策",
+      "心理学、社会学与社会工作"
+    ],
     "audience": "在校生与近期毕业生实习项目",
     "description": "官方实习项目说明页，提供申请条件、语言、费用安排和人才库流程。专业分类是相关领域的检索提示；人才库申请不等于具体实习录用，资格与具体任务须由本人核对官方要求。",
     "sourceUrl": "https://careers.unesco.org/content/Internship-Programme/",
     "checkedAt": "2026-10-27T14:29:19+08:00"
+  },
+  {
+    "id": "portal-ncss",
+    "organization": "国家大学生就业服务平台",
+    "majors": [
+      "计算机与软件",
+      "数学、统计与数据分析",
+      "机械、电气与自动化",
+      "土木、建筑与城市规划",
+      "材料、化工、能源与环境",
+      "经管、财会与金融",
+      "市场、新闻传播与产品运营",
+      "法学、公共管理与政策",
+      "语言、翻译与国际业务",
+      "教育、师范与教学",
+      "生命科学与科研",
+      "护理、公共卫生与健康",
+      "心理学、社会学与社会工作",
+      "设计、艺术与创意",
+      "农学、食品与自然资源",
+      "供应链、物流与工业工程"
+    ],
+    "audience": "高校毕业生",
+    "description": "教育部平台，可按地区、行业和单位类型查职位及专场。进入具体职位后核对招聘方、毕业届别、申请时间和投递渠道。",
+    "sourceUrl": "https://www.ncss.cn/",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-public-institutions",
+    "organization": "人社部事业单位公开招聘服务平台",
+    "majors": [
+      "土木、建筑与城市规划",
+      "法学、公共管理与政策",
+      "生命科学与科研",
+      "心理学、社会学与社会工作"
+    ],
+    "audience": "公开招聘，各公告单独核对",
+    "description": "查中央和国家机关所属事业单位招聘公告，并可从平台查地方事业单位渠道。公告和拟聘公示分别阅读，报名期与岗位条件以原公告为准。",
+    "sourceUrl": "https://www.mohrss.gov.cn/SYrlzyhshbzb/fwyd/SYkaoshizhaopin/zyhgjjgsydwgkzp/",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-shenzhen-education",
+    "organization": "深圳市教育局公办学校招聘",
+    "majors": [
+      "教育、师范与教学"
+    ],
+    "audience": "公办学校教师等岗位，按公告核对",
+    "description": "查看深圳公办学校招聘公告及进度公示。先核对报考批次、学段学科、教师资格、毕业时间与报名窗口。",
+    "sourceUrl": "https://szeb.sz.gov.cn/home/xxgk/zthd/jszp/gbxx/index.html",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-shenzhen-health",
+    "organization": "深圳市卫生健康委员会人事信息",
+    "majors": [
+      "护理、公共卫生与健康",
+      "生命科学与科研"
+    ],
+    "audience": "卫生健康系统招聘，按公告核对",
+    "description": "查看医疗卫生机构招聘公告及岗位表。学历、专业代码、执业资格和报名窗口需按具体岗位确认。",
+    "sourceUrl": "https://wjw.sz.gov.cn/xxgk/rsrm/",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-cmb-campus",
+    "organization": "招商银行招聘",
+    "majors": [
+      "经管、财会与金融",
+      "计算机与软件",
+      "数学、统计与数据分析"
+    ],
+    "audience": "校园与社会招聘",
+    "description": "从官方招聘站进入校园招聘，按机构查看批次、岗位和资格。银行总行、分行和信用卡中心的要求及排期分别核对。",
+    "sourceUrl": "https://career.cmbchina.com/",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-sf-campus",
+    "organization": "顺丰校园招聘",
+    "majors": [
+      "供应链、物流与工业工程",
+      "计算机与软件",
+      "数学、统计与数据分析"
+    ],
+    "audience": "校园招聘与实习",
+    "description": "官方渠道可查看物流供应链与科技方向的校园招聘、实习及宣讲信息。按项目核对招聘城市和毕业时间。",
+    "sourceUrl": "https://campus.sf-express.com/cr/",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-byd-campus",
+    "organization": "比亚迪校园招聘",
+    "majors": [
+      "机械、电气与自动化",
+      "材料、化工、能源与环境",
+      "计算机与软件",
+      "供应链、物流与工业工程"
+    ],
+    "audience": "应届生校招与学生招聘项目",
+    "description": "查看汽车、电子、新能源等方向的校园招聘说明和申请渠道。官方页面各项目单列毕业时间、地点和专业要求。",
+    "sourceUrl": "https://job.byd.com/portal/mobile/school-home",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-huawei-campus",
+    "organization": "华为校园招聘",
+    "majors": [
+      "计算机与软件",
+      "机械、电气与自动化",
+      "数学、统计与数据分析"
+    ],
+    "audience": "应届生与实习生",
+    "description": "官方校园招聘页分列应届生、实习生等入口。按实际毕业时间、职位地点及部门要求查询。",
+    "sourceUrl": "https://career.huawei.com/cn/campus-recruitment",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-xiaomi-campus",
+    "organization": "小米校园招聘",
+    "majors": [
+      "计算机与软件",
+      "机械、电气与自动化",
+      "市场、新闻传播与产品运营",
+      "供应链、物流与工业工程"
+    ],
+    "audience": "校招、实习与专项计划",
+    "description": "查全球校招、新零售及实习项目的官方入口。不同项目有不同申请条件和时间窗口。",
+    "sourceUrl": "https://hr.xiaomi.com/website/campus.html",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
+  },
+  {
+    "id": "portal-baidu-campus",
+    "organization": "百度校园招聘",
+    "majors": [
+      "计算机与软件",
+      "数学、统计与数据分析",
+      "市场、新闻传播与产品运营"
+    ],
+    "audience": "校招及学生实习",
+    "description": "官方页面区分应届生、日常实习和专项招聘。请进入实际职位核对城市、工作内容和批次状态。",
+    "sourceUrl": "https://talent.baidu.com/jobs/",
+    "checkedAt": "2026-11-13T00:00:00+08:00"
   }
 ]

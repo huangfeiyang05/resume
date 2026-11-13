@@ -1,5 +1,6 @@
 import type { CareerAssistantResult, CareerJob, CompanyFilters, CompanySearchHit } from '../../shared/types';
 import type { CareerChatMessage } from './careerAssistant';
+import { isCareerJob } from './career';
 
 /** 历史对话只保存在当前浏览器或小程序本机，按账号隔离；不写入服务端，也不进入共享企业资料库。 */
 export interface CareerConversationSummary {
@@ -64,6 +65,7 @@ interface StoredResult {
   engine: 'local-rules'; reply: string; resume?: StoredResume;
   criteria: { query: string; filters: Partial<CompanyFilters>; unverifiedRequirements: string[] };
   companies: StoredCompany[]; companyTotal: number; personalJobs: StoredJob[];
+  officialJobs?: CareerJob[];
   evidence: Array<{ term: string; excerpt: string }>;
   catalogState: 'empty' | 'ready' | 'unavailable';
   action?: { type: 'analyze-resume'; resumeId: string; revision: number; targetRole: string };
@@ -92,6 +94,7 @@ function compactResult(result: CareerAssistantResult): StoredResult {
       id: sliceText(job.id, 100), company: sliceText(job.company, 200), title: sliceText(job.title, 200), major: sliceText(job.major, 200),
       location: sliceText(job.location, 200), description: sliceText(job.description, 1200), ...(job.sourceUrl ? { sourceUrl: sliceText(job.sourceUrl, 2000) } : {}),
     })),
+    ...(result.officialJobs?.length ? { officialJobs: result.officialJobs.map(job => ({ ...job, companyOverview: '' })) } : {}),
     evidence: result.evidence.slice(0, 3).map(item => ({ term: sliceText(item.term, 60), excerpt: sliceText(item.excerpt, 320) })),
     catalogState: result.catalogState,
     ...(result.action ? { action: { ...result.action } } : {}),
@@ -143,6 +146,8 @@ function hydrateResult(value: unknown): CareerAssistantResult | undefined {
   }
   const companies = Array.isArray(value.companies) ? value.companies.map(hydrateCompany).filter((item): item is CompanySearchHit => !!item).slice(0, 5) : [];
   const personalJobs = Array.isArray(value.personalJobs) ? value.personalJobs.map(hydrateJob).filter((item): item is CareerJob => !!item).slice(0, 5) : [];
+  const officialJobs = Array.isArray(value.officialJobs)
+    ? value.officialJobs.filter((item): item is CareerJob => isCareerJob(item) && item.origin === 'catalog' && !!item.checkedAt && !!item.sourceUrl?.startsWith('https://')).slice(0, 5) : [];
   const evidence = Array.isArray(value.evidence) ? value.evidence.map(item => {
     if (!recordValue(item)) return undefined;
     const term = valueText(item.term, 60, true), excerpt = valueText(item.excerpt, 320, true);
@@ -151,7 +156,7 @@ function hydrateResult(value: unknown): CareerAssistantResult | undefined {
   return {
     engine: 'local-rules', reply, ...(resume ? { resume } : {}),
     criteria: { query, filters, unverifiedRequirements: listValue(criteriaValue.unverifiedRequirements, 10, 240) },
-    companies, companyTotal, personalJobs, evidence, catalogState: catalogState as 'empty' | 'ready' | 'unavailable', ...(action ? { action } : {}),
+    companies, companyTotal, personalJobs, ...(officialJobs.length ? { officialJobs } : {}), evidence, catalogState: catalogState as 'empty' | 'ready' | 'unavailable', ...(action ? { action } : {}),
   };
 }
 

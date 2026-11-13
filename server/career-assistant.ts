@@ -2,6 +2,7 @@ import type { CareerAssistantInput, CareerAssistantResult } from '../shared/care
 import type { CompanyCatalogSnapshot } from './company-catalog.js';
 import type { CompanyFilters } from '../shared/company.js';
 import type { CareerJob } from '../shared/career.js';
+import { careerJobIsStale } from '../shared/career.js';
 import type { Resume } from '../shared/types.js';
 import { CompanyCatalogRepository } from './company-catalog.js';
 import { normalizeCompanyText, searchCompanies } from './company-search.js';
@@ -39,12 +40,13 @@ export function validateCareerAssistantInput(value: unknown): CareerAssistantInp
 }
 
 // These dictionaries label search text only. They never confer a skill or qualification.
-const terms = ['Spring Boot', 'JavaScript', 'TypeScript', 'Node.js', 'C++', 'C#', 'Java', 'Python', 'SQL', 'MySQL', 'React', 'Vue', 'Go', 'Linux',
-  '数据分析', '产品经理', '机械设计', '电气工程', '嵌入式', '新能源', '半导体', '财务', '会计', '审计', '金融', '前端', '后端', '软件', '测试', '算法', '设计', '产品', '运营', '市场', '人力', '法务', '翻译', '教师', '教育', '生物', '护理', '物流', '采购', '销售'] as const;
+const terms = ['Spring Boot', 'JavaScript', 'TypeScript', 'Node.js', 'C++', 'C#', 'Java', 'Python', 'SQL', 'MySQL', 'React', 'Vue', 'Go', 'Linux', 'Excel',
+  '数据分析', '产品经理', '机械设计', '电气工程', '嵌入式', '新能源', '半导体', '财务', '会计', '审计', '金融', '前端', '后端', '全栈', '软件', '测试', '算法', '设计', '产品', '运营', '市场', '人力', '法务', '翻译', '教师', '教育', '生物', '护理', '供应链', '物流', '采购', '销售'] as const;
 const cities = ['北京', '上海', '广州', '深圳', '杭州', '南京', '苏州', '无锡', '常州', '南通', '扬州', '镇江', '徐州', '宁波', '温州', '绍兴', '嘉兴', '金华', '湖州', '台州', '成都', '重庆', '武汉', '西安', '天津', '郑州', '长沙', '合肥', '济南', '青岛', '烟台', '厦门', '福州', '泉州', '佛山', '东莞', '珠海', '惠州', '中山', '大连', '沈阳', '长春', '哈尔滨', '昆明', '贵阳', '南宁', '南昌', '太原', '石家庄', '兰州', '海口', '乌鲁木齐', '呼和浩特', '西宁', '银川', '拉萨'] as const;
 const natureWords = ['外商独资企业', '国有控股企业', '中央企业', '国有企业', '外商独资', '民营企业', '私营企业', '外资企业', '国有控股', '事业单位', '央企', '国企', '国有', '民企', '民营', '私营', '外企', '外资'] as const;
 const educationWords = ['博士及以上', '硕士及以上', '研究生及以上', '本科及以上', '大专及以上', '专科及以上', '博士', '硕士', '研究生', '本科', '大专', '专科', '中专', '高中'] as const;
 const recruitmentWords = ['暑期实习', '日常实习', '校园招聘', '社会招聘', '实习', '校招', '春招', '秋招', '社招', '提前批'] as const;
+const officialAudience: Record<string, CareerJob['audience']> = { 校招: 'campus', 校园招聘: 'campus', 实习: 'internship', 社招: 'experienced', 社会招聘: 'experienced' };
 const ownershipLabels: Record<string, readonly string[]> = {
   国企: ['国企', '国有', '国有企业', '国有控股', '国有控股企业', '国有独资', '国有独资企业', '央企', '中央企业'],
   央企: ['央企', '中央企业'], 民企: ['民企', '民营', '民营企业', '私营', '私营企业'],
@@ -88,15 +90,16 @@ export function assistantLocationMatches(value: string, city: string): boolean {
   return false;
 }
 interface Parsed { cities: string[]; natures: string[]; queryTerms: string[]; companyTerms: string[]; facetTerms: Partial<CompanyFilters>; noRoleFallback: boolean; unverified: string[] }
-function parse(input: CareerAssistantInput, catalog: CompanyCatalogSnapshot): Parsed {
+function parse(input: CareerAssistantInput, catalog: CompanyCatalogSnapshot, officialJobs: CareerJob[]): Parsed {
   const result: Parsed = { cities: [], natures: [], queryTerms: [], companyTerms: [], facetTerms: {}, noRoleFallback: false, unverified: [] };
   const add = (value: string) => { if (!result.unverified.includes(value) && result.unverified.length < 10) result.unverified.push(value.slice(0, 240)); };
   const sourceCities = unique(catalog.records.flatMap(record => record.locations).filter(value => /^[\u4e00-\u9fff]{2,8}$/.test(value) && !/全国|不限|海外|国内|国外|其他|多地/.test(value)).map(value => value.replace(/市$/, '')));
   const industryWords = unique(catalog.records.flatMap(record => record.industries).filter(value => value.length >= 2 && value.length <= 30 && !/^(?:其他|不限|未知|未提供)$/.test(value)).map(normalizeCompanyText));
+  const companyNamesInSources = unique([...catalog.records.flatMap(record => [record.name, ...record.aliases]), ...officialJobs.map(job => job.company)]);
   const turns = [input.requirements, ...(input.history ?? []).filter(item => item.role === 'user').map(item => item.content), input.message].filter(Boolean);
   for (const turn of turns) {
     const normalizedTurn = normalizeCompanyText(turn);
-    const companyNames = unique(catalog.records.flatMap(record => [record.name, ...record.aliases]).filter(name => name.length >= 2 && normalizedTurn.includes(normalizeCompanyText(name))));
+    const companyNames = companyNamesInSources.filter(name => name.length >= 2 && normalizedTurn.includes(normalizeCompanyText(name)));
     const positiveNames = companyNames.filter(name => !negative(normalizedTurn, normalizedTurn.indexOf(normalizeCompanyText(name)))).sort((a, b) => b.length - a.length);
     if (positiveNames.length) result.companyTerms = [positiveNames[0]];
     for (const name of companyNames.filter(name => !positiveNames.includes(name))) {
@@ -141,7 +144,7 @@ function parse(input: CareerAssistantInput, catalog: CompanyCatalogSnapshot): Pa
       [/薪资|薪水|工资|年薪|月薪|月入|待遇|收入/, '薪资或收入条件：资料没有可统一验证的薪资字段，本次未据此筛选。'],
       [/融资|[A-FＡ-Ｆ]轮|天使轮|上市时间/i, '融资或经营轮次：当前资料不能据此核实，本次未据此筛选。'],
       [/加班|双休|996|995|955|远程|食堂|班车|住房|五险|福利/, '工时、办公方式或福利：当前资料无法统一验证，本次未保证满足。'],
-      [/在招|正在招|还招|最新招聘|现在能投|截止日期|实时/, '当前招聘时效：本工具只查询历史资料，不能确认现在仍可申请。'],
+      [/在招|正在招|还招|最新招聘|现在能投|截止日期|实时/, '当前招聘时效：请到官方岗位页核对能否申请及截止日期。'],
     ] as const) if (pattern.test(turn)) add(note);
     let remainder = criterionText;
     for (const item of [...location, ...nature, ...role, ...education, ...recruitment, ...industry, ...cohorts, ...companyNames.map(term => ({ term }))].sort((a, b) => b.term.length - a.term.length)) remainder = remainder.replace(termPattern(item.term), ' ');
@@ -202,18 +205,38 @@ function criteria(parsed: Parsed, catalog: CompanyCatalogSnapshot) {
   return filters;
 }
 
+function findOfficialJobs(jobs: CareerJob[], parsed: Parsed, now: number): CareerJob[] {
+  const { recruitmentTypes, cohorts, educationLevels, industries } = parsed.facetTerms;
+  if (parsed.natures.length || industries?.length || educationLevels?.length) return [];
+  const today = new Date(now + 8 * 3600_000).toISOString().slice(0, 10);
+  return jobs.filter(job => job.origin === 'catalog' && job.sourceUrl?.startsWith('https://') && job.checkedAt && job.availability === 'open'
+    && !careerJobIsStale(job, now) && (!job.deadline || job.deadline >= today))
+    .filter(job => !parsed.cities.length || parsed.cities.some(city => assistantLocationMatches(job.location, city)))
+    .filter(job => parsed.companyTerms.every(term => normalizeCompanyText(job.company).includes(normalizeCompanyText(term))))
+    .filter(job => parsed.queryTerms.every(term => normalizeCompanyText(`${job.title} ${job.major} ${job.description}`).includes(normalizeCompanyText(term))))
+    .filter(job => !cohorts?.length || cohorts.some(cohort => cohort === '应届生'
+      ? job.audience === 'campus' || job.audience === 'early-career'
+      : new RegExp(`(?<!\\d)(?:${cohort.slice(0, 4)}|${cohort.slice(2, 4)})\\s*届`).test(`${job.title} ${job.description}`)))
+    .filter(job => !recruitmentTypes?.length || recruitmentTypes.some(value => Object.hasOwn(officialAudience, value)
+      ? officialAudience[value] === job.audience : `${job.title} ${job.description} ${job.sourceLabel}`.includes(value)))
+    .sort((a, b) => b.checkedAt!.localeCompare(a.checkedAt!) || a.id.localeCompare(b.id)).slice(0, 5);
+}
+
 /** Stateless, deterministic query help. It never invokes a model, sends data or mutates a resume. */
-export async function answerCareerAssistant(service: ResumeService, companies: CompanyCatalogRepository, body: unknown): Promise<CareerAssistantResult> {
+export async function answerCareerAssistant(service: ResumeService, companies: CompanyCatalogRepository, body: unknown, loadJobs?: () => Promise<CareerJob[]>): Promise<CareerAssistantResult> {
   const input = validateCareerAssistantInput(body);
   const resume = input.resumeId ? await service.getResume(input.resumeId) : undefined;
   if (resume && resume.revision !== input.resumeRevision) throw new HttpError(409, 'REVISION_CONFLICT', '简历版本已变化，请重新选择已保存的最新版本。');
-  const catalog = await companies.load(), parsed = parse(input, catalog), excerpts = evidence(resume);
+  const [catalog, sharedJobs] = await Promise.all([companies.load(), loadJobs?.() ?? []]);
+  const parsed = parse(input, catalog, sharedJobs), excerpts = evidence(resume);
   if (!parsed.queryTerms.length && !parsed.noRoleFallback && resume) {
     parsed.queryTerms = mentions(resume.targetRole, terms).filter(item => !item.negative).map(item => item.term).slice(0, 1);
     if (!parsed.queryTerms.length && excerpts.length) parsed.queryTerms = [excerpts[0].term];
   }
   const query = [...parsed.companyTerms, ...parsed.queryTerms].join(' ').slice(0, 200), filters = criteria(parsed, catalog);
   const generic = input.message.length <= 3 && !input.requirements && !(input.history ?? []).some(item => item.role === 'user') && !/找|查|搜|改|诊断|优化/.test(input.message);
+  const lookingForJobs = !generic && !parsed.noRoleFallback && (query || parsed.cities.length || parsed.facetTerms.cohorts?.length || parsed.facetTerms.recruitmentTypes?.length);
+  const officialJobs = lookingForJobs ? findOfficialJobs(sharedJobs, parsed, Date.now()) : [];
   const locationFiltered = parsed.cities.length ? { ...catalog, records: catalog.records.filter(record => record.locations.some(value => parsed.cities.some(city => assistantLocationMatches(value, city)))) } : catalog;
   const { locations: _locationIntent, ...exactFilters } = filters;
   const search = searchCompanies(locationFiltered, { q: query, filters: exactFilters, pageSize: 5 });
@@ -236,6 +259,8 @@ export async function answerCareerAssistant(service: ResumeService, companies: C
     else if (catalog.state === 'empty') replies.push('企业资料库暂无记录，本次没有编造企业或岗位；可继续查阅本人已添加的岗位。');
     else replies.push(`找到 ${search.total} 条企业参考资料，本次展示前 ${search.items.length} 条。`);
     if (personalJobs.length) replies.push(`另找到你本人添加的 ${personalJobs.length} 条岗位记录，信息仍需自行核实，不能视为官方在招职位。`);
+    if (officialJobs.length) replies.push(`找到 ${officialJobs.length} 条近期核对过来源的岗位摘要。进入官方页面确认申请状态后，可以带入简历诊断。`);
+    else if (lookingForJobs && loadJobs) replies.push('资料库暂未找到符合已识别条件的近期岗位。可以从招聘入口查找，或把已找到的岗位描述带入简历诊断。');
     if (filters.educationLevels?.length || filters.cohorts?.length || filters.recruitmentTypes?.length) replies.push('学历、届别和招聘类型仅按来源标签筛选，不表示你已满足该招聘的全部资格或当前仍可申请。');
   }
   replies.push('企业库是历史资料，不能确认当前仍在招聘、截止日期或申请资格；请自行核对最新官方招聘信息。');
@@ -244,6 +269,6 @@ export async function answerCareerAssistant(service: ResumeService, companies: C
   return {
     engine: 'local-rules', reply: replies.join('\n\n'), ...(resume ? { resume: { id: resume.id, title: resume.title, revision: resume.revision, inputHash: resumeContentHash(resume) } } : {}),
     criteria: { query, filters, unverifiedRequirements: parsed.unverified }, companies: generic ? [] : search.items,
-    companyTotal: generic ? 0 : search.total, personalJobs, evidence: excerpts, catalogState: catalog.state, ...(action ? { action } : {}),
+    companyTotal: generic ? 0 : search.total, personalJobs, ...(officialJobs.length ? { officialJobs } : {}), evidence: excerpts, catalogState: catalog.state, ...(action ? { action } : {}),
   };
 }

@@ -13,7 +13,9 @@
       "origin": "catalog",
       "sourceLabel": "百度官方招聘，岗位页标注 2026-11-05",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "experienced",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "腾讯",
@@ -27,7 +29,9 @@
       "origin": "catalog",
       "sourceLabel": "腾讯官方招聘，页面更新于 2026-11-12",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "experienced",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "中芯国际",
@@ -41,7 +45,9 @@
       "origin": "catalog",
       "sourceLabel": "中芯国际官方校招",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "影石 Insta360",
@@ -55,7 +61,9 @@
       "origin": "catalog",
       "sourceLabel": "影石官方招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "experienced",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "MiniMax",
@@ -69,7 +77,9 @@
       "origin": "catalog",
       "sourceLabel": "MiniMax 官方招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "experienced",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "智元机器人",
@@ -83,7 +93,9 @@
       "origin": "catalog",
       "sourceLabel": "智元官方招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "experienced",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "米羊科技",
@@ -97,7 +109,9 @@
       "origin": "catalog",
       "sourceLabel": "米羊科技官方招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "early-career",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "峰瞰智能",
@@ -111,7 +125,9 @@
       "origin": "catalog",
       "sourceLabel": "峰瞰智能官方招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "experienced",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     },
     {
       "company": "YouNavi",
@@ -125,7 +141,201 @@
       "origin": "catalog",
       "sourceLabel": "YouNavi 官方招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00"
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "early-career",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "沐瞳科技",
+      "title": "全栈开发工程师",
+      "major": "计算机与软件",
+      "location": "上海",
+      "description": "职责：开发 Web 页面和组件，逐步参与 Node.js 服务端联调与前端工具链建设。\n要求：掌握 HTML、CSS、JavaScript，熟悉 React 或 Vue 中至少一种框架；了解 Node.js，熟悉 TypeScript 与前端工程化。\n加分项：个人技术博客或 GitHub 项目经历。",
+      "companyOverview": "",
+      "sourceUrl": "https://moonton.jobs.feishu.cn/campus/m/position/7668257490513070378/detail",
+      "id": "moonton-7668257490513070378",
+      "origin": "catalog",
+      "sourceLabel": "沐瞳科技官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "拓竹科技",
+      "title": "软件测试 / 测开工程师",
+      "major": "计算机与软件",
+      "location": "深圳",
+      "description": "职责：参与 3D 打印设备软件功能测试，记录测试情况并协助推动问题解决。\n要求：具体学历、专业与岗位要求以招聘详情为准。",
+      "companyOverview": "",
+      "sourceUrl": "https://bambulab.jobs.feishu.cn/campus/m/position/7670451199490263315/detail",
+      "id": "bambu-7670451199490263315",
+      "origin": "catalog",
+      "sourceLabel": "拓竹科技官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "得物",
+      "title": "风控数据分析师",
+      "major": "数学、统计与数据分析",
+      "location": "上海",
+      "description": "职责：维护风控指标，分析异常数据，参与业务风险评估和统计建模。\n要求：2027届，本科及以上，数学、统计、经济或信息技术等方向。熟练使用 SQL，并会用 Python 或 R 进行分析。",
+      "companyOverview": "",
+      "sourceUrl": "https://poizon.jobs.feishu.cn/578078/position/7670550191112194330/detail",
+      "id": "poizon-7670550191112194330",
+      "origin": "catalog",
+      "sourceLabel": "得物官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "蔚来",
+      "title": "产品运营与数据分析实习生",
+      "major": "数学、统计与数据分析",
+      "location": "上海",
+      "description": "职责：梳理用户需求并支持车端研发工具的运营，通过用户反馈与运营数据提出改进方案。\n要求：本科及以上，专业不限。具备用户体验思维和逻辑分析能力。\n加分项：产品运营或数据分析相关经历，或汽车与新能源相关背景。",
+      "companyOverview": "",
+      "sourceUrl": "https://nio.jobs.feishu.cn/intern/m/position/7646260887582198057/detail",
+      "id": "nio-7646260887582198057",
+      "origin": "catalog",
+      "sourceLabel": "蔚来官方实习招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "internship",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "小鹏汽车",
+      "title": "试验开发培训生",
+      "major": "机械、电气与自动化",
+      "location": "广州",
+      "description": "职责：参与动力产品的性能与可靠性验证，编制试验方案和报告，跟踪试验问题及整改。\n要求：2027届，本科及以上，测控、仪表、自动化、电力电子或机械电子等方向。掌握测控原理与数据采集分析，熟悉电机、电控或电池相关原理。",
+      "companyOverview": "",
+      "sourceUrl": "https://xiaopeng.jobs.feishu.cn/campus/position/7658239587802237234/detail",
+      "id": "xpeng-7658239587802237234",
+      "origin": "catalog",
+      "sourceLabel": "小鹏汽车官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "拓竹科技",
+      "title": "供应商质量管理工程师（结构件）",
+      "major": "机械、电气与自动化",
+      "location": "深圳",
+      "description": "职责：参与来料质量分析、供应商现场整改及检验标准维护。\n要求：2027届，本科及以上，机械、模具、材料或工业工程等相关专业。愿意出差并在工厂现场解决问题。\n加分项：制造业实习、大型工程竞赛、结构件制造工艺或 8D 和 5Why 经验。",
+      "companyOverview": "",
+      "sourceUrl": "https://bambulab.jobs.feishu.cn/campus/m/position/7670445412607772991/detail",
+      "id": "bambu-7670445412607772991",
+      "origin": "catalog",
+      "sourceLabel": "拓竹科技官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "中际旭创",
+      "title": "芯片工程类（研发）",
+      "major": "材料、化工、能源与环境",
+      "location": "苏州",
+      "description": "职责：在导师指导下参与工艺实验、参数记录、设备点检和良率数据整理。\n要求：2027届，硕士及以上，微电子、集成电路、物理、材料或自动化等相关专业。了解半导体制造流程，会用 Excel 制作图表，英语 CET-4 及以上，能适应洁净室。\n加分项：校内实验或项目经历，会用 Python、Origin 或 JMP。",
+      "companyOverview": "",
+      "sourceUrl": "https://zj-innolight.jobs.feishu.cn/300308/position/7674809734692145462/detail",
+      "id": "innolight-7674809734692145462",
+      "origin": "catalog",
+      "sourceLabel": "中际旭创官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "普源精电",
+      "title": "财务会计",
+      "major": "经管、财会与金融",
+      "location": "苏州",
+      "description": "职责：参与日常核算、结账报表、税务申报与审计支持。\n要求：本科及以上，财务、会计、税务或审计等相关专业。熟悉会计准则，具备英文读写和财务分析能力，会用 Excel 与财务 ERP。\n加分项：相关会计证书或考试记录、流利英语口语、数据分析工具经验。",
+      "companyOverview": "",
+      "sourceUrl": "https://rigolportal.jobs.feishu.cn/campus/m/position/7647752781072435499/detail",
+      "id": "rigol-7647752781072435499",
+      "origin": "catalog",
+      "sourceLabel": "普源精电官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "辉羲智能",
+      "title": "应收应付会计",
+      "major": "经管、财会与金融",
+      "location": "北京",
+      "description": "职责：审核采购及费用发票，协助对账与账龄分析，支持结账和审计。\n要求：2027届，统招本科及以上，会计、财务管理、审计或税务等相关专业。熟悉基础会计准则，熟练使用 Excel。\n加分项：了解应收应付、费用核算或有金蝶操作经验。",
+      "companyOverview": "",
+      "sourceUrl": "https://r712him1th.jobs.feishu.cn/huixicampus/position/7630735620223584566/detail",
+      "id": "huixi-7630735620223584566",
+      "origin": "catalog",
+      "sourceLabel": "辉羲智能官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "得物",
+      "title": "供应链规划运营",
+      "major": "供应链、物流与工业工程",
+      "location": "上海",
+      "description": "职责：跟踪库容与产能，整理库存和订单数据，协同仓储、采购与财务推进事项。\n要求：2027届，本科及以上。熟练使用 Excel（数据透视表、查找函数和基础图表），至少了解 SQL、Python 或 R 中的一种。\n加分项：物流工程、工业工程或供应链管理等相关专业。",
+      "companyOverview": "",
+      "sourceUrl": "https://poizon.jobs.feishu.cn/578078/position/7670431050971711798/detail",
+      "id": "poizon-7670431050971711798",
+      "origin": "catalog",
+      "sourceLabel": "得物官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "得物",
+      "title": "履约策略和项目管理（得物国际）",
+      "major": "语言、翻译与国际业务",
+      "location": "上海",
+      "description": "职责：跟进跨境订单、国际运输与清关，协助测算时效和成本，跟踪供应商和流程问题。\n要求：2027届，本科及以上。英语可作为工作语言，能适应基层实操与合理调配，具备数据分析和跨团队沟通能力。\n加分项：国际贸易或供应链相关专业、日语或韩语交流能力、相关实习或海外交流经历。",
+      "companyOverview": "",
+      "sourceUrl": "https://poizon.jobs.feishu.cn/578078/position/7677512811878926611/detail",
+      "id": "poizon-7677512811878926611",
+      "origin": "catalog",
+      "sourceLabel": "得物官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "蔚来",
+      "title": "PT 运营实习生（石家庄）",
+      "major": "市场、新闻传播与产品运营",
+      "location": "石家庄",
+      "description": "职责：整理与复盘运营数据，协助周报、活动材料及自媒体内容维护。\n要求：在校大学生，专业不限。具备基础数据分析、文档整理与自媒体平台使用能力。每周可在岗至少 4 天。",
+      "companyOverview": "",
+      "sourceUrl": "https://nio.jobs.feishu.cn/intern/position/7686823373842172211/detail",
+      "id": "nio-7686823373842172211",
+      "origin": "catalog",
+      "sourceLabel": "蔚来官方实习招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "audience": "internship",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     }
   ],
   "materials": [
@@ -574,6 +784,149 @@
       "description": "官方实习项目说明页，提供申请条件、语言、费用安排和人才库流程。专业分类是相关领域的检索提示；人才库申请不等于具体实习录用，资格与具体任务须由本人核对官方要求。",
       "sourceUrl": "https://careers.unesco.org/content/Internship-Programme/",
       "checkedAt": "2026-10-27T14:29:19+08:00"
+    },
+    {
+      "id": "portal-ncss",
+      "organization": "国家大学生就业服务平台",
+      "majors": [
+        "计算机与软件",
+        "数学、统计与数据分析",
+        "机械、电气与自动化",
+        "土木、建筑与城市规划",
+        "材料、化工、能源与环境",
+        "经管、财会与金融",
+        "市场、新闻传播与产品运营",
+        "法学、公共管理与政策",
+        "语言、翻译与国际业务",
+        "教育、师范与教学",
+        "生命科学与科研",
+        "护理、公共卫生与健康",
+        "心理学、社会学与社会工作",
+        "设计、艺术与创意",
+        "农学、食品与自然资源",
+        "供应链、物流与工业工程"
+      ],
+      "audience": "高校毕业生",
+      "description": "教育部平台，可按地区、行业和单位类型查职位及专场。进入具体职位后核对招聘方、毕业届别、申请时间和投递渠道。",
+      "sourceUrl": "https://www.ncss.cn/",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-public-institutions",
+      "organization": "人社部事业单位公开招聘服务平台",
+      "majors": [
+        "土木、建筑与城市规划",
+        "法学、公共管理与政策",
+        "生命科学与科研",
+        "心理学、社会学与社会工作"
+      ],
+      "audience": "公开招聘，各公告单独核对",
+      "description": "查中央和国家机关所属事业单位招聘公告，并可从平台查地方事业单位渠道。公告和拟聘公示分别阅读，报名期与岗位条件以原公告为准。",
+      "sourceUrl": "https://www.mohrss.gov.cn/SYrlzyhshbzb/fwyd/SYkaoshizhaopin/zyhgjjgsydwgkzp/",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-shenzhen-education",
+      "organization": "深圳市教育局公办学校招聘",
+      "majors": [
+        "教育、师范与教学"
+      ],
+      "audience": "公办学校教师等岗位，按公告核对",
+      "description": "查看深圳公办学校招聘公告及进度公示。先核对报考批次、学段学科、教师资格、毕业时间与报名窗口。",
+      "sourceUrl": "https://szeb.sz.gov.cn/home/xxgk/zthd/jszp/gbxx/index.html",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-shenzhen-health",
+      "organization": "深圳市卫生健康委员会人事信息",
+      "majors": [
+        "护理、公共卫生与健康",
+        "生命科学与科研"
+      ],
+      "audience": "卫生健康系统招聘，按公告核对",
+      "description": "查看医疗卫生机构招聘公告及岗位表。学历、专业代码、执业资格和报名窗口需按具体岗位确认。",
+      "sourceUrl": "https://wjw.sz.gov.cn/xxgk/rsrm/",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-cmb-campus",
+      "organization": "招商银行招聘",
+      "majors": [
+        "经管、财会与金融",
+        "计算机与软件",
+        "数学、统计与数据分析"
+      ],
+      "audience": "校园与社会招聘",
+      "description": "从官方招聘站进入校园招聘，按机构查看批次、岗位和资格。银行总行、分行和信用卡中心的要求及排期分别核对。",
+      "sourceUrl": "https://career.cmbchina.com/",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-sf-campus",
+      "organization": "顺丰校园招聘",
+      "majors": [
+        "供应链、物流与工业工程",
+        "计算机与软件",
+        "数学、统计与数据分析"
+      ],
+      "audience": "校园招聘与实习",
+      "description": "官方渠道可查看物流供应链与科技方向的校园招聘、实习及宣讲信息。按项目核对招聘城市和毕业时间。",
+      "sourceUrl": "https://campus.sf-express.com/cr/",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-byd-campus",
+      "organization": "比亚迪校园招聘",
+      "majors": [
+        "机械、电气与自动化",
+        "材料、化工、能源与环境",
+        "计算机与软件",
+        "供应链、物流与工业工程"
+      ],
+      "audience": "应届生校招与学生招聘项目",
+      "description": "查看汽车、电子、新能源等方向的校园招聘说明和申请渠道。官方页面各项目单列毕业时间、地点和专业要求。",
+      "sourceUrl": "https://job.byd.com/portal/mobile/school-home",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-huawei-campus",
+      "organization": "华为校园招聘",
+      "majors": [
+        "计算机与软件",
+        "机械、电气与自动化",
+        "数学、统计与数据分析"
+      ],
+      "audience": "应届生与实习生",
+      "description": "官方校园招聘页分列应届生、实习生等入口。按实际毕业时间、职位地点及部门要求查询。",
+      "sourceUrl": "https://career.huawei.com/cn/campus-recruitment",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-xiaomi-campus",
+      "organization": "小米校园招聘",
+      "majors": [
+        "计算机与软件",
+        "机械、电气与自动化",
+        "市场、新闻传播与产品运营",
+        "供应链、物流与工业工程"
+      ],
+      "audience": "校招、实习与专项计划",
+      "description": "查全球校招、新零售及实习项目的官方入口。不同项目有不同申请条件和时间窗口。",
+      "sourceUrl": "https://hr.xiaomi.com/website/campus.html",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "id": "portal-baidu-campus",
+      "organization": "百度校园招聘",
+      "majors": [
+        "计算机与软件",
+        "数学、统计与数据分析",
+        "市场、新闻传播与产品运营"
+      ],
+      "audience": "校招及学生实习",
+      "description": "官方页面区分应届生、日常实习和专项招聘。请进入实际职位核对城市、工作内容和批次状态。",
+      "sourceUrl": "https://talent.baidu.com/jobs/",
+      "checkedAt": "2026-11-13T00:00:00+08:00"
     }
   ]
 }

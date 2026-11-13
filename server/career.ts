@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerWorkspace, Resume } from '../shared/types.js';
+import { careerJobIsStale } from '../shared/career.js';
 import { hasUnresolvedPlaceholders } from './analysis.js';
 import { careerCatalogLocation, loadCareerCatalog, publishedCareerCatalog, type CareerCatalog } from './career-catalog.js';
 import { careerMedia } from './career-content-storage.js';
@@ -39,6 +40,7 @@ export class CareerService {
     const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
     if (job.availability !== 'open' || (job.deadline && job.deadline < today)) throw new HttpError(409, 'JOB_UNAVAILABLE', '该岗位已关闭或超过截止日期，不能继续建立或确认投递。');
   }
+  async catalogJobs() { return (await this.catalog()).jobs; }
   private async publishedCatalog() {
     const [database, base] = await Promise.all([this.store.read(), this.catalog()]);
     return { database, catalog: publishedCareerCatalog(base, database.careerContent, careerMedia(database)) };
@@ -109,14 +111,17 @@ export class CareerService {
         return publicApplication(database.careerApplications.find(item => item.id === key.applicationId && item.userId === this.userId) ?? notFound('投递记录'));
       }
       const job = this.findJob(database, catalog, input.jobId); this.ensureOpen(job);
+      if (careerJobIsStale(job)) throw new HttpError(409, 'JOB_RECHECK_REQUIRED', '岗位来源超过 30 天未复核。请查看官网，确认后可添加为个人目标岗位并建立计划。');
       const resume = this.findResume(database, input.resumeId, input.resumeRevision);
       if (database.careerApplications.some(item => item.userId === this.userId && item.jobId === input.jobId
         && item.resumeSnapshot.id === resume.id && item.resumeSnapshot.revision === resume.revision && !['withdrawn', 'rejected'].includes(item.status))) {
         throw new HttpError(409, 'APPLICATION_EXISTS', '该岗位和简历版本已有投递计划，请查看现有记录。');
       }
       const now = new Date().toISOString();
+      // Keep the persisted snapshot readable by older releases during rollback.
+      const { audience: _audience, checkedAt: _checkedAt, ...jobSnapshot } = job;
       const application: StoredCareerApplication = {
-        id: randomUUID(), userId: this.userId, jobId: job.id, jobSnapshot: structuredClone(job), resumeSnapshot: resume,
+        id: randomUUID(), userId: this.userId, jobId: job.id, jobSnapshot, resumeSnapshot: resume,
         resumeHash: hash(resume), status: 'planned', note: '', revision: 1, createdAt: now, updatedAt: now,
         history: [{ status: 'planned', at: now, source: 'user' }], submissionMode: 'manual',
       };

@@ -16,6 +16,7 @@ export interface CareerAssistantResult {
   companies: CompanySearchHit[];
   companyTotal: number;
   personalJobs: CareerJob[];
+  officialJobs?: CareerJob[];
   evidence: Array<{ term: string; excerpt: string }>;
   catalogState: 'empty' | 'ready' | 'unavailable';
   action?: { type: 'analyze-resume'; resumeId: string; revision: number; targetRole: string };

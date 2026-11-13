@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { AnalysisInput, AnalysisJob } from '../shared/types.js';
-import type { AnalysisContext } from './analysis.js';
+import { analysisWorkflowVersion, type AnalysisContext } from './analysis.js';
+import { retrieveRoleGuide } from './role-guides.js';
 import type { TokenUsage } from './quota-storage.js';
 import { HttpError, notFound } from './errors.js';
 import type { ResumeService } from './service.js';
@@ -66,15 +67,20 @@ export class AnalysisJobs {
       throw new HttpError(400, 'ANALYSIS_REQUEST_GUARD_REQUIRED', '请更新客户端后携带简历修订号和诊断请求标识。');
     }
     if (database.analysisTasks.some(task => ['queued', 'running'].includes(task.job.status))) throw new HttpError(429, 'MODEL_BUSY', '已有诊断进行中，请完成或取消后再试。');
-    const context: AnalysisContext = { resume: snapshot, targetRole: input.targetRole ?? snapshot.targetRole, jobDescription: input.jobDescription };
+    const targetRole = input.targetRole ?? snapshot.targetRole;
+    const roleGuide = retrieveRoleGuide(targetRole, input.jobDescription);
+    const context: AnalysisContext = { resume: snapshot, targetRole, jobDescription: input.jobDescription, roleGuide };
+    const modelSettings = service.provider.modelSettings;
     const reserveTokens = realModel ? (service.provider.estimateReservation?.(context) ?? 80_000) : 0;
     if (!Number.isSafeInteger(reserveTokens) || reserveTokens < 0) throw new HttpError(500, 'INVALID_RESERVATION', '模型用量预占配置不可用。');
     const now = new Date().toISOString();
     const job: AnalysisJob = { id: randomUUID(), resumeId: snapshot.id, status: 'queued', createdAt: now, updatedAt: now };
     const task: StoredAnalysisTask = {
       userId: service.userId, job, input, requestHash: fingerprint, snapshot,
-      inputHash: hash({ snapshot, targetRole: context.targetRole, jobDescription: context.jobDescription ?? '', engine: service.provider.name, model: service.provider.model ?? null, workflowVersion: 'rules-and-model-v1' }),
-      engine: realModel ? 'bailian' : 'rules', ...(service.provider.model ? { model: service.provider.model } : {}), workflowVersion: 'rules-and-model-v1',
+      inputHash: hash({ snapshot, targetRole, jobDescription: input.jobDescription ?? '', engine: service.provider.name, model: service.provider.model ?? null,
+        modelSettings, workflowVersion: analysisWorkflowVersion, roleGuide }),
+      engine: realModel ? 'bailian' : 'rules', ...(service.provider.model ? { model: service.provider.model } : {}),
+      ...(modelSettings ? { modelSettings } : {}), workflowVersion: 'rules-and-model-v1', analysisVersion: analysisWorkflowVersion, roleGuide,
     };
     await service.store.mutate(data => { data.analysisTasks.push(task); });
     try {
@@ -124,7 +130,7 @@ export class AnalysisJobs {
           observedUsage = usage;
           await this.quota.settle(service.userId, task.job.id, usage);
         },
-      } : undefined, task.job.id);
+      } : undefined, task.job.id, task.roleGuide);
     } catch (error) {
       await this.failed(task, error, controller.signal.aborted, service);
     } finally {

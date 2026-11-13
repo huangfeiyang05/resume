@@ -198,7 +198,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 ## 百炼诊断
 
-`engine: bailian` 表示真实模型建议通过结构及来源校验；`modelRun` 固定模型名、提示词版本、工作流版本、温度、输出上限、脱敏输入 hash、告知版本与确认记录，`knowledgeScope: none` 明确尚未检索知识库。参考分、维度和关键词仍来自规则基线，前端分别标注，不将文本覆盖包装为实际能力。
+`engine: bailian` 表示真实模型建议通过结构及来源校验；`modelRun` 固定模型名、提示词版本、工作流版本、温度、输出上限、脱敏输入 hash、告知版本与确认记录，`knowledgeScope: public-role-guides` 与 `knowledgeReferences` 记录实际发送的原创岗位卡版本，未检索到卡片时为 `none`。新报告可附 `roleGuide`、`workflowVersion` 和 `jobReview`。后者按规则展示最多 10 条 JD 原文、条件类别与对应词语的简历片段，其他条数由 `omitted` 表示。报告中的 `guideReference` 仅能引用本次发送的卡片。参考分、维度和关键词仍来自规则基线，前端分别标注，不将文本覆盖包装为实际能力。
 
 任务受限为单进程全局单并发，任务 ID、输入快照、修订号、输入/请求 hash、模型与工作流配置和幂等键持久化到 `analysisTasks`；不是多实例生产任务队列。同一用户、同一幂等键和相同输入返回原任务，不再次调用模型；同键不同输入返回 `IDEMPOTENCY_CONFLICT`。进程启动将旧 `queued / running` 任务标为 `failed`、错误码 `JOB_INTERRUPTED`，保留 ID，不自动重放。尚未发送的额度预占释放；已发送但没有实际用量的记录转为 `pending`。
 
@@ -211,6 +211,8 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 常见模型错误：400 `AI_CONSENT_REQUIRED / MODEL_INPUT_TOO_LONG / USE_ANALYSIS_JOB`，429 `MODEL_BUSY / MODEL_RATE_LIMITED`，502 `MODEL_INVALID_OUTPUT / MODEL_AUTH_FAILED / MODEL_UNAVAILABLE / MODEL_NETWORK_ERROR`，504 `MODEL_TIMEOUT`；取消为 `ANALYSIS_CANCELLED`。无自动降级冒充成功。
 
 ## 求职工作台
+
+`CareerJob` 的共享岗位可附招聘类型 `audience`（`campus / internship / experienced / early-career`）与来源核对时间 `checkedAt`。带核对时间且达到 30 天的共享岗位拒绝新建计划，返回 `JOB_RECHECK_REQUIRED`。旧目录及个人岗位可省略这些字段。助手可在 `officialJobs` 返回最多五条近期复核且符合已识别条件的公开岗位摘要，企业历史结果和个人岗位继续使用原字段。
 
 所有 `/career` 接口要求有效会话，个人数据从会话确定归属。2026-11-07 起按上述工作台会员规则校验：高级可读取完整工作台，免费和初级的 `GET /career` 保留 `mode: preview` 与 `externalDeliveryAvailable: false`，但 `catalogState: empty`，`jobs`、`materials`、`portals`、`favoriteJobIds`、`applications` 均为空；`catalogMessage` 提示升级高级。这里的空数组表示当前权限不下发数据，不证明服务器目录为空，也不删除账号已有资料。权限校验后才提供资料正文、企业详情、筛选计数和招聘链接，不能仅靠前端样式隐藏。
 

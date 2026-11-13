@@ -4,6 +4,7 @@ import type { CareerAssistantResult, CareerJob, CompanyRecord, Resume } from '..
 import { useCareerAssistant } from '../services/careerAssistant';
 import { createCareerHistory, MAX_CAREER_HISTORY_CONVERSATIONS, type CareerConversationSummary } from '../services/careerAssistantHistory';
 import AppIcon from './AppIcon.vue';
+import { careerJobAudienceLabels } from '../../shared/career';
 
 const props = defineProps<{ resumes: Resume[]; owner: string }>();
 const emit = defineEmits<{
@@ -222,6 +223,16 @@ function tailor(job: CareerJob) {
               <view v-if="item.result.criteria.query || Object.values(item.result.criteria.filters).some(values => values.length)" class="assistant-criteria"><text class="assistant-small-title">本次检索条件</text><text selectable>{{ [item.result.criteria.query, ...Object.values(item.result.criteria.filters).flat()].filter(Boolean).join(' · ') }}</text></view>
               <view v-if="item.result.evidence.length" class="assistant-evidence"><text class="assistant-small-title">简历依据 · 仅表示文本覆盖</text><view v-for="(evidence, index) in item.result.evidence" :key="`${evidence.term}-${index}`"><text>{{ evidence.term }}</text><text selectable>{{ evidence.excerpt }}</text></view></view>
               <view v-if="item.result.criteria.unverifiedRequirements.length" class="assistant-unverified"><text class="assistant-small-title">还需要核对</text><text v-for="(requirement, index) in item.result.criteria.unverifiedRequirements" :key="index" selectable>· {{ requirement }}</text></view>
+              <view v-if="item.result.officialJobs?.length" class="assistant-result-list">
+                <text class="assistant-small-title">近期核对来源的岗位</text>
+                <view v-for="job in item.result.officialJobs" :key="job.id" class="assistant-company">
+                  <text class="assistant-card-title" selectable>{{ job.company }} · {{ job.title }}</text>
+                  <text class="assistant-caption">{{ job.location }} · {{ job.audience ? careerJobAudienceLabels[job.audience] : job.major }} · 核对 {{ job.checkedAt?.slice(0, 10) }}</text>
+                  <text class="assistant-caption assistant-company-summary" selectable>{{ job.description }}</text>
+                  <view v-if="job.sourceUrl" class="assistant-link"><text selectable>{{ job.sourceUrl }}</text><button class="text-button" @click="copy(job.sourceUrl)" role="button" tabindex="0">复制官方链接<AppIcon name="copy" :size="13" /></button></view>
+                  <button class="text-button assistant-card-action" :disabled="loading || !!updatedResume" @click="tailor(job)" role="button" tabindex="0">对照此岗位检查简历<AppIcon name="arrow" :size="13" /></button>
+                </view>
+              </view>
               <view v-if="item.result.companies.length" class="assistant-result-list">
                 <text class="assistant-small-title">企业资料 · {{ item.result.companyTotal }} 条结果</text>
                 <view v-for="company in item.result.companies" :key="company.id" class="assistant-company">

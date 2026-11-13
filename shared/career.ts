@@ -2,6 +2,14 @@ import type { Resume } from './types.js';
 import type { CareerAttachment } from './career-attachment.js';
 
 export type ApplicationStatus = 'planned' | 'applied' | 'interview' | 'offer' | 'rejected' | 'withdrawn';
+export type CareerJobAudience = 'campus' | 'internship' | 'experienced' | 'early-career';
+export const careerJobAudienceLabels: Record<CareerJobAudience, string> = {
+  campus: '校招', internship: '实习', experienced: '社招', 'early-career': '应届或实习可关注',
+};
+
+export function careerJobIsStale(job: CareerJob, now = Date.now()) {
+  return job.origin === 'catalog' && !!job.checkedAt && now >= Date.parse(job.checkedAt) + 30 * 86_400_000;
+}
 
 export interface CareerJob {
   id: string;
@@ -17,6 +25,9 @@ export interface CareerJob {
   deadline?: string;
   availability: 'open' | 'closed';
   updatedAt: string;
+  /** Reviewed source metadata for shared postings. Older and personal entries may omit it. */
+  audience?: CareerJobAudience;
+  checkedAt?: string;
 }
 
 export interface CareerMaterial {

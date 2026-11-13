@@ -84,10 +84,13 @@ export function validateApplicationUpdate(body: unknown): ApplicationUpdateInput
 }
 
 export function validateCatalogJob(value: unknown, expectedOrigin: 'catalog' | 'personal' = 'catalog'): CareerJob {
-  const job = careerObject(value, ['id', 'origin', 'company', 'title', 'major', 'location', 'description', 'companyOverview', 'sourceLabel', 'sourceUrl', 'deadline', 'availability', 'updatedAt']);
+  const job = careerObject(value, ['id', 'origin', 'company', 'title', 'major', 'location', 'description', 'companyOverview', 'sourceLabel', 'sourceUrl', 'deadline', 'availability', 'updatedAt', 'audience', 'checkedAt']);
   if (!['catalog', 'personal'].includes(job.origin as string) || job.origin !== expectedOrigin || !['open', 'closed'].includes(job.availability as string)) invalid('岗位类型或开放状态无效。');
+  if (job.audience !== undefined && !['campus', 'internship', 'experienced', 'early-career'].includes(job.audience as string)) invalid('岗位招聘类型无效。');
   const input = validateCareerJobInput(Object.fromEntries(['company', 'title', 'major', 'location', 'description', 'companyOverview', 'sourceUrl', 'deadline'].filter(key => Object.hasOwn(job, key)).map(key => [key, job[key]])));
-  return { ...input, companyOverview: input.companyOverview ?? '', id: careerId(job.id), origin: expectedOrigin, sourceLabel: careerText(job.sourceLabel, '资料来源', 200), availability: job.availability as 'open' | 'closed', updatedAt: timestamp(job.updatedAt) };
+  return { ...input, companyOverview: input.companyOverview ?? '', id: careerId(job.id), origin: expectedOrigin, sourceLabel: careerText(job.sourceLabel, '资料来源', 200), availability: job.availability as 'open' | 'closed', updatedAt: timestamp(job.updatedAt),
+    ...(job.audience === undefined ? {} : { audience: job.audience as CareerJob['audience'] }),
+    ...(job.checkedAt === undefined ? {} : { checkedAt: timestamp(job.checkedAt) }) };
 }
 export function validateCatalogMaterial(value: unknown): CareerMaterial {
   const item = careerObject(value, ['id', 'title', 'major', 'role', 'summary', 'content', 'sourceLabel', 'sourceUrl', 'updatedAt']);

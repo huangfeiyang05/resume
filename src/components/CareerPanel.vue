@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue';
-import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobInput, CareerRecruitmentPortal, CompanyRecord, Resume, WorkbenchFeature } from '../../shared/types';
+import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobAudience, CareerJobInput, CareerRecruitmentPortal, CompanyRecord, Resume, WorkbenchFeature } from '../../shared/types';
+import { careerJobAudienceLabels, careerJobIsStale } from '../../shared/career';
 import { inputLimits } from '../../shared/limits';
 import { careerFileFallbackText } from '../../shared/career-attachment';
 import { workbenchFeatureNames, workbenchRequiredPlan } from '../../shared/workbench';
@@ -45,6 +46,8 @@ const openingMaterialFile = ref(false), materialFileNotice = ref('');
 const videoSource = shallowRef<CareerVideoSource>(), videoProgress = ref<number | null>(null), videoLoading = ref(false);
 let pendingVideo: ReturnType<typeof startCareerVideo> | undefined;
 const jobQuery = ref(''), materialQuery = ref(''), major = ref(''), materialMajor = ref('');
+const audience = ref<CareerJobAudience | ''>(''), audiences = Object.keys(careerJobAudienceLabels) as CareerJobAudience[];
+const audienceOptions = ['全部招聘类型', ...audiences.map(value => careerJobAudienceLabels[value])];
 const favoritesOnly = ref(false), applicationFilter = ref<ApplicationStatus | '' | 'active'>('');
 const localError = ref('');
 const visibleError = computed(() => localError.value || error.value);
@@ -54,6 +57,7 @@ const favoriteSet = computed(() => new Set(favoriteJobIds.value));
 const filteredJobs = computed(() => {
   const query = jobQuery.value.trim().toLowerCase();
   return jobs.value.filter(item => (!major.value || item.major === major.value)
+    && (!audience.value || item.audience === audience.value)
     && (!favoritesOnly.value || favoriteSet.value.has(item.id))
     && (!query || `${item.title} ${item.company} ${item.major} ${item.location} ${item.description}`.toLowerCase().includes(query)));
 });
@@ -220,9 +224,10 @@ function addPortalJob(portal: CareerRecruitmentPortal) {
   section.value = 'jobs'; showJobForm();
   notice.value = '请从官方入口核对后填写具体岗位、地点和要求，来源链接填写该岗位的公告地址。';
 }
-function clearJobFilters() { jobQuery.value = ''; major.value = ''; favoritesOnly.value = false; }
+function clearJobFilters() { jobQuery.value = ''; major.value = ''; audience.value = ''; favoritesOnly.value = false; }
 function clearMaterialFilters() { materialQuery.value = ''; materialMajor.value = ''; }
 function pickMajor(event: { detail: { value: string | number } }) { major.value = jobMajors.value[Number(event.detail.value)] || ''; }
+function pickAudience(event: { detail: { value: string | number } }) { audience.value = audiences[Number(event.detail.value) - 1] || ''; }
 function pickMaterialMajor(event: { detail: { value: string | number } }) { materialMajor.value = materialMajors.value[Number(event.detail.value)] || ''; }
 function pickResume(event: { detail: { value: string | number } }) { selectedResumeId.value = savedResumes.value[Number(event.detail.value)]?.id || ''; }
 async function refreshResumes() {
@@ -251,6 +256,11 @@ async function saveJob() {
   if (!result || disposed) return;
   Object.keys(jobForm).forEach(key => { jobForm[key as keyof typeof jobForm] = ''; });
   section.value = 'jobs'; showJob(result);
+}
+function copyToPersonalJob(item: CareerJob) {
+  Object.assign(jobForm, { company: item.company, title: item.title, major: item.major, location: item.location,
+    description: item.description, sourceUrl: item.sourceUrl ?? '', companyOverview: item.companyOverview, deadline: '' });
+  showJobForm();
 }
 function tailorJob(item: CareerJob) { if (!requestFeature('resumeOptimization')) return; closeModal(); emit('tailor', item); }
 function createResume() { closeModal(); emit('createResume'); }
@@ -382,9 +392,9 @@ function copySource(value?: string) {
         <CompanyLibrary v-if="companyView === 'companies'" ref="companyLibrary" @add-job="addCompanyJob" />
         <template v-else>
         <view class="career-section-heading"><view><text class="career-section-title">公司岗位</text></view><button class="button primary" :disabled="busy" @click="showJobForm" role="button" tabindex="0"><AppIcon name="plus" :size="16" />添加目标岗位</button></view>
-        <view class="glass-panel career-filters"><view class="career-search"><AppIcon name="search" :size="17" /><input v-model="jobQuery" placeholder="搜索公司、岗位或地点" :maxlength="100" aria-label="搜索岗位" /></view><picker :range="jobMajors.map(value => value || '全部专业')" :value="Math.max(0, jobMajors.indexOf(major))" @change="pickMajor"><view class="career-picker">{{ major || '全部专业' }}<AppIcon name="chevron" :size="13" /></view></picker><button class="career-filter-toggle" :class="{ active: favoritesOnly }" :aria-pressed="favoritesOnly" @click="favoritesOnly = !favoritesOnly" role="button" tabindex="0">只看收藏</button></view>
+        <view class="glass-panel career-filters"><view class="career-search"><AppIcon name="search" :size="17" /><input v-model="jobQuery" placeholder="搜索公司、岗位或地点" :maxlength="100" aria-label="搜索岗位" /></view><picker :range="jobMajors.map(value => value || '全部专业')" :value="Math.max(0, jobMajors.indexOf(major))" @change="pickMajor"><view class="career-picker">{{ major || '全部专业' }}<AppIcon name="chevron" :size="13" /></view></picker><picker :range="audienceOptions" :value="audiences.findIndex(value => value === audience) + 1" @change="pickAudience"><view class="career-picker">{{ audience ? careerJobAudienceLabels[audience] : '全部招聘类型' }}<AppIcon name="chevron" :size="13" /></view></picker><button class="career-filter-toggle" :class="{ active: favoritesOnly }" :aria-pressed="favoritesOnly" @click="favoritesOnly = !favoritesOnly" role="button" tabindex="0">只看收藏</button></view>
         <view v-if="!filteredJobs.length" class="glass-panel career-empty"><AppIcon name="briefcase" :size="30" /><text>{{ jobs.length ? '没有符合筛选条件的岗位' : '还没有目标岗位' }}</text><text class="career-caption">{{ jobs.length ? '试试其他关键词，或清除当前筛选。' : '添加你已找到的岗位。' }}</text><button class="button secondary" @click="jobs.length ? clearJobFilters() : showJobForm()" role="button" tabindex="0">{{ jobs.length ? '清除筛选' : '添加目标岗位' }}</button></view>
-        <view v-else class="career-job-grid"><view v-for="item in filteredJobs" :key="item.id" class="glass-panel career-job-card"><button class="career-job-content" @click="showJob(item)" role="button" tabindex="0"><view class="career-row"><text class="career-job-company">{{ item.company }}</text><text class="career-tag" :class="{ closed: !jobAcceptingPlans(item) }">{{ jobAcceptingPlans(item) ? '可准备' : '已截止 / 关闭' }}</text></view><text class="career-job-title">{{ item.title }}</text><view class="career-tags"><text>{{ item.major }}</text><text>{{ item.location }}</text><text>{{ item.origin === 'personal' ? '个人添加' : '资料库' }}</text></view><text class="career-excerpt">{{ item.description.slice(0, 130) }}</text></button><view class="career-card-footer"><text>{{ item.deadline ? `截止 ${item.deadline}` : `更新 ${date(item.updatedAt)}` }}</text><button class="text-button" :disabled="busy" :aria-pressed="favoriteSet.has(item.id)" @click="favoriteJob(item.id, !favoriteSet.has(item.id))" role="button" tabindex="0">{{ favoriteSet.has(item.id) ? '取消收藏' : '收藏岗位' }}<AppIcon :name="favoriteSet.has(item.id) ? 'check' : 'plus'" :size="14" /></button></view></view></view>
+        <view v-else class="career-job-grid"><view v-for="item in filteredJobs" :key="item.id" class="glass-panel career-job-card"><button class="career-job-content" @click="showJob(item)" role="button" tabindex="0"><view class="career-row"><text class="career-job-company">{{ item.company }}</text><text class="career-tag" :class="{ closed: !jobAcceptingPlans(item) }">{{ careerJobIsStale(item) && item.availability === 'open' ? '来源待复核' : jobAcceptingPlans(item) ? (item.origin === 'catalog' ? '以官网为准' : '可准备') : '已截止 / 关闭' }}</text></view><text class="career-job-title">{{ item.title }}</text><view class="career-tags"><text>{{ item.major }}</text><text>{{ item.location }}</text><text>{{ item.audience ? careerJobAudienceLabels[item.audience] : item.origin === 'personal' ? '个人添加' : '资料库' }}</text></view><text class="career-excerpt">{{ item.description.slice(0, 130) }}</text></button><view class="career-card-footer"><text>{{ item.deadline ? `截止 ${item.deadline}` : `${item.checkedAt ? '核对' : '更新'} ${date(item.checkedAt || item.updatedAt)}` }}</text><button class="text-button" :disabled="busy" :aria-pressed="favoriteSet.has(item.id)" @click="favoriteJob(item.id, !favoriteSet.has(item.id))" role="button" tabindex="0">{{ favoriteSet.has(item.id) ? '取消收藏' : '收藏岗位' }}<AppIcon :name="favoriteSet.has(item.id) ? 'check' : 'plus'" :size="14" /></button></view></view></view>
         </template>
       </template>
 
@@ -429,10 +439,10 @@ function copySource(value?: string) {
       <view class="career-detail-meta"><text class="career-tag">{{ activeJob.origin === 'personal' ? '个人添加的目标岗位' : '公司岗位资料库' }}</text><text class="career-caption">{{ activeJob.deadline ? `截止日期 ${activeJob.deadline}（北京时间）` : '未填写截止日期' }}</text></view>
       <view v-if="activeJob.companyOverview" class="career-detail-section"><text class="career-section-title">公司信息</text><text class="career-prose">{{ activeJob.companyOverview }}</text></view>
       <view class="career-detail-section"><text class="career-section-title">岗位描述</text><text class="career-prose">{{ activeJob.description }}</text></view>
-      <view class="career-source-box"><text>来源：{{ activeJob.sourceLabel }} · 更新 {{ date(activeJob.updatedAt) }}</text><button v-if="activeJob.sourceUrl" class="text-button" @click="copySource(activeJob.sourceUrl)" role="button" tabindex="0">复制来源链接<AppIcon name="copy" :size="14" /></button></view>
+      <view class="career-source-box"><text>来源：{{ activeJob.sourceLabel }} · {{ activeJob.checkedAt ? '核对' : '更新' }} {{ date(activeJob.checkedAt || activeJob.updatedAt) }}</text><button v-if="activeJob.sourceUrl" class="text-button" @click="copySource(activeJob.sourceUrl)" role="button" tabindex="0">复制来源链接<AppIcon name="copy" :size="14" /></button></view>
       <view v-if="visibleError" class="career-alert" role="alert">{{ visibleError }}</view>
-      <view v-if="!jobAcceptingPlans(activeJob)" class="career-preview"><AppIcon name="info" :size="16" /><text>该岗位已关闭或超过截止日期，不能新建投递计划。</text></view>
-      <view class="career-detail-actions"><button class="button secondary" :disabled="busy" @click="favoriteJob(activeJob.id, !favoriteSet.has(activeJob.id))" role="button" tabindex="0">{{ favoriteSet.has(activeJob.id) ? '取消收藏' : '收藏岗位' }}</button><button class="button secondary" :disabled="busy" @click="tailorJob(activeJob)" role="button" tabindex="0">对照岗位优化</button><button class="button primary" :disabled="busy || !jobAcceptingPlans(activeJob)" @click="beginPlan" role="button" tabindex="0">建立投递计划<AppIcon name="arrow" :size="16" /></button></view>
+      <view v-if="!jobAcceptingPlans(activeJob)" class="career-preview"><AppIcon name="info" :size="16" /><text>{{ careerJobIsStale(activeJob) ? '来源超过 30 天未复核。请先查官网，确认后可添加为个人目标岗位。' : '该岗位已关闭或超过截止日期，不能新建投递计划。' }}</text></view>
+      <view class="career-detail-actions"><button class="button secondary" :disabled="busy" @click="favoriteJob(activeJob.id, !favoriteSet.has(activeJob.id))" role="button" tabindex="0">{{ favoriteSet.has(activeJob.id) ? '取消收藏' : '收藏岗位' }}</button><button class="button secondary" :disabled="busy" @click="tailorJob(activeJob)" role="button" tabindex="0">对照岗位优化</button><button class="button primary" :disabled="busy || !jobAcceptingPlans(activeJob)" @click="beginPlan" role="button" tabindex="0">建立投递计划<AppIcon name="arrow" :size="16" /></button><button v-if="careerJobIsStale(activeJob)" class="button secondary" :disabled="busy" @click="copyToPersonalJob(activeJob)" role="button" tabindex="0">录入已核对的岗位</button></view>
       <view v-if="activeJob.origin === 'personal'" class="career-delete-line"><text>删除岗位前，请先删除关联投递记录。</text><button class="text-button career-danger" :disabled="busy" @click="askDeleteJob" role="button" tabindex="0">删除个人岗位</button></view>
     </AppModal>
 

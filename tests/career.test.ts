@@ -347,3 +347,26 @@ test('application deletion checks revisions, keeps idempotency tombstones and re
   assert.deepEqual((await request('/career')).body.data.applications, []);
   assert.equal((await request(`/career/applications/${next.id}`, 'PATCH', { revision: next.revision, note: '已删除简历的旧应用' })).status, 404);
 });
+
+test('assistant surfaces recent official jobs and stale posts remain usable as reference only', async t => {
+  const f = await fixture(t);
+  const request = await f.register('official-jobs');
+  const basic = await f.register('official-jobs-basic', 'basic');
+  const job = catalogJob({ id: 'fresh-campus', title: '供应链规划运营', location: '上海', description: '2027届，本科及以上，熟练使用 Excel。',
+    sourceUrl: 'https://example.test/jobs/official', checkedAt: new Date().toISOString(), audience: 'campus' });
+  const stale = { ...job, id: 'stale-campus', checkedAt: '2000-01-01T00:00:00+08:00' };
+  await f.catalog([stale, job]);
+  const query = { message: '找上海2027届校招供应链岗位', requirements: '' };
+  assert.equal((await basic('/career/assistant', 'POST', query)).status, 403);
+  const assistant = await request('/career/assistant', 'POST', query);
+  assert.equal(assistant.status, 200);
+  assert.deepEqual(assistant.body.data.officialJobs.map((item: CareerJob) => item.id), [job.id]);
+  assert.equal(assistant.body.data.companyTotal, 0);
+  const resume = (await request('/resumes', 'POST', { title: '合成简历', text: resumeText })).body.data as Resume;
+  const plan = { resumeId: resume.id, resumeRevision: 1, idempotencyKey: 'plan-review-stale', jobId: stale.id };
+  const stalePlan = await request('/career/applications', 'POST', plan);
+  assert.equal(stalePlan.status, 409);
+  assert.equal(stalePlan.body.error.code, 'JOB_RECHECK_REQUIRED');
+  assert.equal((await request('/career/applications', 'POST', { ...plan, idempotencyKey: 'plan-review-fresh', jobId: job.id })).status, 201);
+  assert.equal((await request('/career')).body.data.applications.length, 1);
+});

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateCareerCatalog } from '../server/career-catalog.js';
+import { careerJobAudienceLabels } from '../shared/career.js';
 import type { CareerMaterial } from '../shared/types.js';
 
 // Offline, deterministic compilation of reviewed public/original content. Never read private .data/.
@@ -9,9 +10,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const directory = resolve(root, 'docs/career-library');
 const readJson = async (file: string) => JSON.parse(await readFile(file, 'utf8')) as unknown;
 const playbooks = await readJson(resolve(root, 'docs/resume-library/playbooks.json')) as {
-  schemaVersion: number; tracks: Array<{ id: string; name: string; roles: string[]; sectionOrder: string[]; focusQuestions: string[]; evidenceFields: string[]; redFlags: string[] }>;
+  schemaVersion: number; version: string; authorship: string;
+  tracks: Array<{ id: string; name: string; roles: string[]; sectionOrder: string[]; focusQuestions: string[]; evidenceFields: string[]; redFlags: string[] }>;
 };
-if (playbooks.schemaVersion !== 1 || !Array.isArray(playbooks.tracks)) throw new Error('Invalid original resume playbooks.');
+if (playbooks.schemaVersion !== 1 || playbooks.authorship !== 'project_original' || !/^\d{4}-\d{2}-\d{2}\.v\d+$/.test(playbooks.version)
+  || !Array.isArray(playbooks.tracks) || new Set(playbooks.tracks.map(track => track.id)).size !== playbooks.tracks.length
+  || playbooks.tracks.some(track => !/^[a-z-]+$/.test(track.id) || !track.name || !Array.isArray(track.focusQuestions)
+    || track.focusQuestions.length !== 3 || track.focusQuestions.some(question => typeof question !== 'string' || !question || question.length > 200))) {
+  throw new Error('Invalid original resume playbooks.');
+}
 const inputs = await Promise.all(['tech-materials.json', 'general-materials.json', 'tech-portals.json', 'general-portals.json', 'jobs.json'].map(file => readJson(resolve(directory, file))));
 if (inputs.some(value => !Array.isArray(value))) throw new Error('Career library source must contain arrays.');
 const [techMaterials, generalMaterials, techPortals, generalPortals, jobs] = inputs as unknown[][];
@@ -29,8 +36,9 @@ const resumeMaterials: CareerMaterial[] = playbooks.tracks.map(track => ({
 }));
 const catalog = validateCareerCatalog({ version: 2, jobs, materials: [...resumeMaterials, ...techMaterials, ...generalMaterials], portals: [...techPortals, ...generalPortals] });
 for (const job of catalog.jobs) {
-  if (!job.sourceUrl?.startsWith('https://') || !playbooks.tracks.some(track => track.name === job.major)) {
-    throw new Error(`Job requires an HTTPS source and an existing major: ${job.id}`);
+  if (!job.sourceUrl?.startsWith('https://') || !job.audience || !Object.hasOwn(careerJobAudienceLabels, job.audience)
+    || !job.checkedAt || !playbooks.tracks.some(track => track.name === job.major)) {
+    throw new Error(`Job requires an HTTPS source, review date, audience and an existing major: ${job.id}`);
   }
 }
 for (const track of playbooks.tracks) {
@@ -43,12 +51,15 @@ for (const material of catalog.materials) {
 for (const portal of catalog.portals) {
   if (portal.majors.some(major => !playbooks.tracks.some(track => track.name === major))) throw new Error(`Unknown recruitment portal major: ${portal.id}`);
 }
-const output = `${JSON.stringify(catalog, null, 2)}\n`;
-const destination = resolve(root, 'server/assets/career/catalog.json');
-if (process.argv.includes('--check')) {
-  if (await readFile(destination, 'utf8') !== output) throw new Error('Bundled career library is stale. Run npm run career:build.');
-} else {
-  await mkdir(dirname(destination), { recursive: true });
-  await writeFile(destination, output);
+const guides = playbooks.tracks.map(({ id, name: title, focusQuestions: questions }) => ({ id, title, questions, version: playbooks.version }));
+for (const [name, data] of [['catalog', catalog], ['role-guides', guides]] as const) {
+  const output = `${JSON.stringify(data, null, 2)}\n`;
+  const destination = resolve(root, `server/assets/career/${name}.json`);
+  if (process.argv.includes('--check')) {
+    if (await readFile(destination, 'utf8') !== output) throw new Error(`Bundled ${name} is stale. Run npm run career:build.`);
+  } else {
+    await mkdir(dirname(destination), { recursive: true });
+    await writeFile(destination, output);
+  }
 }
 console.log(`Career library ${process.argv.includes('--check') ? 'verified' : 'built'}: ${playbooks.tracks.length} majors, ${catalog.materials.length} materials, ${catalog.portals.length} official entry points, ${catalog.jobs.length} sourced job records.`);

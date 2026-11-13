@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { companyFilterKeys } from '../../shared/company';
 import type { CareerAssistantInput, CareerAssistantResult, CompanyFilterKey, CompanyMatchField, Resume } from '../../shared/types';
 import { ApiError, api, request } from './api';
+import { isCareerJob } from './career';
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown, max: number, empty = true): value is string => typeof value === 'string' && value.length <= max && !value.includes('\0') && (empty || !!value.trim());
@@ -61,6 +62,9 @@ export const careerAssistantApi = {
       || (value.catalogState !== 'ready' && (value.companyTotal !== 0 || value.companies.length !== 0))
       || !Array.isArray(value.personalJobs) || value.personalJobs.length > 5 || !value.personalJobs.every(personalJob)
       || new Set(value.personalJobs.map(item => (item as Record<string, unknown>).id)).size !== value.personalJobs.length
+      || (value.officialJobs !== undefined && (!Array.isArray(value.officialJobs) || value.officialJobs.length > 5
+        || !value.officialJobs.every(item => isCareerJob(item) && item.origin === 'catalog' && item.checkedAt && item.sourceUrl?.startsWith('https://'))
+        || new Set(value.officialJobs.map(item => item.id)).size !== value.officialJobs.length))
       || !Array.isArray(value.evidence) || value.evidence.length > 3 || !value.evidence.every(item => record(item) && text(item.term, 60, false) && text(item.excerpt, 320, false))
       || !record(value.criteria) || !text(value.criteria.query, 200) || !strings(value.criteria.unverifiedRequirements, 10, 240)
       || !record(value.criteria.filters) || Object.keys(value.criteria.filters).some(key => !companyFilterKeys.includes(key as CompanyFilterKey))
