@@ -206,7 +206,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 服务端模型超时 45 秒、自动重试次数 0、输出最多 4,000 tokens、响应最多 96 KB、脱敏输入 JSON 最多 20,000 字符。客户端轮询约一分钟并提供取消，不把取消当作供应商免单。周额度与未知用量核对详见 [AI 周额度](ai-quota.md)。
 
-字段白名单、长度、枚举、原文唯一定位、建议原文不重叠及待补问题中的数字风险均由服务端校验。服务端保留原句，使用模型的 `missingInformation` 问题生成 `[请填写真实…]`，不把模型改写直接当作经历。所有 AI 建议设置 `needsConfirmation: true`，必须经过用户审核，结构合法不保证事实语义正确。原报告与规则报告使用相同版本冲突、占位校验和重复应用语义。API 不返回模型密钥、AccessKey 或上游原始报错。
+服务端从脱敏简历挑选最多 120 条唯一出现的原文片段，为本次请求分配引用 ID。模型返回 ID 后，服务端回填原文，并校验字段白名单、长度、枚举、片段归属、建议原文不重叠及待补问题中的数字风险。服务端保留原句，使用模型的 `missingInformation` 问题生成 `[请填写真实…]`，不把模型改写直接当作经历。所有 AI 建议设置 `needsConfirmation: true`，必须经过用户审核，结构合法不保证事实语义正确。原报告与规则报告使用相同版本冲突、占位校验和重复应用语义。API 不返回模型密钥、AccessKey 或上游原始报错。
 
 常见模型错误：400 `AI_CONSENT_REQUIRED / MODEL_INPUT_TOO_LONG / USE_ANALYSIS_JOB`，429 `MODEL_BUSY / MODEL_RATE_LIMITED`，502 `MODEL_INVALID_OUTPUT / MODEL_AUTH_FAILED / MODEL_UNAVAILABLE / MODEL_NETWORK_ERROR`，504 `MODEL_TIMEOUT`；取消为 `ANALYSIS_CANCELLED`。无自动降级冒充成功。
 

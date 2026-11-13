@@ -114,7 +114,7 @@ export function useWorkspace(options: { autoLoad?: boolean; userId?: string; imp
       consentPrompt = new Promise<boolean>(resolve => {
         uni.showModal({
           title: 'AI 简历分析',
-          content: '分析时会将简历与岗位要求发送至阿里云百炼（北京）。手机号、邮箱和身份证号会自动遮盖，姓名与其他经历仍可能包含个人信息。',
+          content: '分析时会将脱敏简历片段和岗位要求发送至阿里云百炼（北京）。手机号、邮箱和身份证号会自动遮盖，片段仍可能含有姓名、单位等个人信息。',
           confirmText: '同意分析', cancelText: '暂不分析',
           success: result => { aiConsent.value = result.confirm; resolve(result.confirm); },
           fail: () => resolve(false),

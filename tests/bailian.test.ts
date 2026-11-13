@@ -16,7 +16,13 @@ const original = '负责订单系统接口开发，参与数据库查询优化�
 const sample: Resume = { id: 'sample', title: '测试', targetRole: 'Java 后端开发', text: `专业技能\nJava、MySQL。\n项目经历\n${original}`, revision: 1, createdAt: '2026-10-11T00:00:00Z', updatedAt: '2026-10-11T00:00:00Z' };
 const config = { enabled: true, apiKey: 'sk-test-only', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: defaultModel };
 const output = () => ({ summary: '先补充实际交付范围与验证依据。', issues: [{ title: '贡献依据不足', severity: 'high', category: 'impact', description: '描述了职责，缺少可核实的成果。', evidence: original, suggestion: '说明真实的验收依据。' }], suggestions: [{ title: '补充真实结果', original, missingInformation: ['验证方式'], reason: '需要用户补充并核实。' }] });
-const response = (value = output()) => new Response(JSON.stringify({ id: randomUUID(), usage: { prompt_tokens: 120, completion_tokens: 35, total_tokens: 155 }, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(value) } }] }), { status: 200 });
+const response = (value = output()) => {
+  const encoded = { ...value, issues: value.issues.map(({ evidence: _evidence, ...item }) => ({ ...item, sourceId: 's2' })),
+    suggestions: value.suggestions.map(({ original: _original, ...item }) => ({ ...item, sourceId: 's2' })) };
+  return modelResponse(encoded);
+};
+const modelResponse = (encoded: unknown) => new Response(JSON.stringify({ id: randomUUID(), usage: { prompt_tokens: 120, completion_tokens: 35, total_tokens: 155 },
+  choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(encoded) } }] }), { status: 200 });
 const hasCode = (code: string) => (e: unknown) => e instanceof HttpError && e.code === code;
 const turn = () => new Promise<void>(resolve => setImmediate(resolve));
 async function store(t: TestContext) {
@@ -80,6 +86,19 @@ test('only the retrieved project guide may be cited and resume evidence still co
   const withoutGuide = await new BailianAnalysisProvider(config, async () => response()).analyze({ resume: sample, targetRole: '其他', jobDescription: '需要 Excel' });
   assert.equal(withoutGuide.modelRun?.knowledgeScope, 'none');
   assert.equal(withoutGuide.roleGuide, undefined);
+});
+
+test('provider excludes ambiguous resume lines and rejects references outside the sent source IDs', async () => {
+  const repeated = '参与订单模块维护和日常核对工作。';
+  const fakeFetch: typeof fetch = async (_url, options) => {
+    const sent = JSON.parse(JSON.parse(options!.body as string).messages[1].content);
+    assert.deepEqual(Object.values(sent.resumeSources), ['Java、MySQL。', original]);
+    return modelResponse({ summary: '核对真实交付。', issues: [], suggestions: [{ sourceId: 's3', title: '核对交付',
+      missingInformation: ['验证方式'], reason: '请核对。' }] });
+  };
+  await assert.rejects(new BailianAnalysisProvider(config, fakeFetch).analyze({
+    resume: { ...sample, text: `${sample.text}\n${repeated}\n${repeated}` },
+  }), hasCode('MODEL_INVALID_OUTPUT'));
 });
 
 test('invalid sources, fabricated numbers, overlapping rewrites and malformed outputs are rejected', () => {
