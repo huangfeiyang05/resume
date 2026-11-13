@@ -113,6 +113,7 @@ export interface CareerWorkspace {
   catalogMessage: string;
   jobs: CareerJob[];
   materials: CareerMaterial[];
+  /** Empty in current workspace responses. Retained for installed clients. */
   portals: CareerRecruitmentPortal[];
   favoriteJobIds: string[];
   applications: CareerApplication[];

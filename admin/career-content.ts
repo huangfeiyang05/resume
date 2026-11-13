@@ -1,5 +1,5 @@
 import type {
-  ApplyCareerContent, CareerAttachment, CareerContentAction, CareerContentDetail, CareerContentDraft, CareerContentKind,
+  ApplyCareerContent, CareerAttachment, CareerContentAction, CareerContentDetail, CareerContentDraft,
   CareerContentReceipt, CareerContentReview, CareerContentSummary, CareerContentValue, ReviewCareerContent, SaveCareerContentDraft,
 } from '../shared/types.js';
 import { inputLimits } from '../shared/limits.js';
@@ -7,26 +7,20 @@ import { careerFileFallbackText, careerFileFormat, careerFileLimits, careerFileM
 import { careerJobAudienceLabels } from '../shared/career.js';
 import { button, element, formatTime } from './dom.js';
 
-const kindNames = { material: '复习资料', portal: '招聘入口', job: '招聘岗位' };
+const kindNames = { material: '复习资料', job: '招聘岗位' };
 const availabilityLabels = { open: '保留投递入口', closed: '已关闭' };
 const actionNames = { draft: '保存草稿', publish: '发布', withdraw: '下架', restore: '回滚' };
-type Target = Pick<CareerContentSummary, 'kind' | 'id'>;
+type EditableContentKind = keyof typeof kindNames;
+type Target = { kind: EditableContentKind; id: string };
 type Request = <T>(path: string, payload?: object) => Promise<T>;
 
 interface Field { name: string; label: string; max?: number; optional?: boolean; multiline?: boolean; type?: string; options?: Record<string, string> }
-const fields: Record<CareerContentKind, Field[]> = {
+const fields: Record<EditableContentKind, Field[]> = {
   material: [
     { name: 'title', label: '资料标题', max: 160 }, { name: 'major', label: '专业', max: 100 },
     { name: 'role', label: '对应岗位', max: 120, optional: true }, { name: 'summary', label: '摘要', max: 1000, optional: true, multiline: true },
     { name: 'content', label: '正文（纯文本）', max: 100000, multiline: true },
     { name: 'sourceLabel', label: '资料来源', max: 200 }, { name: 'sourceUrl', label: '来源链接', max: 2000, optional: true, type: 'url' },
-  ],
-  portal: [
-    { name: 'organization', label: '机构名称', max: 160 },
-    { name: 'majors', label: '适用专业（每行一个，最多 30 个）', max: 3030, multiline: true },
-    { name: 'audience', label: '适用人群', max: 120 },
-    { name: 'description', label: '入口说明（纯文本）', max: 2000, multiline: true },
-    { name: 'sourceUrl', label: '官方 HTTPS 入口', max: 2000, type: 'url' }, { name: 'checkedAt', label: '入口核查日期', type: 'date' },
   ],
   job: [
     { name: 'company', label: '招聘单位', max: 120 }, { name: 'title', label: '岗位名称', max: 120 },
@@ -42,11 +36,10 @@ const fields: Record<CareerContentKind, Field[]> = {
 
 function fieldValue(value: CareerContentValue | null, key: string) {
   if (!value || !Object.hasOwn(value, key)) return '';
-  const field = (value as unknown as Record<string, string | string[]>)[key];
-  return Array.isArray(field) ? field.join('\n') : field;
+  return (value as unknown as Record<string, string>)[key];
 }
 
-function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: CareerContentValue | null, attachment?: CareerAttachment): CareerContentDraft {
+function draftInput(kind: EditableContentKind, form: HTMLFormElement, source: CareerContentValue | null, attachment?: CareerAttachment): CareerContentDraft {
   const input = Object.fromEntries(new FormData(form)) as Record<string, string>;
   const sourceUrl = input.sourceUrl.trim();
   if (kind === 'material') {
@@ -55,14 +48,9 @@ function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: Care
   }
   const originalDate = fieldValue(source, 'checkedAt');
   const checkedAt = originalDate.slice(0, 10) === input.checkedAt ? originalDate : `${input.checkedAt}T00:00:00+08:00`;
-  if (kind === 'job') {
-    const { company, title, major, location, description, companyOverview, sourceLabel, deadline, audience, availability } = input;
-    return { company, title, major, location, description, companyOverview, sourceLabel, sourceUrl, ...(deadline ? { deadline } : {}),
-      audience: audience as keyof typeof careerJobAudienceLabels, availability: availability as keyof typeof availabilityLabels, checkedAt };
-  }
-  const { organization, audience, description, majors } = input;
-  return { organization, audience, description, sourceUrl, majors: majors.split('\n').map(value => value.trim()).filter(Boolean),
-    checkedAt };
+  const { company, title, major, location, description, companyOverview, sourceLabel, deadline, audience, availability } = input;
+  return { company, title, major, location, description, companyOverview, sourceLabel, sourceUrl, ...(deadline ? { deadline } : {}),
+    audience: audience as keyof typeof careerJobAudienceLabels, availability: availability as keyof typeof availabilityLabels, checkedAt };
 }
 
 function attachmentLink(file: CareerAttachment) {
@@ -113,7 +101,7 @@ async function uploadAttachment(file: File, request: Request, progress: (sent: n
   }
 }
 
-function contentPreview(label: string, kind: CareerContentKind, value: CareerContentValue | null) {
+function contentPreview(label: string, kind: EditableContentKind, value: CareerContentValue | null) {
   const panel = element('section', undefined, 'content-preview');
   panel.append(element('h3', label));
   if (!value) panel.append(element('p', '工作台不展示此条目。', 'help'));
@@ -136,7 +124,7 @@ function contentPreview(label: string, kind: CareerContentKind, value: CareerCon
 
 export function renderCareerContent(root: HTMLElement, initial: CareerContentSummary[], request: Request, reportError: (error: unknown) => string) {
   let rows = initial;
-  let kind: CareerContentKind = 'material';
+  let kind: EditableContentKind = 'material';
   let current: Target | null = null;
   let dirty = false;
   let busy = false;
@@ -183,7 +171,7 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
       && (!needle || row.title.toLowerCase().includes(needle) || row.id.toLowerCase().includes(needle)));
     catalog.replaceChildren();
     for (const row of matching) {
-      const item = button('', () => void select(row), 'content-list-item');
+      const item = button('', () => void select({ kind, id: row.id }), 'content-list-item');
       item.append(element('strong', row.title), element('small', [row.live ? '已展示' : '未展示', ...(row.hasDraft ? ['有草稿'] : []), ...(row.needsRecheck ? ['来源待复核'] : [])].join(' · ')));
       if (current?.id === row.id && current.kind === row.kind) item.setAttribute('aria-current', 'true');
       catalog.append(item);
@@ -386,7 +374,7 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
     }
     const label = detail?.live ? '已在工作台展示' : '当前未展示';
     const advice = target.kind === 'job' ? '打开官方岗位详情，核对城市、任职条件、申请状态与截止日期。官网未给出截止日期时可留空。'
-      : target.kind === 'portal' ? '请核实入口归属、链接和核查日期。入口只供查阅招聘渠道。' : '填写资料来源与正文，保存后可在发布预览中与当前版本对照。';
+      : '填写资料来源与正文，保存后可在发布预览中与当前版本对照。';
     editor.replaceChildren(element('h2', `${detail ? '编辑' : '新建'}${kindNames[target.kind]}`),
       element('p', `${label}${detail?.draft ? ' · 有已保存草稿' : ''}`, 'help'), element('p', advice, 'help'),
       form, reviewActions, preview, history);
@@ -394,7 +382,7 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
 
   query.addEventListener('input', renderList);
   recheckOnly.addEventListener('change', renderList);
-  selector.addEventListener('change', () => { kind = selector.value as CareerContentKind; renderList(); });
+  selector.addEventListener('change', () => { kind = selector.value as EditableContentKind; renderList(); });
   renderList();
   editor.append(element('h2', '选择资料或新建草稿'), element('p', '保存草稿后可预览发布。确认后，新版本会显示在高级会员工作台。', 'help'));
   return { canLeave, hasChanges: () => dirty || busy };

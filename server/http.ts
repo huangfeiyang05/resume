@@ -508,7 +508,7 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         const access = await getWorkbenchAccess(service.store, service.userId);
         const workspace: CareerWorkspace = access.features.companyJobs ? await career.workspace() : {
           mode: 'preview', externalDeliveryAvailable: false, catalogState: 'empty',
-          catalogMessage: '升级高级会员解锁公司岗位、招聘入口、复习资料和投递计划。',
+          catalogMessage: '升级高级会员解锁公司岗位、复习资料和投递计划。',
           jobs: [], materials: [], portals: [], favoriteJobIds: [], applications: [],
         };
         json(response, 200, { data: workspace });

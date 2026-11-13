@@ -31,8 +31,8 @@ export function validateCareerCatalog(value: unknown) {
 }
 
 function catalogView({ jobs, materials, portals }: Pick<CareerCatalog, 'jobs' | 'materials' | 'portals'>): CareerCatalog {
-  const ready = jobs.length + materials.length + portals.length > 0;
-  return { state: ready ? 'ready' : 'empty', message: ready ? '复习提纲与招聘入口可按专业查阅。入口不代表当前在招，岗位要求与截止日期以官方公告为准。' : '岗位库与复习资料尚待补充，可先添加个人目标岗位。', jobs, materials, portals };
+  const ready = jobs.length + materials.length > 0;
+  return { state: ready ? 'ready' : 'empty', message: ready ? '公司岗位与复习资料可按专业查阅。岗位要求、投递状态和截止日期以官方公告为准。' : '岗位库与复习资料尚待补充，可先添加个人目标岗位。', jobs, materials, portals };
 }
 
 export function careerCatalogFits({ jobs, materials, portals }: CareerCatalog) {

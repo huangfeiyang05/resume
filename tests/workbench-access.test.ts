@@ -171,7 +171,7 @@ test('locked and expired workspaces disclose no shared or private content, while
   }
   const readable = await premium.request('/career');
   assert.equal(readable.body.data.catalogState, 'ready');
-  assert.equal(readable.body.data.jobs.length, 1); assert.equal(readable.body.data.materials.length, 1); assert.equal(readable.body.data.portals.length, 1);
+  assert.equal(readable.body.data.jobs.length, 1); assert.equal(readable.body.data.materials.length, 1); assert.deepEqual(readable.body.data.portals, []);
   assert.equal((await expired.request('/membership/workbench')).body.data.planId, 'free');
   assert.equal((await expired.request('/career/assistant', 'POST', { message: '找岗位', requirements: '' })).status, 403);
   assert.equal((await free.request(`/career/applications/${historicalApplication.id}`, 'DELETE', { revision: 1 })).status, 404);

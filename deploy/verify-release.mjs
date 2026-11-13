@@ -144,12 +144,12 @@ try {
   const workspace = await request('/career', 'GET', undefined, owner);
   assert.equal(workspace.status, 200);
   assert.equal(workspace.body.data.catalogState, 'ready');
-  assert.ok(catalog.materials.length > 0 && catalog.portals.length > 0);
+  assert.ok(catalog.materials.length > 0 && catalog.jobs.length > 0);
   assert.deepEqual(workspace.body.data.materials, catalog.materials);
-  assert.deepEqual(workspace.body.data.portals, catalog.portals);
+  assert.deepEqual(workspace.body.data.portals, []);
   assert.deepEqual(workspace.body.data.jobs, [...catalog.jobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   assert.equal(workspace.body.data.externalDeliveryAvailable, false);
-  checks.push('bundled-materials-and-portals-separate-from-jobs');
+  checks.push('bundled-materials-and-sourced-jobs-without-legacy-portals');
   const sourcedJob = workspace.body.data.jobs.find(job => job.id === 'poizon-7670431050971711798');
   assert.equal(sourcedJob?.audience, 'campus');
   assert.ok(sourcedJob.sourceUrl.startsWith('https://'));

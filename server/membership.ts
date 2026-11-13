@@ -24,9 +24,9 @@ const plans: Plan[] = [
   },
   {
     id: 'premium', name: '高级会员', priceCents: null, durationMonths: 1, periodLabel: '月', highlight: '精选投递',
-    description: '包含初级权益，增加公司岗位、招聘入口、复习资料与手动投递计划。',
+    description: '包含初级权益，增加公司岗位、复习资料与手动投递计划。',
     features: {
-      templates: '包含基础模板', optimization: '包含初级全部优化权益', companyJobs: '分专业岗位筛选、收藏与官方招聘入口',
+      templates: '包含基础模板', optimization: '包含初级全部优化权益', companyJobs: '分专业岗位筛选、收藏与岗位来源',
       studyMaterials: '分专业原创准备清单与复习提纲', smartDelivery: '精选投递计划与手动进度记录',
       aiQuota: '高级 AI 工具周额度',
     },

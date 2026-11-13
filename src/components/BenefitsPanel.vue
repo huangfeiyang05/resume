@@ -129,7 +129,7 @@ const compactFeatures: Record<PlanId, string[]> = {
 function cardFeatures(plan: Plan): string[] {
   if (plan.id === 'free') return [plan.features.templates, '填写、预览与下载 Word'];
   if (plan.id === 'basic') return ['包含基础简历模板', '简历优化 · 对照审核后确认应用', plan.features.aiQuota];
-  return ['包含初级会员全部权益', plan.features.aiQuota, '岗位筛选、收藏、官方招聘入口与复习资料', '投递计划与进度记录 · 用户手动更新'];
+  return ['包含初级会员全部权益', plan.features.aiQuota, '岗位筛选、收藏与复习资料', '投递计划与进度记录 · 用户手动更新'];
 }
 
 function quotaTime(value: string | null): string {

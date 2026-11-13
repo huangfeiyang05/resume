@@ -151,15 +151,17 @@ test('admin drafts, reviewed releases and restores are atomic, auditable and vis
   assert.deepEqual((await workbench()).portals, []);
   const portalRelease = await preview(portal, { revision: (await inspect(portal)).revision, action: 'publish' });
   assert.equal((await write(`${portal}/apply`, portalRelease)).status, 200);
-  assert.equal((await workbench()).portals[0].organization, portalData.organization);
+  assert.equal((await inspect(portal)).live.organization, portalData.organization);
+  assert.deepEqual((await workbench()).portals, []);
   assert.deepEqual((await workbench()).jobs, [sampleJob]);
   assert.equal(await readFile(catalogPath, 'utf8'), base, 'managed changes must leave the base catalog file untouched');
 
   const reloaded = new CareerService(new JsonStore(databasePath), subscriberId, catalogPath);
   assert.deepEqual((await reloaded.workspace()).materials, [existingMaterial]);
-  assert.equal((await reloaded.workspace()).portals[0].organization, portalData.organization);
+  assert.deepEqual((await reloaded.workspace()).portals, []);
   const persisted = await new JsonStore(databasePath).read();
   assert.equal(persisted.careerContent[0].changes.length, 6);
+  assert.ok(persisted.careerContent.some(entry => entry.kind === 'portal' && entry.changes.length === 2));
 
   const pdf = await renderResumeFile({ id: 'fixture', title: '合成资料', targetRole: '', text: '测试文档。',
     createdAt: existingMaterial.updatedAt, updatedAt: existingMaterial.updatedAt, revision: 1 }, 'pdf', 'minimal');

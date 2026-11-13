@@ -1,5 +1,6 @@
 import type { PaidPlanId, PlanId } from './membership.js';
 
+// Installed clients expect the legacy recruitmentPortals permission in this response.
 export const workbenchFeatures = ['resumeOptimization', 'careerAssistant', 'companyJobs', 'recruitmentPortals', 'studyMaterials', 'applications'] as const;
 export type WorkbenchFeature = typeof workbenchFeatures[number];
 export const workbenchRequiredPlan: Readonly<Record<WorkbenchFeature, PaidPlanId>> = {

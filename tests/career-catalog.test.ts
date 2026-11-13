@@ -42,10 +42,12 @@ test('missing defaults can load public bundled content while explicit empty, bro
   assert.deepEqual(broken.portals, []);
   assert.equal(JSON.stringify(broken).includes(directory), false);
   await writeFile(path, JSON.stringify({ ...empty, version: 2, portals: [portal] }));
-  assert.equal((await loadCareerCatalog(path, fallback)).state, 'ready', 'corrected content can be read without restarting');
+  const restored = await loadCareerCatalog(path, fallback);
+  assert.equal(restored.state, 'empty', 'a legacy portal alone supplies no visible content');
+  assert.deepEqual(restored.portals, [portal], 'legacy content remains readable');
 });
 
-test('default workspace serves sourced job records alongside original guides and official entry points', async t => {
+test('default workspace serves sourced jobs and original guides without the archived directory', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'youfang-bundled-career-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const playbooks = JSON.parse(await readFile(new URL('../docs/resume-library/playbooks.json', import.meta.url), 'utf8'));
@@ -65,6 +67,6 @@ test('default workspace serves sourced job records alongside original guides and
   assert.equal(workspace.mode, 'preview');
   assert.equal(workspace.externalDeliveryAvailable, false);
   assert.deepEqual(workspace.jobs, [...catalog.jobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
-  assert.deepEqual(workspace.portals, catalog.portals);
+  assert.deepEqual(workspace.portals, []);
   assert.equal(workspace.materials.length, catalog.materials.length);
 });

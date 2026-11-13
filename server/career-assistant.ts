@@ -273,7 +273,7 @@ export async function answerCareerAssistant(service: ResumeService, companies: C
     else replies.push(`找到 ${search.total} 条企业参考资料，本次展示前 ${search.items.length} 条。`);
     if (personalJobs.length) replies.push(`另找到你本人添加的 ${personalJobs.length} 条岗位记录，信息仍需自行核实，不能视为官方在招职位。`);
     if (officialJobs.length) replies.push(`找到 ${officialJobs.length} 条近期核对过来源的岗位摘要。进入官方页面确认申请状态后，可以带入简历诊断。`);
-    else if (lookingForJobs && loadJobs) replies.push('资料库暂未找到符合已识别条件的近期岗位。可以从招聘入口查找，或把已找到的岗位描述带入简历诊断。');
+    else if (lookingForJobs && loadJobs) replies.push('资料库暂未找到符合已识别条件的近期岗位。可以调整城市或岗位关键词，也可以添加自己找到的岗位并带入简历诊断。');
     if (filters.educationLevels?.length || filters.cohorts?.length || filters.recruitmentTypes?.length) replies.push('学历、届别和招聘类型仅按来源标签筛选，不表示你已满足该招聘的全部资格或当前仍可申请。');
   }
   replies.push('企业库是历史资料，不能确认当前仍在招聘、截止日期或申请资格；请自行核对最新官方招聘信息。');

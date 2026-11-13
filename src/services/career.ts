@@ -117,7 +117,6 @@ export function useCareerWorkspace(options: { autoLoad?: boolean } = {}) {
   let pendingCreate: { signature: string; key: string } | undefined;
   const jobs = computed(() => state.value?.jobs ?? []);
   const materials = computed(() => state.value?.materials ?? []);
-  const portals = computed(() => state.value?.portals ?? []);
   const applications = computed(() => state.value?.applications ?? []);
   const favoriteJobIds = computed(() => state.value?.favoriteJobIds ?? []);
   function message(cause: unknown) { return cause instanceof Error ? cause.message : '操作未完成，请稍后重试。'; }
@@ -172,5 +171,5 @@ export function useCareerWorkspace(options: { autoLoad?: boolean } = {}) {
   }, '投递记录及关联简历快照已删除。');
   function dispose() { disposed = true; ++loadRequest; }
   if (options.autoLoad !== false) { onMounted(load); onUnmounted(dispose); }
-  return { state, jobs, materials, portals, applications, favoriteJobIds, loading, busy, error, notice, load, createJob, removeJob, favorite, createApplication, updateApplication, removeApplication, dispose };
+  return { state, jobs, materials, applications, favoriteJobIds, loading, busy, error, notice, load, createJob, removeJob, favorite, createApplication, updateApplication, removeApplication, dispose };
 }

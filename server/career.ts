@@ -61,7 +61,7 @@ export class CareerService {
     const jobs = [...personal, ...catalog.jobs.filter(item => !jobIds.has(item.id))].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return {
       mode: 'preview', externalDeliveryAvailable: false, catalogState: catalog.state, catalogMessage: catalog.message,
-      jobs, materials: catalog.materials, portals: catalog.portals,
+      jobs, materials: catalog.materials, portals: [],
       favoriteJobIds: database.careerFavorites.filter(item => item.userId === this.userId && jobs.some(job => job.id === item.jobId)).map(item => item.jobId),
       applications: database.careerApplications.filter(item => item.userId === this.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(publicApplication),
     };
