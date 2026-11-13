@@ -147,7 +147,7 @@ try {
   assert.ok(catalog.materials.length > 0 && catalog.portals.length > 0);
   assert.deepEqual(workspace.body.data.materials, catalog.materials);
   assert.deepEqual(workspace.body.data.portals, catalog.portals);
-  assert.deepEqual(workspace.body.data.jobs, catalog.jobs);
+  assert.deepEqual(workspace.body.data.jobs, [...catalog.jobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   assert.equal(workspace.body.data.externalDeliveryAvailable, false);
   checks.push('bundled-materials-and-portals-separate-from-jobs');
   adminIds.add(userId);

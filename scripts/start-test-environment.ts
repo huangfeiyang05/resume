@@ -4,6 +4,7 @@ import { chmod, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { preview, type PreviewServer } from 'vite';
 import { AuthService } from '../server/auth.js';
+import { validateEmail } from '../server/email-codes.js';
 import { createApiServer } from '../server/http.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
@@ -17,7 +18,7 @@ const host = '127.0.0.1';
 const apiPort = 3002;
 const webPort = 5175;
 const origin = `http://${host}:${webPort}`;
-const email = 'admin@example.test';
+const defaultEmail = 'admin@example.test';
 
 async function safePath(path: string, kind: 'directory' | 'file') {
   try {
@@ -37,8 +38,26 @@ await safePath(site, 'directory');
 await safePath(join(site, 'admin'), 'directory');
 
 const store = new JsonStore(database, 'test');
-await store.read();
-const auth = new AuthService(store, { requireEmailVerification: false });
+const { users } = await store.read();
+let credentials: { email: string; password: string; username?: string };
+try {
+  credentials = JSON.parse(await readFile(loginFile, 'utf8'));
+  if (typeof credentials.password !== 'string'
+    || (credentials.username !== undefined && (typeof credentials.username !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(credentials.username)))) {
+    throw new Error('Invalid test admin file.');
+  }
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  if (users.length) throw new Error('Test accounts exist but the local admin login file is missing.');
+  credentials = { email: defaultEmail, password: `T3!${randomBytes(6).toString('hex')}` };
+  await writeFile(loginFile, `${JSON.stringify(credentials, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+}
+await chmod(loginFile, 0o600);
+const email = validateEmail(credentials.email);
+credentials.email = email;
+const existing = users.find(user => user.email === email);
+const alias = credentials.username ? { username: credentials.username, email } : undefined;
+const auth = new AuthService(store, { requireEmailVerification: false, testLoginAlias: alias });
 const adminIds = new Set<string>();
 const api = createApiServer(new ResumeService(store), { auth, adminUserIds: adminIds, secureCookies: false, trustedOrigins: [origin] });
 let web: PreviewServer | undefined;
@@ -55,23 +74,15 @@ try {
     api.once('error', reject);
     api.listen(apiPort, host, () => { api.off('error', reject); resolve(); });
   });
-  const existing = (await store.read()).users.find(user => user.email === email);
-  let credentials: { email: string; password: string };
-  try {
-    credentials = JSON.parse(await readFile(loginFile, 'utf8'));
-    if (credentials.email !== email || typeof credentials.password !== 'string') throw new Error('Invalid test admin file.');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    if (existing) throw new Error('Test administrator exists but its local login file is missing.');
-    credentials = { email, password: `T3!${randomBytes(6).toString('hex')}` };
-    await writeFile(loginFile, `${JSON.stringify(credentials, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  if (alias) {
+    adminIds.add(await auth.configureTestLogin(credentials.password));
+  } else {
+    const id = existing?.id ?? (await auth.register(credentials)).session.user.id;
+    await store.mutate(data => { data.users.find(user => user.id === id)!.emailVerified = true; });
+    adminIds.add(id);
   }
-  await chmod(loginFile, 0o600);
-  const id = existing?.id ?? (await auth.register(credentials)).session.user.id;
-  await store.mutate(data => { data.users.find(user => user.id === id)!.emailVerified = true; });
-  adminIds.add(id);
 
-  const buildEnv = { ...process.env, VITE_API_BASE_URL: '', VITE_TEMPLATE_BASE_URL: '', UNI_OUTPUT_DIR: site };
+  const buildEnv = { ...process.env, VITE_API_BASE_URL: '', VITE_TEMPLATE_BASE_URL: '', VITE_TEST_LOGIN_ALIAS: alias?.username ?? '', UNI_OUTPUT_DIR: site };
   for (const args of [['run', 'build:h5'], ['run', 'build:admin', '--', '--outDir', join(site, 'admin')]]) {
     const build = spawnSync('npm', args, { cwd: root, env: buildEnv, stdio: 'inherit' });
     if (build.status !== 0) throw new Error('Test frontend build failed.');

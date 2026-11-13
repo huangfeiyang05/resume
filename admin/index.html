@@ -11,9 +11,9 @@
   <main id="login" class="login" hidden>
     <span class="brand-mark" aria-hidden="true">方</span>
     <h1>简历有方管理后台</h1>
-    <p>使用已验证的管理员邮箱登录。</p>
+    <p id="login-description">使用已验证的管理员邮箱登录。</p>
     <form id="login-form" method="post">
-      <label>邮箱<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
+      <label><span id="login-account-label">邮箱</span><input name="email" type="email" autocomplete="username" maxlength="254" required></label>
       <label>密码<input name="password" type="password" autocomplete="current-password" maxlength="128" required></label>
       <button class="primary" type="submit">登录</button>
     </form>

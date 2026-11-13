@@ -45,13 +45,16 @@ test('missing defaults can load public bundled content while explicit empty, bro
   assert.equal((await loadCareerCatalog(path, fallback)).state, 'ready', 'corrected content can be read without restarting');
 });
 
-test('default workspace serves original guides for all existing majors and official entry points without inventing open vacancies', async t => {
+test('default workspace serves sourced job records alongside original guides and official entry points', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'youfang-bundled-career-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const playbooks = JSON.parse(await readFile(new URL('../docs/resume-library/playbooks.json', import.meta.url), 'utf8'));
+  const jobs = JSON.parse(await readFile(new URL('../docs/career-library/jobs.json', import.meta.url), 'utf8'));
   const catalog = await loadCareerCatalog(bundledCareerCatalogPath);
   assert.equal(catalog.state, 'ready');
-  assert.deepEqual(catalog.jobs, []);
+  assert.ok(jobs.length > 0);
+  assert.deepEqual(catalog.jobs, validateCareerCatalog({ ...empty, jobs }).jobs);
+  assert.ok(catalog.jobs.every(job => job.origin === 'catalog' && job.sourceUrl?.startsWith('https://')));
   assert.ok(catalog.portals.length >= 8);
   for (const track of playbooks.tracks) {
     assert.ok(catalog.materials.some(item => item.major === track.name && item.id.startsWith('resume-guide-')));
@@ -61,7 +64,7 @@ test('default workspace serves original guides for all existing majors and offic
   const workspace = await service.workspace();
   assert.equal(workspace.mode, 'preview');
   assert.equal(workspace.externalDeliveryAvailable, false);
-  assert.deepEqual(workspace.jobs, []);
+  assert.deepEqual(workspace.jobs, [...catalog.jobs].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   assert.deepEqual(workspace.portals, catalog.portals);
   assert.equal(workspace.materials.length, catalog.materials.length);
 });

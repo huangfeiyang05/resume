@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { AuthCapabilities, EmailPasswordInput, ResetPasswordInput, PhoneLoginInput } from '../../shared/auth';
 import { PASSWORD_MAX_LENGTH } from '../../shared/auth';
-import { useEmailChallenge, usePhoneChallenge, normalizedPhone, validateAuthForm, type AuthMode } from '../services/auth';
+import { testLoginAlias, useEmailChallenge, usePhoneChallenge, normalizedPhone, validateAuthForm, type AuthMode } from '../services/auth';
 import AppIcon from './AppIcon.vue';
 import SiteFooter from './SiteFooter.vue';
 import { isMiniProgramClient } from '../services/api';
@@ -44,6 +44,7 @@ const formError = ref('');
 const challenge = useEmailChallenge();
 const { code, busy: codeBusy, error: codeError, message: codeMessage, remaining } = challenge;
 const needsCode = computed(() => mode.value === 'reset' || (mode.value === 'register' && props.capabilities?.emailVerification === true));
+const testAccountLogin = computed(() => mode.value === 'login' && !!testLoginAlias);
 const message = computed(() => formError.value || codeError.value || props.error);
 const title = computed(() => mode.value === 'login' ? '欢迎回来' : mode.value === 'register' ? '创建你的账号' : '找回密码');
 const submitLabel = computed(() => mode.value === 'login' ? '登录' : mode.value === 'register' ? '注册并登录' : '设置新密码');
@@ -118,7 +119,7 @@ function submit() {
         <text v-if="mode === 'reset'" class="auth-description">使用已验证的邮箱重设密码。</text>
         <view v-if="notice && mode === 'login'" class="auth-success" role="status"><AppIcon name="check" :size="16" /><text>{{ notice }}</text></view>
         <view class="auth-form">
-          <text class="field-label">邮箱地址</text><input v-model="email" class="text-input auth-input" type="text" inputmode="email" autocomplete="email" placeholder="输入你的邮箱" :maxlength="254" :disabled="busy" aria-label="邮箱地址" @confirm="submit" />
+          <text class="field-label">{{ testAccountLogin ? '账号' : '邮箱地址' }}</text><input v-model="email" class="text-input auth-input" type="text" :inputmode="testAccountLogin ? 'text' : 'email'" :autocomplete="testAccountLogin ? 'username' : 'email'" :placeholder="testAccountLogin ? '输入测试账号或邮箱' : '输入你的邮箱'" :maxlength="254" :disabled="busy" :aria-label="testAccountLogin ? '账号' : '邮箱地址'" @confirm="submit" />
           <view v-if="needsCode" class="auth-field"><text class="field-label">邮箱验证码</text><view class="auth-code-row"><input v-model="code" class="text-input auth-input" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字验证码" :maxlength="6" :disabled="submitting" aria-label="邮箱验证码" @confirm="submit" /><button class="button secondary auth-code-send" :disabled="submitting || remaining > 0" role="button" tabindex="0" @click="sendCode">{{ codeBusy ? '正在发送…' : remaining > 0 ? `${remaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="codeMessage" class="auth-code-message" role="status">{{ codeMessage }}</text></view>
           <view class="auth-field"><view class="auth-label-row"><text class="field-label">{{ mode === 'reset' ? '新密码' : '密码' }}</text><button v-if="mode === 'login' && capabilities?.passwordReset" class="text-button auth-forgot" :disabled="submitting" role="button" tabindex="0" @click="changeMode('reset')">忘记密码？</button><view v-if="mode !== 'login' && password" class="password-strength" :data-level="strength.level"><view class="strength-bars"><view v-for="segment in 3" :key="segment" class="strength-segment" :class="{ on: strength.level >= segment }" /></view><text>{{ strength.label }}</text></view></view><input v-model="password" class="text-input auth-input" password type="text" :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" :placeholder="mode === 'login' ? '输入密码' : '6 至 16 位，字母/数字/符号'" :maxlength="mode === 'login' ? 128 : PASSWORD_MAX_LENGTH" :disabled="submitting" aria-label="密码" @input="onPasswordInput" @confirm="submit" /></view>
           <view v-if="mode !== 'login'" class="auth-field"><text class="field-label">确认密码</text><input v-model="confirmation" class="text-input auth-input" password type="text" autocomplete="new-password" placeholder="再次输入密码" :maxlength="PASSWORD_MAX_LENGTH" :disabled="submitting" aria-label="确认密码" @input="onConfirmationInput" @confirm="submit" /></view>

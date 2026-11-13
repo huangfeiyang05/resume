@@ -6,6 +6,7 @@
 
 ## 来源与核查
 
+- [具体招聘岗位](jobs.json) 收录 2026-11-13 核对的 9 条国内企业公开招聘摘要。岗位详情保留官方链接，`updatedAt` 为资料核对日期。投递状态、任职条件和截止日期以官方页面为准。
 - [技术、工程、科研与健康专业来源记录](tech-sources.md)，对应 [复习提纲](tech-materials.json) 和 [招聘入口](tech-portals.json)。
 - [经管、人文、设计、教育与物流专业来源记录](general-sources.md)，对应 [复习提纲](general-materials.json) 和 [招聘入口](general-portals.json)。
 - [已有原创专业简历提示卡](../resume-library/playbooks.json) 与 [参考资料边界](../resume-library/README.md)。外部简历原件不打包到服务，也不自动进入模型或 RAG。
@@ -25,7 +26,7 @@ npm run career:build
 npm run career:check
 ```
 
-构建脚本离线读取本目录四份 JSON 和既有专业提示卡，通过与服务端相同的运行时校验生成 `server/assets/career/catalog.json`。`career:check` 检查来源结构、专业覆盖和产物是否过期；不会联网请求、读取私人数据或修改 `.data/`。服务端构建将这一公开资料包随字体等资源复制，正式发版仍需单独授权。
+构建脚本离线读取本目录的岗位、复习提纲、招聘入口和既有专业提示卡，通过与服务端相同的运行时校验生成 `server/assets/career/catalog.json`。`career:check` 检查来源结构、专业覆盖和产物是否过期。服务端构建将公开资料包随字体等资源复制。
 
 默认优先读取 `.data/career-catalog.json`；该文件不存在时使用打包资料。显式配置的目录不存在时保持空目录；已有目录为空或损坏时不以打包内容掩盖结果。自定义目录替换整个打包目录，不隐式合并。旧 `version: 1` 格式继续支持，招聘入口使用 `version: 2` 的 `portals` 数组，字段见共享契约 `CareerRecruitmentPortal`。私人简历、个人投递资料和外部原件始终保存在被忽略的本地目录，不能加入本公开资料包。
 

@@ -23,6 +23,11 @@ const refundNames: Record<AdminRefund['status'], string> = { requested: '退款�
 const login = document.querySelector<HTMLElement>('#login')!;
 const loginForm = document.querySelector<HTMLFormElement>('#login-form')!;
 const loginMessage = document.querySelector<HTMLElement>('#login-message')!;
+if (import.meta.env.VITE_TEST_LOGIN_ALIAS) {
+  document.querySelector<HTMLElement>('#login-description')!.textContent = '使用本地测试管理员账号登录。';
+  document.querySelector<HTMLElement>('#login-account-label')!.textContent = '账号';
+  loginForm.querySelector<HTMLInputElement>('[name=email]')!.type = 'text';
+}
 const initialStatus = document.querySelector<HTMLElement>('#initial-status')!;
 const app = document.querySelector<HTMLElement>('#app')!;
 const filters = document.querySelector<HTMLElement>('#filters')!;

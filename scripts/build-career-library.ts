@@ -12,9 +12,9 @@ const playbooks = await readJson(resolve(root, 'docs/resume-library/playbooks.js
   schemaVersion: number; tracks: Array<{ id: string; name: string; roles: string[]; sectionOrder: string[]; focusQuestions: string[]; evidenceFields: string[]; redFlags: string[] }>;
 };
 if (playbooks.schemaVersion !== 1 || !Array.isArray(playbooks.tracks)) throw new Error('Invalid original resume playbooks.');
-const inputs = await Promise.all(['tech-materials.json', 'general-materials.json', 'tech-portals.json', 'general-portals.json'].map(file => readJson(resolve(directory, file))));
+const inputs = await Promise.all(['tech-materials.json', 'general-materials.json', 'tech-portals.json', 'general-portals.json', 'jobs.json'].map(file => readJson(resolve(directory, file))));
 if (inputs.some(value => !Array.isArray(value))) throw new Error('Career library source must contain arrays.');
-const [techMaterials, generalMaterials, techPortals, generalPortals] = inputs as unknown[][];
+const [techMaterials, generalMaterials, techPortals, generalPortals, jobs] = inputs as unknown[][];
 const resumeMaterials: CareerMaterial[] = playbooks.tracks.map(track => ({
   id: `resume-guide-${track.id}`, title: `${track.name}：应届生简历准备清单`, major: track.name,
   role: track.roles.join('、'), summary: '从真实课程、项目、实习与作品中整理可核对的证据，缺少的事实先补充，再改写。',
@@ -27,7 +27,12 @@ const resumeMaterials: CareerMaterial[] = playbooks.tracks.map(track => ({
     '五、实践任务\n选一段真实课程、项目或实习经历，用“实际问题—本人行动—真实交付—核验依据”写成短段落。每句话都应能解释来源；缺失信息先提问，确认后再应用到简历。关键词只用于检查文本覆盖，不代表能力或录用结果。',
   ].join('\n\n'), sourceLabel: '简历有方原创专业提示卡（本次整理）', updatedAt: '2026-10-27T00:00:00+08:00',
 }));
-const catalog = validateCareerCatalog({ version: 2, jobs: [], materials: [...resumeMaterials, ...techMaterials, ...generalMaterials], portals: [...techPortals, ...generalPortals] });
+const catalog = validateCareerCatalog({ version: 2, jobs, materials: [...resumeMaterials, ...techMaterials, ...generalMaterials], portals: [...techPortals, ...generalPortals] });
+for (const job of catalog.jobs) {
+  if (!job.sourceUrl?.startsWith('https://') || !playbooks.tracks.some(track => track.name === job.major)) {
+    throw new Error(`Job requires an HTTPS source and an existing major: ${job.id}`);
+  }
+}
 for (const track of playbooks.tracks) {
   if (!catalog.materials.some(item => item.major === track.name && !item.id.startsWith('resume-guide-'))) throw new Error(`Missing preparation material: ${track.name}`);
 }
@@ -46,4 +51,4 @@ if (process.argv.includes('--check')) {
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, output);
 }
-console.log(`Career library ${process.argv.includes('--check') ? 'verified' : 'built'}: ${playbooks.tracks.length} majors, ${catalog.materials.length} materials, ${catalog.portals.length} official entry points, ${catalog.jobs.length} live job records.`);
+console.log(`Career library ${process.argv.includes('--check') ? 'verified' : 'built'}: ${playbooks.tracks.length} majors, ${catalog.materials.length} materials, ${catalog.portals.length} official entry points, ${catalog.jobs.length} sourced job records.`);

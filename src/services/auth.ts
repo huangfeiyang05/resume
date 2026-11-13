@@ -5,6 +5,7 @@ import { accountAvatarIdPattern, isAccountNickname, PASSWORD_PATTERN, PASSWORD_R
 import { ApiError, isMiniProgramClient, onUnauthorized, request, setAuthToken } from './api';
 
 const miniProgramSessionKey = 'youfang-auth-session-v1';
+export const testLoginAlias = import.meta.env?.VITE_TEST_LOGIN_ALIAS || '';
 export type AuthMode = 'login' | 'register' | 'reset';
 export const authApi = {
   providers: () => request<AuthCapabilities>('/auth/providers', 'GET', undefined, { notifyUnauthorized: false }),
@@ -27,6 +28,9 @@ export const authApi = {
 
 export function validateAuthForm(mode: AuthMode, email: string, password: string, confirmation = ''): string {
   const normalized = email.trim();
+  if (mode === 'login' && testLoginAlias && normalized === testLoginAlias) {
+    return password.length && password.length <= 128 ? '' : '请输入密码，最多 128 个字符。';
+  }
   if (!normalized || normalized.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) return '请输入有效的邮箱地址。';
   if (mode === 'login') {
     if (password.length < 6 || password.length > 128) return '密码长度需要在 6 到 128 个字符之间。';

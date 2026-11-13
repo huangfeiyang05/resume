@@ -32,14 +32,18 @@ function object(body: unknown, allowed: string[]): Record<string, unknown> {
   return record;
 }
 
-export function validateCredentials(body: unknown, allowProof = false, passwordPolicy: 'new' | 'login' = 'new'): EmailPasswordInput {
+interface TestLoginAlias { username: string; email: string }
+
+export function validateCredentials(body: unknown, allowProof = false, passwordPolicy: 'new' | 'login' = 'new', testLoginAlias?: TestLoginAlias): EmailPasswordInput {
   const record = object(body, allowProof ? ['email', 'password', 'code', 'challengeId'] : ['email', 'password']);
-  const email = validateEmail(record.email);
+  const alias = passwordPolicy === 'login' && typeof record.email === 'string' && record.email.trim() === testLoginAlias?.username
+    ? testLoginAlias : undefined;
+  const email = alias?.email ?? validateEmail(record.email);
   const passwordText = record.password;
   if (typeof passwordText !== 'string') invalid(passwordPolicy === 'new' ? PASSWORD_RULE_MESSAGE : '邮箱或密码不正确。');
   const passwordValid = passwordPolicy === 'new'
     ? PASSWORD_PATTERN.test(passwordText)
-    : passwordText.length >= 6 && passwordText.length <= 128 && !/[\u0000-\u001f\u007f]/.test(passwordText);
+    : passwordText.length >= (alias ? 1 : 6) && passwordText.length <= 128 && !/[\u0000-\u001f\u007f]/.test(passwordText);
   if (!passwordValid) invalid(passwordPolicy === 'new' ? PASSWORD_RULE_MESSAGE : '邮箱或密码不正确。');
   // Password whitespace is significant and is never trimmed or normalized.
   if (allowProof && (Object.hasOwn(record, 'code') || Object.hasOwn(record, 'challengeId'))) {
@@ -56,6 +60,7 @@ export interface AuthOptions {
   requireEmailVerification?: boolean;
   wechat?: WechatIdentityProvider;
   wechatPhone?: WechatPhoneProvider;
+  testLoginAlias?: TestLoginAlias;
 }
 export class AuthService {
   private hashing = 0;
@@ -68,6 +73,7 @@ export class AuthService {
   private wechat?: WechatIdentityProvider;
   private wechatPhone?: WechatPhoneProvider;
   private profiles: AccountProfiles;
+  private readonly testLoginAlias?: TestLoginAlias;
   constructor(readonly store: JsonStore, options: AuthOptions = {}) {
     this.now = options.now ?? Date.now;
     this.emailCodes = options.emailCodes;
@@ -78,6 +84,12 @@ export class AuthService {
     this.wechatPhone = this.wechat && options.wechatPhone;
     this.profiles = new AccountProfiles(store);
     if (!Number.isSafeInteger(this.sessionTtlMs) || this.sessionTtlMs < 1) throw new Error('Invalid session lifetime.');
+    if (options.testLoginAlias) {
+      if (store.environment !== 'test' || !/^[a-z][a-z0-9_-]{0,31}$/.test(options.testLoginAlias.username)) {
+        throw new Error('Login aliases require a test store and a valid username.');
+      }
+      this.testLoginAlias = { username: options.testLoginAlias.username, email: validateEmail(options.testLoginAlias.email) };
+    }
   }
 
   capabilities(): AuthCapabilities {
@@ -136,6 +148,40 @@ export class AuthService {
     } finally { this.hashing--; }
   }
 
+  private async hashPassword(password: string): Promise<string> {
+    const salt = randomBytes(16);
+    const key = await this.derive(password, salt);
+    return `scrypt$65536$8$2$${salt.toString('hex')}$${key.toString('hex')}`;
+  }
+
+  private async matchesPassword(password: string, hash?: string): Promise<boolean> {
+    const parts = hash?.split('$');
+    const validHash = parts?.length === 6 && parts.slice(0, 4).join('$') === 'scrypt$65536$8$2' && /^[a-f0-9]{32}$/.test(parts[4]) && /^[a-f0-9]{128}$/.test(parts[5]);
+    const actual = await this.derive(password, validHash ? Buffer.from(parts![4], 'hex') : dummySalt);
+    const expected = validHash ? Buffer.from(parts![5], 'hex') : Buffer.alloc(64);
+    return validHash === true && timingSafeEqual(actual, expected);
+  }
+
+  async configureTestLogin(password: string): Promise<string> {
+    const alias = this.testLoginAlias;
+    if (!alias) throw new Error('Test login alias is not configured.');
+    const { email } = validateCredentials({ email: alias.username, password }, false, 'login', alias);
+    return this.store.mutate(async database => {
+      const user = database.users.find(candidate => candidate.email === email);
+      if (!user) {
+        const id = randomUUID();
+        database.users.push({ id, email, emailVerified: true, passwordHash: await this.hashPassword(password), createdAt: new Date(this.now()).toISOString() });
+        return id;
+      }
+      if (!await this.matchesPassword(password, user.passwordHash)) {
+        user.passwordHash = await this.hashPassword(password);
+        database.sessions = database.sessions.filter(session => session.userId !== user.id);
+      }
+      user.emailVerified = true;
+      return user.id;
+    });
+  }
+
   private newSession(database: Database, user: StoredUser, scope?: 'admin'): { session: AuthSession; token: string } {
     const now = this.now();
     database.sessions = database.sessions.filter(session => Date.parse(session.expiresAt) > now);
@@ -158,9 +204,7 @@ export class AuthService {
     const codes = this.requireEmailVerification ? this.configuredCodes() : undefined;
     if (codes && (!credentials.code || !credentials.challengeId)) throw new HttpError(400, 'EMAIL_VERIFICATION_REQUIRED', '请先获取并填写邮箱验证码。');
     if ((await this.store.read()).users.some(user => user.email === email)) throw new HttpError(409, 'EMAIL_ALREADY_REGISTERED', '该邮箱已注册，请直接登录。');
-    const salt = randomBytes(16);
-    const key = await this.derive(password, salt);
-    const passwordHash = `scrypt$65536$8$2$${salt.toString('hex')}$${key.toString('hex')}`;
+    const passwordHash = await this.hashPassword(password);
     let codeError: HttpError | undefined;
     const result = await this.store.mutate(database => {
       if (database.users.some(user => user.email === email)) throw new HttpError(409, 'EMAIL_ALREADY_REGISTERED', '该邮箱已注册，请直接登录。');
@@ -218,14 +262,10 @@ export class AuthService {
   }
 
   async login(body: unknown, client = 'local', adminUserIds?: ReadonlySet<string>) {
-    const { email, password } = validateCredentials(body, false, 'login');
+    const { email, password } = validateCredentials(body, false, 'login', this.testLoginAlias);
     this.checkRateLimit(client, email);
     const user = (await this.store.read()).users.find(user => user.email === email);
-    const parts = user?.passwordHash?.split('$');
-    const validHash = parts?.length === 6 && parts.slice(0, 4).join('$') === 'scrypt$65536$8$2' && /^[a-f0-9]{32}$/.test(parts[4]) && /^[a-f0-9]{128}$/.test(parts[5]);
-    const actual = await this.derive(password, validHash ? Buffer.from(parts![4], 'hex') : dummySalt);
-    const expected = validHash ? Buffer.from(parts![5], 'hex') : Buffer.alloc(64);
-    if (!user || !validHash || !timingSafeEqual(actual, expected)) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');
+    if (!await this.matchesPassword(password, user?.passwordHash) || !user) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');
     return this.store.mutate(database => {
       const current = database.users.find(candidate => candidate.id === user.id && candidate.passwordHash === user.passwordHash);
       if (!current) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');

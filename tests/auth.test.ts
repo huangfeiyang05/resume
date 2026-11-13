@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { AuthService } from '../server/auth.js';
+import { CareerService } from '../server/career.js';
 import { createApiServer } from '../server/http.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
@@ -142,6 +143,48 @@ test('login validates external inputs, enforces the password policy and rejects 
   const symbols = 'a!B2#cD4eF6@hJ8';
   assert.equal((await f.request('/auth/register', 'POST', { email: 'symbols@example.test', password: symbols })).status, 201);
   assert.equal((await f.request('/auth/login', 'POST', { email: 'symbols@example.test', password: symbols })).status, 200);
+});
+
+test('a configured test alias preserves the account and its data while keeping short passwords out of normal login', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'youfang-test-login-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new JsonStore(join(directory, 'test.json'), 'test');
+  const email = 'sandbox-reviewer@example.test';
+  const username = 'sandbox-reviewer';
+  const shortPassword = 'q7!';
+  const options = { testLoginAlias: { username, email } };
+  assert.throws(() => new AuthService(new JsonStore(join(directory, 'public.json')), options));
+
+  const auth = new AuthService(store, options);
+  const existing = await auth.register({ email, password });
+  const userId = existing.session.user.id;
+  const career = new CareerService(store, userId);
+  const job = await career.createJob({ company: '合成企业', title: '测试岗位', major: '计算机', location: '北京', description: '用于核对账号数据归属。' });
+
+  assert.equal(await auth.configureTestLogin(shortPassword), userId);
+  await assert.rejects(auth.authenticate(existing.token), { status: 401 });
+  await assert.rejects(auth.login({ email: username, password: 'x7!' }), { status: 401, code: 'INVALID_CREDENTIALS' });
+  await assert.rejects(auth.login({ email, password: shortPassword }), { status: 400, code: 'VALIDATION_ERROR' });
+  await assert.rejects(new AuthService(store).login({ email: username, password: shortPassword }), { status: 400 });
+  await assert.rejects(auth.register({ email: username, password }), { status: 400 });
+  await assert.rejects(auth.register({ email: 'someone-else@example.test', password: shortPassword }), { status: 400 });
+  await assert.rejects(auth.resetPassword({ email, password: shortPassword, code: '654321', challengeId: '00000000-0000-4000-8000-000000000000' }), { status: 400 });
+
+  const credentials = { email: username, password: shortPassword };
+  const regular = await auth.login(credentials);
+  const administrator = await auth.login(credentials, 'local', new Set([userId]));
+  assert.equal(regular.session.user.id, userId);
+  assert.equal(regular.session.user.email, email);
+  assert.equal((await auth.authenticate(administrator.token, 'admin')).user.id, userId);
+  await assert.rejects(auth.authenticate(administrator.token), { status: 401 });
+  assert.ok((await career.workspace()).jobs.some(item => item.id === job.id));
+  assert.equal((await store.read()).users.length, 1);
+
+  assert.equal(await auth.configureTestLogin(shortPassword), userId);
+  assert.equal((await auth.authenticate(regular.token)).user.id, userId);
+  assert.equal(await auth.configureTestLogin('m3!'), userId);
+  await assert.rejects(auth.authenticate(regular.token), { status: 401 });
+  await assert.rejects(auth.authenticate(administrator.token, 'admin'), { status: 401 });
 });
 
 test('anonymous requests are rejected and logout revokes the server session', async t => {
