@@ -56,10 +56,11 @@ export function retrieveRoleGuide(targetRole: string, jobDescription = ''): Role
   const ranked = guides.map(guide => {
     const profile = profiles[guide.id];
     const found = profile.terms.filter(term => hasTerm(jobDescription, term));
-    const roleMatch = profile.roles.test(targetRole);
+    const roleMatch = profile.roles.exec(targetRole);
     const distinctive = found.filter(term => termCounts.get(term) === 1);
     // Shared tools alone are too weak to select a professional track.
-    return { guide, found, score: (roleMatch ? 10 : 0) + Math.min(6, distinctive.length * 2) + Math.min(3, found.length), eligible: roleMatch || distinctive.length >= 2 };
+    return { guide, found, score: (roleMatch ? 10 + Math.min(6, roleMatch[0].length) * 2 : 0)
+      + Math.min(6, distinctive.length * 2) + Math.min(3, found.length), eligible: !!roleMatch || distinctive.length >= 2 };
   }).filter(item => item.eligible).sort((a, b) => b.score - a.score);
   const best = ranked[0];
   if (!best || best.score === ranked[1]?.score) return null;

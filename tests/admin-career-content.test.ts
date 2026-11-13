@@ -299,3 +299,65 @@ test('admin drafts, reviewed releases and restores are atomic, auditable and vis
   assert.equal((await request(content, admin)).body.error.code, 'CAREER_CATALOG_UNAVAILABLE');
   assert.equal((await workbench()).catalogState, 'unavailable');
 });
+
+test('shared job review and publication change member search and planning together, survive reload and keep historical snapshots', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'youfang-job-publication-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const databasePath = join(directory, 'db.json'), catalogPath = join(directory, 'catalog.json');
+  const baseline = { ...sampleJob, availability: 'open', title: '供应链采购', location: '上海',
+    audience: 'campus', checkedAt: '2020-01-01T00:00:00+08:00', description: '2027届，熟悉 Excel。',
+    sourceUrl: 'https://example.test/jobs/sample' };
+  await writeFile(catalogPath, JSON.stringify({ version: 2, jobs: [baseline], materials: [], portals: [] }));
+  const { AdminCareerContent } = await import('../server/admin-career-content.js');
+  let store = new JsonStore(databasePath);
+  let admin = new AdminCareerContent(store, catalogPath);
+  const target = { kind: 'job' as const, id: baseline.id }, actor = 'catalog-editor';
+  const workspace = () => new CareerService(store, 'reader', catalogPath);
+  const { id: _id, origin: _origin, updatedAt: _updatedAt, ...job } = baseline;
+  const save = async (content: object, revision: string | null, operationId = randomUUID()) =>
+    admin.saveDraft(target, { content, revision, operationId }, actor);
+  const code = (name: string) => (error: unknown) => !!error && typeof error === 'object' && 'code' in error && error.code === name;
+  const preview = async (action: 'publish' | 'withdraw' | 'restore', sourceVersion?: number) => {
+    const input = { action, revision: (await admin.detail(target)).revision, ...(sourceVersion === undefined ? {} : { sourceVersion }) };
+    const { token } = await admin.preview(target, input);
+    return { ...input, token, operationId: randomUUID(), confirmed: true as const };
+  };
+  assert.equal((await admin.list()).find(row => row.id === baseline.id)?.needsRecheck, true);
+  await save(job, (await admin.detail(target)).revision);
+  await assert.rejects(preview('publish'), code('VALIDATION_ERROR'));
+  await assert.rejects(save({ ...job, sourceUrl: 'http://example.test/jobs/sample' }, (await admin.detail(target)).revision), code('VALIDATION_ERROR'));
+  const refreshed = { ...job, title: '供应链采购与交付', checkedAt: new Date().toISOString() };
+  const revision = (await admin.detail(target)).revision, operationId = randomUUID();
+  const saved = await save(refreshed, revision, operationId);
+  assert.deepEqual(await save(refreshed, revision, operationId), saved);
+  assert.equal((await workspace().catalogJobs())[0].title, baseline.title);
+  const old = await preview('publish');
+  await save(refreshed, (await admin.detail(target)).revision);
+  await assert.rejects(admin.apply(target, old, actor), code('CAREER_CONTENT_CONFLICT'));
+  const publish = await preview('publish');
+  const published = await admin.apply(target, publish, actor);
+  assert.deepEqual(await admin.apply(target, publish, actor), published);
+  const duplicateTarget = { kind: 'job' as const, id: `admin-${randomUUID()}` };
+  await admin.saveDraft(duplicateTarget, { content: refreshed, revision: null, operationId: randomUUID() }, actor);
+  await assert.rejects(admin.preview(duplicateTarget, { action: 'publish', revision: (await admin.detail(duplicateTarget)).revision }), code('VALIDATION_ERROR'));
+
+  store = new JsonStore(databasePath);
+  admin = new AdminCareerContent(store, catalogPath);
+  assert.equal((await workspace().workspace()).jobs[0].title, refreshed.title);
+  assert.equal((await workspace().catalogJobs())[0].title, refreshed.title);
+  assert.equal((await admin.list()).find(row => row.id === baseline.id)?.needsRecheck, false);
+  const resume = await new ResumeService(store, undefined, 'reader').createResume({ title: '合成简历', text: '参与库存盘点，使用 Excel 核对库存台账。' });
+  const planInput = { jobId: baseline.id, resumeId: resume.id, resumeRevision: 1, idempotencyKey: randomUUID() };
+  const application = await workspace().createApplication(planInput);
+  assert.equal(application.jobSnapshot.title, refreshed.title);
+  await admin.apply(target, await preview('withdraw'), actor);
+  assert.deepEqual(await workspace().catalogJobs(), []);
+  assert.equal((await workspace().workspace()).applications[0].jobSnapshot.title, refreshed.title);
+  assert.deepEqual(await workspace().createApplication(planInput), application);
+  await assert.rejects(workspace().createApplication({ ...planInput, idempotencyKey: randomUUID() }), code('NOT_FOUND'));
+  await admin.apply(target, await preview('restore', published.version), actor);
+  assert.equal((await workspace().catalogJobs())[0].title, refreshed.title);
+  const persisted = await new JsonStore(databasePath).read();
+  assert.equal(persisted.careerContent.length, 0);
+  assert.equal(persisted.careerJobContent?.length, 2);
+});

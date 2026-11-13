@@ -310,6 +310,32 @@ try {
   assert.deepEqual((await currentWorkspace()).materials, catalog.materials);
   assert.deepEqual((await currentContent()).history.map(entry => entry.action), ['restore', 'publish', 'draft']);
   checks.push('admin-reviewed-content-release-idempotent-restore-and-member-visibility');
+  const posting = `/admin/career-content/job/${sourcedJob.id}`;
+  const readPosting = async () => (await request(posting, 'GET', undefined, admin)).body.data;
+  const { id: _jobId, origin: _jobOrigin, updatedAt: _jobUpdatedAt, ...editableJob } = sourcedJob;
+  const jobDraft = { ...editableJob, checkedAt: new Date().toISOString(), title: '合成供应链规划运营复核' };
+  assert.equal((await request(posting, 'GET', undefined, owner)).status, 401);
+  assert.equal((await request(`${posting}/draft`, 'POST', { revision: (await readPosting()).revision, content: jobDraft, operationId: randomUUID() }, admin)).status, 200);
+  assert.equal((await currentWorkspace()).jobs.find(job => job.id === sourcedJob.id).title, sourcedJob.title);
+  async function publishJob(action, sourceVersion) {
+    const input = { action, revision: (await readPosting()).revision, sourceVersion };
+    const review = await request(`${posting}/preview`, 'POST', input, admin);
+    assert.equal(review.status, 200);
+    const apply = { ...input, token: review.body.data.token, operationId: randomUUID(), confirmed: true };
+    const result = await request(`${posting}/apply`, 'POST', apply, admin);
+    assert.equal(result.status, 200);
+    assert.deepEqual((await request(`${posting}/apply`, 'POST', apply, admin)).body.data, result.body.data);
+    return result.body.data.version;
+  }
+  const reviewedJobVersion = await publishJob('publish');
+  assert.equal((await currentWorkspace()).jobs.find(job => job.id === sourcedJob.id).title, jobDraft.title);
+  const reread = await new JsonStore(store.path).read();
+  assert.equal(reread.careerJobContent[0].id, sourcedJob.id);
+  await publishJob('withdraw');
+  assert.equal((await currentWorkspace()).jobs.some(job => job.id === sourcedJob.id), false);
+  await publishJob('restore', reviewedJobVersion);
+  assert.equal((await currentWorkspace()).jobs.find(job => job.id === sourcedJob.id).title, jobDraft.title);
+  checks.push('reviewed-job-publication-withdrawal-and-persisted-restore');
   const clip = fixtureVideo(), videoUploadId = randomUUID();
   const videoChunk = { uploadId: videoUploadId, index: 0, format: 'mp4', data: clip.toString('base64') };
   assert.equal((await request('/admin/career-files/chunk', 'POST', videoChunk, admin)).body.data.receivedBytes, clip.length);

@@ -8,7 +8,7 @@ const provider = new RuleAnalysisProvider();
 
 test('supply-chain JD prioritizes eligibility and shows the applicant’s actual Excel excerpt', async () => {
   const resume: Resume = { id: 'sample', revision: 2, title: '合成简历', targetRole: '供应链规划运营', createdAt: now, updatedAt: now,
-    text: '教育背景\n本科在读\n项目经历\n参与迎新活动的材料整理和部门沟通工作。\n参与库存盘点，使用 Excel 核对出入库台账。\n技能\n尚未使用 Python。' };
+    text: '教育背景\n本科在读\n技能\nExcel。\n项目经历\n参与迎新活动的材料整理和部门沟通工作。\n参与库存盘点，使用 Excel 核对出入库台账。\n技能\n尚未使用 Python。' };
   const jobDescription = '职责：跟进库容与产能。\n要求：2027届，本科及以上，熟练使用 Excel，了解 SQL、Python 或 R 中的一种。\n加分项：物流或供应链管理专业优先。';
   const report = await provider.analyze({ resume, jobDescription });
   assert.equal(report.engine, 'rules');
@@ -27,6 +27,7 @@ test('supply-chain JD prioritizes eligibility and shows the applicant’s actual
   assert.equal(report.jobReview?.items.at(-1)?.priority, 'preferred');
   assert.ok(report.jobReview?.items.every(item => !item.requirement.includes('跟进库容')));
   assert.ok(report.suggestions.every(suggestion => suggestion.needsConfirmation && suggestion.replacement.startsWith(suggestion.original)));
+  assert.equal(report.suggestions[0]?.original, '参与库存盘点，使用 Excel 核对出入库台账。');
 });
 
 test('non-technical JD surfaces certification without assuming it, generic JDs keep manual review', async () => {

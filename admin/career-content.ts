@@ -4,14 +4,16 @@ import type {
 } from '../shared/types.js';
 import { inputLimits } from '../shared/limits.js';
 import { careerFileFallbackText, careerFileFormat, careerFileLimits, careerFileMaxBytes, isCareerAttachment } from '../shared/career-attachment.js';
+import { careerJobAudienceLabels } from '../shared/career.js';
 import { button, element, formatTime } from './dom.js';
 
-const kindNames = { material: '复习资料', portal: '招聘入口' };
+const kindNames = { material: '复习资料', portal: '招聘入口', job: '招聘岗位' };
+const availabilityLabels = { open: '保留投递入口', closed: '已关闭' };
 const actionNames = { draft: '保存草稿', publish: '发布', withdraw: '下架', restore: '回滚' };
 type Target = Pick<CareerContentSummary, 'kind' | 'id'>;
 type Request = <T>(path: string, payload?: object) => Promise<T>;
 
-interface Field { name: string; label: string; max?: number; optional?: boolean; multiline?: boolean; type?: string }
+interface Field { name: string; label: string; max?: number; optional?: boolean; multiline?: boolean; type?: string; options?: Record<string, string> }
 const fields: Record<CareerContentKind, Field[]> = {
   material: [
     { name: 'title', label: '资料标题', max: 160 }, { name: 'major', label: '专业', max: 100 },
@@ -25,6 +27,16 @@ const fields: Record<CareerContentKind, Field[]> = {
     { name: 'audience', label: '适用人群', max: 120 },
     { name: 'description', label: '入口说明（纯文本）', max: 2000, multiline: true },
     { name: 'sourceUrl', label: '官方 HTTPS 入口', max: 2000, type: 'url' }, { name: 'checkedAt', label: '入口核查日期', type: 'date' },
+  ],
+  job: [
+    { name: 'company', label: '招聘单位', max: 120 }, { name: 'title', label: '岗位名称', max: 120 },
+    { name: 'major', label: '专业方向', max: 100 }, { name: 'location', label: '工作城市', max: 100 },
+    { name: 'audience', label: '招聘类型', options: careerJobAudienceLabels },
+    { name: 'description', label: '职责、任职条件与加分项', max: inputLimits.jobDescription, multiline: true },
+    { name: 'companyOverview', label: '单位简介', max: 5000, optional: true, multiline: true },
+    { name: 'sourceLabel', label: '来源名称', max: 200 }, { name: 'sourceUrl', label: '官方 HTTPS 岗位详情', type: 'url', max: 2000 },
+    { name: 'checkedAt', label: '来源核对日期', type: 'date' }, { name: 'deadline', label: '报名截止日期', type: 'date', optional: true },
+    { name: 'availability', label: '岗位状态', options: availabilityLabels },
   ],
 };
 
@@ -41,10 +53,16 @@ function draftInput(kind: CareerContentKind, form: HTMLFormElement, source: Care
     const { title, major, role, summary, content, sourceLabel } = input;
     return { title, major, role, summary, content, sourceLabel, ...(sourceUrl ? { sourceUrl } : {}), ...(attachment ? { attachment } : {}) };
   }
-  const { organization, audience, description, majors, checkedAt } = input;
   const originalDate = fieldValue(source, 'checkedAt');
+  const checkedAt = originalDate.slice(0, 10) === input.checkedAt ? originalDate : `${input.checkedAt}T00:00:00+08:00`;
+  if (kind === 'job') {
+    const { company, title, major, location, description, companyOverview, sourceLabel, deadline, audience, availability } = input;
+    return { company, title, major, location, description, companyOverview, sourceLabel, sourceUrl, ...(deadline ? { deadline } : {}),
+      audience: audience as keyof typeof careerJobAudienceLabels, availability: availability as keyof typeof availabilityLabels, checkedAt };
+  }
+  const { organization, audience, description, majors } = input;
   return { organization, audience, description, sourceUrl, majors: majors.split('\n').map(value => value.trim()).filter(Boolean),
-    checkedAt: originalDate.slice(0, 10) === checkedAt ? originalDate : `${checkedAt}T00:00:00+08:00` };
+    checkedAt };
 }
 
 function attachmentLink(file: CareerAttachment) {
@@ -108,7 +126,8 @@ function contentPreview(label: string, kind: CareerContentKind, value: CareerCon
     }
     for (const field of fields[kind]) {
       if (field.name === 'content' && 'attachment' in value && value.attachment && value.content === careerFileFallbackText) continue;
-      entries.append(element('dt', field.label), element('dd', fieldValue(value, field.name) || '—'));
+      const raw = fieldValue(value, field.name);
+      entries.append(element('dt', field.label), element('dd', (field.options?.[raw] ?? raw) || '—'));
     }
     panel.append(entries);
   }
@@ -129,12 +148,16 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
   feedback.setAttribute('role', 'status');
   const query = element('input');
   query.type = 'search';
-  query.placeholder = '搜索标题或机构';
+  query.placeholder = '搜索标题、机构或编号';
   query.setAttribute('aria-label', '搜索求职内容');
   const selector = element('select');
   selector.setAttribute('aria-label', '求职内容类型');
   for (const [key, label] of Object.entries(kindNames)) selector.add(new Option(label, key));
   const catalog = element('div', undefined, 'content-list');
+  const recheck = element('label', undefined, 'content-confirmation');
+  const recheckOnly = element('input');
+  recheckOnly.type = 'checkbox';
+  recheck.append(recheckOnly, element('span', '只看待复核岗位'));
   const controls = element('div', undefined, 'content-actions');
   const add = button('新建草稿', () => {
     if (!canLeave()) return;
@@ -147,7 +170,7 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
     showEditor(current);
   }, 'primary');
   controls.append(selector, add);
-  library.append(controls, query, catalog);
+  library.append(controls, query, recheck, catalog);
   wrapper.append(library, editor);
   root.append(feedback, wrapper);
 
@@ -155,11 +178,13 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
 
   function renderList() {
     const needle = query.value.trim().toLowerCase();
-    const matching = rows.filter(row => row.kind === kind && (!needle || row.title.toLowerCase().includes(needle) || row.id.toLowerCase().includes(needle)));
+    recheck.hidden = kind !== 'job';
+    const matching = rows.filter(row => row.kind === kind && (kind !== 'job' || !recheckOnly.checked || row.needsRecheck)
+      && (!needle || row.title.toLowerCase().includes(needle) || row.id.toLowerCase().includes(needle)));
     catalog.replaceChildren();
     for (const row of matching) {
       const item = button('', () => void select(row), 'content-list-item');
-      item.append(element('strong', row.title), element('small', [row.live ? '已展示' : '未展示', ...(row.hasDraft ? ['有草稿'] : [])].join(' · ')));
+      item.append(element('strong', row.title), element('small', [row.live ? '已展示' : '未展示', ...(row.hasDraft ? ['有草稿'] : []), ...(row.needsRecheck ? ['来源待复核'] : [])].join(' · ')));
       if (current?.id === row.id && current.kind === row.kind) item.setAttribute('aria-current', 'true');
       catalog.append(item);
     }
@@ -223,11 +248,15 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
     let pendingSave: { fingerprint: string; id: string } | undefined;
     for (const field of fields[target.kind]) {
       const label = element('label');
-      const control = field.multiline ? element('textarea') : element('input');
+      const control = field.options ? element('select') : field.multiline ? element('textarea') : element('input');
       label.append(element('span', field.label), control);
       control.name = field.name;
       control.required = !field.optional && !(field.name === 'content' && attachment);
-      if (field.max) control.maxLength = field.max;
+      if (field.max && !(control instanceof HTMLSelectElement)) control.maxLength = field.max;
+      if (control instanceof HTMLSelectElement) {
+        control.add(new Option('请选择', ''));
+        for (const [key, label] of Object.entries(field.options ?? {})) control.add(new Option(label, key));
+      }
       if (control instanceof HTMLInputElement) control.type = field.type ?? 'text';
       if (control instanceof HTMLTextAreaElement) control.rows = field.name === 'content' ? 9 : 3;
       const value = fieldValue(source, field.name);
@@ -356,14 +385,16 @@ export function renderCareerContent(root: HTMLElement, initial: CareerContentSum
       history.append(log);
     }
     const label = detail?.live ? '已在工作台展示' : '当前未展示';
-    const advice = target.kind === 'portal' ? '请核实入口归属、链接和核查日期。入口只供查阅招聘渠道。' : '填写资料来源与正文，保存后可在发布预览中与当前版本对照。';
+    const advice = target.kind === 'job' ? '打开官方岗位详情，核对城市、任职条件、申请状态与截止日期。官网未给出截止日期时可留空。'
+      : target.kind === 'portal' ? '请核实入口归属、链接和核查日期。入口只供查阅招聘渠道。' : '填写资料来源与正文，保存后可在发布预览中与当前版本对照。';
     editor.replaceChildren(element('h2', `${detail ? '编辑' : '新建'}${kindNames[target.kind]}`),
       element('p', `${label}${detail?.draft ? ' · 有已保存草稿' : ''}`, 'help'), element('p', advice, 'help'),
       form, reviewActions, preview, history);
   }
 
   query.addEventListener('input', renderList);
-  selector.addEventListener('change', () => { kind = selector.value === 'portal' ? 'portal' : 'material'; renderList(); });
+  recheckOnly.addEventListener('change', renderList);
+  selector.addEventListener('change', () => { kind = selector.value as CareerContentKind; renderList(); });
   renderList();
   editor.append(element('h2', '选择资料或新建草稿'), element('p', '保存草稿后可预览发布。确认后，新版本会显示在高级会员工作台。', 'help'));
   return { canLeave, hasChanges: () => dirty || busy };

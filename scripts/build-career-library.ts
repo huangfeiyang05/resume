@@ -35,11 +35,14 @@ const resumeMaterials: CareerMaterial[] = playbooks.tracks.map(track => ({
   ].join('\n\n'), sourceLabel: '简历有方原创专业提示卡（本次整理）', updatedAt: '2026-10-27T00:00:00+08:00',
 }));
 const catalog = validateCareerCatalog({ version: 2, jobs, materials: [...resumeMaterials, ...techMaterials, ...generalMaterials], portals: [...techPortals, ...generalPortals] });
+const jobLinks = new Set<string>();
 for (const job of catalog.jobs) {
   if (!job.sourceUrl?.startsWith('https://') || !job.audience || !Object.hasOwn(careerJobAudienceLabels, job.audience)
     || !job.checkedAt || !playbooks.tracks.some(track => track.name === job.major)) {
     throw new Error(`Job requires an HTTPS source, review date, audience and an existing major: ${job.id}`);
   }
+  if (jobLinks.has(job.sourceUrl)) throw new Error(`Duplicate official job link: ${job.id}`);
+  jobLinks.add(job.sourceUrl);
 }
 for (const track of playbooks.tracks) {
   if (!catalog.materials.some(item => item.major === track.name && !item.id.startsWith('resume-guide-'))) throw new Error(`Missing preparation material: ${track.name}`);

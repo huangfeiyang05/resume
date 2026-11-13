@@ -10,6 +10,7 @@ import { validateCompanyId } from './company-validation.js';
 import { resumeContentHash } from './resume-history.js';
 import { HttpError, invalid } from './errors.js';
 import type { ResumeService } from './service.js';
+import { reviewJobDescription } from './job-review.js';
 
 function object(value: unknown, keys: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid('求职助手请求必须是 JSON 对象。');
@@ -207,19 +208,31 @@ function criteria(parsed: Parsed, catalog: CompanyCatalogSnapshot) {
 
 function findOfficialJobs(jobs: CareerJob[], parsed: Parsed, now: number): CareerJob[] {
   const { recruitmentTypes, cohorts, educationLevels, industries } = parsed.facetTerms;
-  if (parsed.natures.length || industries?.length || educationLevels?.length) return [];
+  if (parsed.natures.length || industries?.length) return [];
   const today = new Date(now + 8 * 3600_000).toISOString().slice(0, 10);
+  const educationLabel = (value: string) => value.replace(/(?:及以上|以上)$/, '').replace('专科', '大专').replace('研究生', '硕士');
+  const matchesTerm = (value: string, term: string) => termPattern(normalizeCompanyText(term)).test(normalizeCompanyText(value));
   return jobs.filter(job => job.origin === 'catalog' && job.sourceUrl?.startsWith('https://') && job.checkedAt && job.availability === 'open'
     && !careerJobIsStale(job, now) && (!job.deadline || job.deadline >= today))
     .filter(job => !parsed.cities.length || parsed.cities.some(city => assistantLocationMatches(job.location, city)))
     .filter(job => parsed.companyTerms.every(term => normalizeCompanyText(job.company).includes(normalizeCompanyText(term))))
-    .filter(job => parsed.queryTerms.every(term => normalizeCompanyText(`${job.title} ${job.major} ${job.description}`).includes(normalizeCompanyText(term))))
-    .filter(job => !cohorts?.length || cohorts.some(cohort => cohort === '应届生'
-      ? job.audience === 'campus' || job.audience === 'early-career'
-      : new RegExp(`(?<!\\d)(?:${cohort.slice(0, 4)}|${cohort.slice(2, 4)})\\s*届`).test(`${job.title} ${job.description}`)))
+    .filter(job => parsed.queryTerms.every(term => matchesTerm(`${job.title} ${job.major} ${job.description}`, term)))
+    .filter(job => !cohorts?.length || cohorts.some(cohort => {
+      if (cohort === '应届生') return job.audience === 'campus' || job.audience === 'early-career';
+      const text = `${job.title} ${job.description}`;
+      return [...text.matchAll(/(?<!\d)(20\d{2}|\d{2})\s*届(?:\s*(及以后|之后|以后))?/g)].some(match => {
+        const year = Number(match[1].length === 2 ? `20${match[1]}` : match[1]);
+        const requested = Number(cohort.slice(0, 4));
+        return match[2] ? requested >= year : requested === year;
+      });
+    }))
     .filter(job => !recruitmentTypes?.length || recruitmentTypes.some(value => Object.hasOwn(officialAudience, value)
       ? officialAudience[value] === job.audience : `${job.title} ${job.description} ${job.sourceLabel}`.includes(value)))
-    .sort((a, b) => b.checkedAt!.localeCompare(a.checkedAt!) || a.id.localeCompare(b.id)).slice(0, 5);
+    .filter(job => !educationLevels?.length || reviewJobDescription(job.description, '', [])?.items
+      .some(item => item.priority === 'eligibility' && educationLevels.some(label => assistantLocationMatches(item.requirement, educationLabel(label)))))
+    .map(job => ({ job, titleMatches: parsed.queryTerms.filter(term => matchesTerm(job.title, term)).length }))
+    .sort((a, b) => b.titleMatches - a.titleMatches || Date.parse(b.job.checkedAt!) - Date.parse(a.job.checkedAt!) || a.job.id.localeCompare(b.job.id))
+    .slice(0, 5).map(({ job }) => job);
 }
 
 /** Stateless, deterministic query help. It never invokes a model, sends data or mutates a resume. */
@@ -246,7 +259,7 @@ export async function answerCareerAssistant(service: ResumeService, companies: C
     .filter(job => parsed.queryTerms.every(term => normalizeCompanyText(`${job.title} ${job.major} ${job.description} ${job.company}`).includes(normalizeCompanyText(term))))
     .filter(job => parsed.companyTerms.every(term => normalizeCompanyText(job.company).includes(normalizeCompanyText(term))))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)).slice(0, 5).map(({ userId: _owner, ...job }) => job);
-  if (personalJobs.length && Object.keys(filters).some(key => key !== 'locations') && parsed.unverified.length < 10) parsed.unverified.push('企业性质、行业、学历、届别或招聘类型条件仅用于企业资料库；个人岗位缺少统一核验字段，不保证满足这些条件。');
+  if (personalJobs.length && Object.keys(filters).some(key => key !== 'locations') && parsed.unverified.length < 10) parsed.unverified.push('个人岗位缺少统一核验字段，企业性质、行业、学历、届别和招聘类型请按来源核对。');
   if (resume && (await service.getResume(resume.id)).revision !== resume.revision) throw new HttpError(409, 'REVISION_CONFLICT', '问答期间简历已变化，请重新读取后再试。');
   const wantsAnalysis = /优化|修改|改写|润色|诊断|分析.*简历|改.*简历/.test(`${input.requirements}\n${input.message}`);
   const action = wantsAnalysis && resume ? { type: 'analyze-resume' as const, resumeId: resume.id, revision: resume.revision, targetRole: (parsed.queryTerms[0] ?? resume.targetRole).slice(0, 120) } : undefined;

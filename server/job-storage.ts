@@ -13,7 +13,9 @@ export interface StoredAnalysisTask {
   model?: string;
   /** Legacy queue format identifier, retained for release rollback. */
   workflowVersion: 'rules-and-model-v1';
-  analysisVersion?: typeof analysisWorkflowVersion;
+  /** Compatibility marker understood by the preceding release. */
+  analysisVersion?: 'jd-evidence-v1';
+  diagnosisWorkflowVersion?: typeof analysisWorkflowVersion;
   modelSettings?: AnalysisProvider['modelSettings'];
   roleGuide?: RoleGuide | null;
 }
@@ -38,7 +40,8 @@ export function normalizeAnalysisTasks(source: Record<string, unknown>): Analysi
     const task = value as StoredAnalysisTask;
     if (!task || typeof task.userId !== 'string' || !task.userId || !task.job || !task.snapshot
       || !['rules', 'bailian'].includes(task.engine) || task.workflowVersion !== 'rules-and-model-v1'
-      || (task.analysisVersion !== undefined && (task.analysisVersion !== analysisWorkflowVersion || task.roleGuide === undefined))
+      || (task.analysisVersion !== undefined && (task.analysisVersion !== 'jd-evidence-v1' || task.roleGuide === undefined))
+      || (task.diagnosisWorkflowVersion !== undefined && (task.diagnosisWorkflowVersion !== analysisWorkflowVersion || task.roleGuide === undefined))
       || (task.roleGuide != null && !validGuide(task.roleGuide))
       || (task.modelSettings !== undefined && (!task.modelSettings || typeof task.modelSettings.promptVersion !== 'string'
         || !Number.isFinite(task.modelSettings.temperature) || !Number.isSafeInteger(task.modelSettings.maxTokens) || task.modelSettings.maxTokens < 1))

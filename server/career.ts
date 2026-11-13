@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerWorkspace, Resume } from '../shared/types.js';
 import { careerJobIsStale } from '../shared/career.js';
 import { hasUnresolvedPlaceholders } from './analysis.js';
-import { careerCatalogLocation, loadCareerCatalog, publishedCareerCatalog, type CareerCatalog } from './career-catalog.js';
+import { careerCatalogLocation, loadCareerCatalog, publishedCareerCatalog, publishedCareerJobs, type CareerCatalog } from './career-catalog.js';
 import { careerMedia } from './career-content-storage.js';
 import { careerId, careerObject, careerRevision, validateApplicationCreate, validateApplicationUpdate, validateCareerJobInput, type StoredCareerApplication, type StoredCareerJob } from './career-validation.js';
 import { HttpError, invalid, notFound } from './errors.js';
@@ -29,7 +29,7 @@ export class CareerService {
   private findJob(database: Database, catalog: CareerCatalog, id: string): CareerJob {
     const ownJob = database.careerJobs.find(item => item.id === id && item.userId === this.userId);
     if (ownJob) return publicJob(ownJob);
-    return catalog.jobs.find(item => item.id === id) ?? notFound('岗位');
+    return publishedCareerJobs(catalog, database.careerJobContent).find(item => item.id === id) ?? notFound('岗位');
   }
   private findResume(database: Database, id: string, revision: number): Resume {
     const resume = database.resumes.find(item => item.id === id && item.userId === this.userId) ?? notFound('简历');
@@ -40,10 +40,13 @@ export class CareerService {
     const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
     if (job.availability !== 'open' || (job.deadline && job.deadline < today)) throw new HttpError(409, 'JOB_UNAVAILABLE', '该岗位已关闭或超过截止日期，不能继续建立或确认投递。');
   }
-  async catalogJobs() { return (await this.catalog()).jobs; }
+  async catalogJobs() {
+    const [database, catalog] = await Promise.all([this.store.read(), this.catalog()]);
+    return publishedCareerJobs(catalog, database.careerJobContent);
+  }
   private async publishedCatalog() {
     const [database, base] = await Promise.all([this.store.read(), this.catalog()]);
-    return { database, catalog: publishedCareerCatalog(base, database.careerContent, careerMedia(database)) };
+    return { database, catalog: publishedCareerCatalog(base, [...database.careerContent, ...(database.careerJobContent ?? [])], careerMedia(database)) };
   }
   async materialFile(id: string, fileId: string) {
     const { catalog } = await this.publishedCatalog();
@@ -92,8 +95,8 @@ export class CareerService {
     const favorite = input.favorite;
     const catalog = await this.catalog();
     return this.store.mutate(database => {
-      this.findJob(database, catalog, id);
       const exists = database.careerFavorites.some(item => item.userId === this.userId && item.jobId === id);
+      if (favorite || !exists) this.findJob(database, catalog, id);
       if (favorite && !exists) database.careerFavorites.push({ userId: this.userId, jobId: id });
       if (!favorite) database.careerFavorites = database.careerFavorites.filter(item => item.userId !== this.userId || item.jobId !== id);
       return { jobId: id, favorite };

@@ -212,7 +212,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 ## 求职工作台
 
-`CareerJob` 的共享岗位可附招聘类型 `audience`（`campus / internship / experienced / early-career`）与来源核对时间 `checkedAt`。带核对时间且达到 30 天的共享岗位拒绝新建计划，返回 `JOB_RECHECK_REQUIRED`。旧目录及个人岗位可省略这些字段。助手可在 `officialJobs` 返回最多五条近期复核且符合已识别条件的公开岗位摘要，企业历史结果和个人岗位继续使用原字段。
+`CareerJob` 的共享岗位可附招聘类型 `audience`（`campus / internship / experienced / early-career`）与来源核对时间 `checkedAt`。带核对时间且达到 30 天的共享岗位拒绝新建计划，返回 `JOB_RECHECK_REQUIRED`。旧目录及个人岗位可省略这些字段。助手可在 `officialJobs` 返回最多五条近期复核且符合已识别条件的公开岗位摘要，企业历史结果和个人岗位继续使用原字段。 管理员可通过现有 `/admin/career-content/job/{id}` 及 `/draft`、`/preview`、`/apply` 维护共享岗位。草稿须提供官方 HTTPS 详情、类型与已发生的核对日期，发布受修订、预览确认和幂等标识约束。已发布版本供工作台、助手和新投递计划共用。
 
 所有 `/career` 接口要求有效会话，个人数据从会话确定归属。2026-11-07 起按上述工作台会员规则校验：高级可读取完整工作台，免费和初级的 `GET /career` 保留 `mode: preview` 与 `externalDeliveryAvailable: false`，但 `catalogState: empty`，`jobs`、`materials`、`portals`、`favoriteJobIds`、`applications` 均为空；`catalogMessage` 提示升级高级。这里的空数组表示当前权限不下发数据，不证明服务器目录为空，也不删除账号已有资料。权限校验后才提供资料正文、企业详情、筛选计数和招聘链接，不能仅靠前端样式隐藏。
 

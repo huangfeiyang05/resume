@@ -362,6 +362,12 @@ test('assistant surfaces recent official jobs and stale posts remain usable as r
   assert.equal(assistant.status, 200);
   assert.deepEqual(assistant.body.data.officialJobs.map((item: CareerJob) => item.id), [job.id]);
   assert.equal(assistant.body.data.companyTotal, 0);
+  const java = { ...job, id: 'fresh-java', title: 'Java 开发', description: '要求：2027届，本科及以上。熟悉 Java。' };
+  const javascript = { ...job, id: 'fresh-js', title: 'JavaScript 开发', description: '要求：2027届，本科及以上。熟悉 JavaScript。' };
+  const graduate = { ...job, id: 'fresh-master', title: 'Java 开发（研究生）', description: '要求：2027届，硕士及以上。熟悉 Java。' };
+  await f.catalog([stale, job, java, javascript, graduate]);
+  const filtered = await request('/career/assistant', 'POST', { ...query, message: '找上海2027届本科校招 Java 岗位' });
+  assert.deepEqual(filtered.body.data.officialJobs.map((item: CareerJob) => item.id), [java.id]);
   const resume = (await request('/resumes', 'POST', { title: '合成简历', text: resumeText })).body.data as Resume;
   const plan = { resumeId: resume.id, resumeRevision: 1, idempotencyKey: 'plan-review-stale', jobId: stale.id };
   const stalePlan = await request('/career/applications', 'POST', plan);

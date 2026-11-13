@@ -41,7 +41,7 @@
 
 底稿优先来自与账号数据库同目录的 `career-catalog.json`，默认路径为 `.data/career-catalog.json`。该文件不存在时使用 `server/assets/career/catalog.json` 中的公开原创资料。自定义目录完整替换打包目录。测试可通过 `createApiServer` 的 `careerCatalogPath` 显式指定临时文件，此时缺失文件的底稿为空目录。
 
-管理后台将已发布版本按类型和 ID 应用到当前底稿。后台发布、下架及回滚只影响相应条目，草稿保存在账号库的 `careerContent` 字段，由管理员单独读取。具体共享岗位仍从底稿读取，个人岗位和投递数据继续按账号隔离。编辑流程见 [管理后台说明](admin.md)。
+管理后台将已发布版本按类型和 ID 应用到当前底稿。后台发布、下架及回滚只影响相应条目，草稿保存在账号库的 `careerContent` 字段，由管理员单独读取。具体共享岗位也支持后台草稿、复核、发布、下架和回滚。岗位编辑记录单独保存在账号库的 `careerJobContent` 字段，既有个人岗位和投递数据继续按账号隔离。编辑流程见 [管理后台说明](admin.md)。
 
 初始格式见 [空目录示例](career-catalog.example.json)：
 

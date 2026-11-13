@@ -1,5 +1,5 @@
 import { careerContentKinds, type CareerContentAction, type CareerContentKind, type CareerContentValue } from '../shared/career-content.js';
-import { careerId, careerObject, validateCatalogMaterial, validateRecruitmentPortal } from './career-validation.js';
+import { careerId, careerObject, validateCatalogJob, validateCatalogMaterial, validateRecruitmentPortal } from './career-validation.js';
 import { invalid } from './errors.js';
 import { quotaIdentifier, quotaInstant } from './quota-storage.js';
 import { isCareerAttachment, type CareerAttachment } from '../shared/career-attachment.js';
@@ -41,7 +41,7 @@ export function careerContentVersion(value: unknown): number {
 }
 
 export function careerContentValue(kind: CareerContentKind, id: string, value: unknown): CareerContentValue {
-  const item = kind === 'material' ? validateCatalogMaterial(value) : validateRecruitmentPortal(value);
+  const item = kind === 'job' ? validateCatalogJob(value) : kind === 'material' ? validateCatalogMaterial(value) : validateRecruitmentPortal(value);
   if (item.id !== id) invalid('内容标识不一致。');
   return item;
 }
@@ -92,7 +92,7 @@ export function normalizeCareerAttachments(value: unknown, entries: StoredCareer
   }));
 }
 
-export function normalizeCareerContent(value: unknown): StoredCareerContent[] {
+export function normalizeCareerContent(value: unknown, jobs = false): StoredCareerContent[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || Buffer.byteLength(JSON.stringify(value)) > careerHistoryMaxBytes) throw new Error('Invalid career content history.');
   const keys = new Set<string>();
@@ -100,6 +100,7 @@ export function normalizeCareerContent(value: unknown): StoredCareerContent[] {
   return value.map(raw => {
     const item = careerObject(raw, ['kind', 'id', 'baseline', 'changes']);
     const kind = careerContentKind(item.kind), id = careerId(item.id);
+    if ((kind === 'job') !== jobs) throw new Error('Invalid career content history category.');
     const key = careerContentKey(kind, id);
     if (keys.has(key) || !Array.isArray(item.changes) || !item.changes.length) throw new Error('Invalid career content history.');
     keys.add(key);

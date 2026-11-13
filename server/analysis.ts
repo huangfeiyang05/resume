@@ -4,7 +4,7 @@ import { inputLimits } from '../shared/limits.js';
 import { reviewJobDescription } from './job-review.js';
 import { hasTerm, retrieveRoleGuide, reviewTerms } from './role-guides.js';
 
-export const analysisWorkflowVersion = 'jd-evidence-v1';
+export const analysisWorkflowVersion = 'jd-evidence-v2';
 
 export interface AnalysisContext {
   resume: Resume;
@@ -56,7 +56,7 @@ const hasMeasuredImpact = (line: string) => /\d+(?:\.\d+)?\s*(?:%|％|倍|万元
   || /(?:提升|降低|减少|增长|节省|缩短|覆盖|服务|支撑|处理|完成|提高)[^。；\n]{0,16}\d+/i.test(line);
 
 const responsibilityPattern = /(?:负责|参与|协助|完成|承担|跟进|维护|responsible for|assisted|participated)/i;
-const actionPattern = /(?:设计|实现|搭建|重构|优化|推动|解决|交付|开发|上线|built|designed|implemented|improved|delivered|reduced|launched)/i;
+const actionPattern = /(?:设计|实现|搭建|重构|优化|推动|解决|交付|开发|上线|核对|编写|built|designed|implemented|improved|delivered|reduced|launched)/i;
 export const hasUnresolvedPlaceholders = (text: string): boolean => /\[请填写真实[^\]]*\]/.test(text);
 
 function affirmativeMatch(line: string, pattern: RegExp): string | undefined {
@@ -138,10 +138,11 @@ export class RuleAnalysisProvider implements AnalysisProvider {
 
     const addIssue = (issue: Omit<AnalysisIssue, 'id'>) => issues.push({ id: randomUUID(), ...issue });
     const addSuggestion = (suggestion: Omit<AnalysisSuggestion, 'id' | 'applied'>) => suggestions.push({ id: randomUUID(), applied: false, ...suggestion });
-    const evidenceLines = new Set(jobReview?.items.filter(item => item.priority === 'required')
-      .flatMap(item => item.evidence.flatMap(({ excerpt }) => excerpt ? [excerpt] : [])));
+    const evidenceLines = jobReview?.items.filter(item => item.priority === 'required')
+      .flatMap(item => item.evidence.flatMap(({ excerpt }) => excerpt ? [excerpt] : [])) ?? [];
+    const relevant = (line: string) => evidenceLines.some(excerpt => line.includes(excerpt));
     const candidates = [...new Set(unmeasured)].filter(original => uniquelyLocated(text, original))
-      .sort((a, b) => Number(evidenceLines.has(b)) - Number(evidenceLines.has(a)))
+      .sort((a, b) => Number(relevant(b)) - Number(relevant(a)))
       .map(contributionSuggestion).filter(suggestion => suggestion.replacement.length <= inputLimits.replacement).slice(0, 3);
 
     if (unmeasured.length) {

@@ -51,6 +51,7 @@ export interface Database extends CareerStorage, AnalysisTaskStorage, QuotaStora
   resumeVersions: StoredResumeVersion[];
   resumeRestores: StoredResumeRestore[];
   careerContent: StoredCareerContent[];
+  careerJobContent?: StoredCareerContent[];
 }
 
 /** One process owns this file. Mutations are serialized and committed atomically. */
@@ -146,6 +147,7 @@ export class JsonStore {
         || new Set(parsed.users.map((user: StoredUser) => user.id)).size !== parsed.users.length
         || new Set(phoneChallenges.map((challenge: StoredPhoneChallenge) => challenge.id)).size !== phoneChallenges.length) throw new Error('Duplicate account identifiers.');
       const careerContent = normalizeCareerContent(parsed.careerContent);
+      const careerJobContent = normalizeCareerContent(parsed.careerJobContent, true);
       const careerAttachments = normalizeCareerAttachments(parsed.careerAttachments, careerContent);
       const careerVideos = normalizeCareerAttachments(parsed.careerVideos, careerContent, true);
       if (Object.keys(careerVideos).some(key => Object.hasOwn(careerAttachments, key))) throw new Error('Duplicate career media reference.');
@@ -169,7 +171,7 @@ export class JsonStore {
           throw new Error('Refund has no matching membership event.');
         }
       }
-      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...quota, ...payment, refunds, pricingHistory, careerContent, careerAttachments, careerVideos };
+      return { ...parsed, phoneChallenges, ...normalizeCareerStorage(parsed), ...normalizeResumeHistory(parsed, parsed.resumes), ...normalizeAnalysisTasks(parsed), ...quota, ...payment, refunds, pricingHistory, careerContent, careerJobContent, careerAttachments, careerVideos };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       return { version: this.environment === 'test' ? 5 : 3, ...(this.environment === 'test' ? { environment: 'test' as const } : {}),

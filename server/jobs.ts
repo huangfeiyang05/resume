@@ -80,7 +80,8 @@ export class AnalysisJobs {
       inputHash: hash({ snapshot, targetRole, jobDescription: input.jobDescription ?? '', engine: service.provider.name, model: service.provider.model ?? null,
         modelSettings, workflowVersion: analysisWorkflowVersion, roleGuide }),
       engine: realModel ? 'bailian' : 'rules', ...(service.provider.model ? { model: service.provider.model } : {}),
-      ...(modelSettings ? { modelSettings } : {}), workflowVersion: 'rules-and-model-v1', analysisVersion: analysisWorkflowVersion, roleGuide,
+      ...(modelSettings ? { modelSettings } : {}), workflowVersion: 'rules-and-model-v1', analysisVersion: 'jd-evidence-v1',
+      diagnosisWorkflowVersion: analysisWorkflowVersion, roleGuide,
     };
     await service.store.mutate(data => { data.analysisTasks.push(task); });
     try {

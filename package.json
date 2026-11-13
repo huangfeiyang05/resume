@@ -23,7 +23,8 @@
     "build:release": "npm run build && npm run build:admin && npm run build:server && node scripts/package-release.mjs && npm run release:verify",
     "release:verify": "node deploy/verify-release.mjs dist/release",
     "type-check": "vue-tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "diagnosis:evaluate": "tsx scripts/evaluate-diagnosis.ts"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5020420260813003",

@@ -48,14 +48,26 @@ export function publishedCareerCatalog(base: CareerCatalog, entries: StoredCaree
     const { published } = projectCareerContent(entry, attachments);
     if (published === undefined) continue;
     if (entry.kind === 'material') {
-      if (published && 'title' in published) materials.set(entry.id, published);
+      if (published && 'content' in published) materials.set(entry.id, published);
       else materials.delete(entry.id);
-    } else {
+    } else if (entry.kind === 'portal') {
       if (published && 'organization' in published) portals.set(entry.id, published);
       else portals.delete(entry.id);
     }
   }
-  return catalogView({ jobs: base.jobs, materials: [...materials.values()], portals: [...portals.values()] });
+  return catalogView({ jobs: publishedCareerJobs(base, entries), materials: [...materials.values()], portals: [...portals.values()] });
+}
+
+export function publishedCareerJobs(base: CareerCatalog, entries: StoredCareerContent[] = []) {
+  if (base.state === 'unavailable' || !entries.length) return base.jobs;
+  const jobs = new Map(base.jobs.map(item => [item.id, item]));
+  for (const entry of entries) {
+    if (entry.kind !== 'job') continue;
+    const { published } = projectCareerContent(entry);
+    if (published === null) jobs.delete(entry.id);
+    else if (published && 'origin' in published) jobs.set(entry.id, published);
+  }
+  return [...jobs.values()];
 }
 
 export function careerCatalogLocation(databasePath: string, customPath?: string) {
