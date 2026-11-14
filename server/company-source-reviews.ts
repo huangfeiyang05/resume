@@ -25,6 +25,22 @@ export function companySourceReview(record: CompanyRecord): CompanyDetail['sourc
       sourceUrl: 'https://seed.bytedance.com/zh/blog/bytedance-seed-2027-foundation-model-campus-recruitment-is-now-open-internships-included',
     };
   }
+  if (recruitmentUrl === 'https://www.hzmetrojob.com/posts-school' && record.name === '杭州地铁运营有限公司(第二批)'
+    && record.cohorts.some(label => recruitmentCohortYear(label) === 2026)) {
+    return {
+      status: 'historical', checkedAt,
+      note: '高校就业网存档确认这是杭州地铁运营有限公司 26 届春招第二批，且该批公告已过期。原投递页在核对时已无法打开。',
+      sourceUrl: 'https://jysd.bigc.edu.cn/campus/view/id/869029',
+    };
+  }
+  if (recruitmentUrl === 'https://hr.sensetime.com/SU6522677e1c240e3d6825d64c/pb/school.html'
+    && record.name === '商汤科技' && record.recruitmentTypes.includes('暑期实习')) {
+    return {
+      status: 'unavailable', checkedAt,
+      note: '原暑期实习链接在核对时已无法打开。商汤另有 27 届校招公告，面向 2026 年 9 月至 2027 年 12 月毕业的本硕博。官网同时列有独立的实习招聘，投递条件以各岗位公告为准。',
+      sourceUrl: 'https://hr.sensetime.com/campus/',
+    };
+  }
   if (recruitmentUrl && unavailableLinks.has(createHash('sha256').update(recruitmentUrl).digest('hex'))) {
     return { status: 'unavailable', checkedAt, note: '两次检查均未找到原链接指向的页面。请在招聘方官网查询该职位的最新公告。' };
   }
