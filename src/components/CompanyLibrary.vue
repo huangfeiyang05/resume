@@ -75,8 +75,17 @@ function addJob() { if (selected.value) { emit('addJob', selected.value); c.clos
       <template v-else-if="selected">
         <view class="company-detail-fields"><view v-for="key in companyFilterKeys" :key="key"><text selectable>{{ labels[key] }}</text><text class="company-selectable" selectable>{{ key === 'natures' ? selected.nature || '未提供' : selected[key].join('、') || '未提供' }}</text></view></view>
         <text v-if="selected.aliases.length" class="company-body company-selectable" selectable>别名：{{ selected.aliases.join('、') }}</text>
+        <view v-if="selected.sourceReview" class="company-detail-source">
+          <text selectable>来源核对 · {{ selected.sourceReview.checkedAt.slice(0, 10) }}</text>
+          <text selectable>{{ selected.sourceReview.note }}</text>
+          <button v-if="selected.sourceReview.sourceUrl" class="text-button" @click="copy(selected.sourceReview.sourceUrl)" role="button" tabindex="0">复制官网公告链接<AppIcon name="copy" :size="14" /></button>
+        </view>
         <text v-if="selected.summary" class="company-prose company-selectable" selectable>{{ selected.summary }}</text>
-        <view v-if="selected.recruitmentUrl" class="company-detail-source"><text selectable>招聘资料链接</text><text class="company-url" selectable>{{ selected.recruitmentUrl }}</text><button class="text-button" @click="copy(selected.recruitmentUrl)" role="button" tabindex="0">复制招聘链接<AppIcon name="copy" :size="14" /></button></view>
+        <view v-if="selected.recruitmentUrl" class="company-detail-source">
+          <text selectable>{{ selected.sourceReview ? '原资料链接' : '招聘资料链接' }}</text>
+          <text class="company-url" selectable>{{ selected.recruitmentUrl }}</text>
+          <button v-if="!selected.sourceReview" class="text-button" @click="copy(selected.recruitmentUrl)" role="button" tabindex="0">复制招聘链接<AppIcon name="copy" :size="14" /></button>
+        </view>
         <view class="company-detail-footer"><button class="button primary" @click="addJob" role="button" tabindex="0">添加目标岗位<AppIcon name="plus" :size="14" /></button></view>
       </template>
     </AppModal>

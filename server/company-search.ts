@@ -42,7 +42,7 @@ function index(records: readonly CompanyRecord[]): IndexedCompany[] {
     for (const field of fields) original[field] = [...new Set([...original[field], ...values[field]])];
     return {
       record, name: normalizeCompanyText(record.name), values, keywords: original,
-      cohortFacets: companyCohortFacets(source.cohorts),
+      cohortFacets: companyCohortFacets(record.cohorts),
     };
   });
   // Repository snapshots are frozen. Mutable caller-owned arrays must not retain a stale index.
@@ -60,6 +60,7 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
   const terms = [...new Set(queryYear === undefined ? q.split(' ').filter(Boolean) : [q])]
     .map(text => ({
       text,
+      cohortYear: queryYear ?? (text.endsWith('届') ? recruitmentCohortYear(text) : undefined),
       aliases: Object.fromEntries(companyFilterKeys.map(key => [
         key === 'natures' ? 'nature' : key, normalizeCompanyText(normalizeCompanyLabel(key, text)),
       ])) as Partial<Record<CompanyMatchField, string>>,
@@ -81,12 +82,12 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
   for (const entry of index(catalog.records)) {
     const matched = new Set<CompanyMatchField>();
     let score = 0;
-    if (!terms.every(({ text, aliases }) => {
+    if (!terms.every(({ text, aliases, cohortYear }) => {
       let found = false;
       for (const field of fields) {
         const alias = aliases[field];
-        const fieldMatches = queryYear !== undefined
-          ? field === 'cohorts' && entry.cohortFacets.includes(`${queryYear}届`)
+        const fieldMatches = cohortYear !== undefined
+          ? field === 'cohorts' && entry.cohortFacets.includes(`${cohortYear}届`)
           : entry.keywords[field].some(value => field === 'nature' ? natureMatches(value, text) : value.includes(text))
             || (!!alias && alias !== text && entry.values[field].includes(alias));
         if (fieldMatches) { found = true; matched.add(field); score += weights[field]; }

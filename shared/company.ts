@@ -27,6 +27,10 @@ export interface CompanyRecord {
   sources: CompanySource[];
 }
 
+export interface CompanyDetail extends CompanyRecord {
+  sourceReview?: { status: 'historical' | 'corrected' | 'unavailable'; checkedAt: string; note: string; sourceUrl?: string };
+}
+
 export const companyEditableFields = ['name', 'aliases', 'industries', 'nature', 'locations', 'directions', 'educationLevels', 'recruitmentTypes', 'cohorts', 'summary', 'recruitmentUrl'] as const;
 export type CompanyEditableField = typeof companyEditableFields[number];
 

@@ -1,5 +1,6 @@
 import type { CompanyFilterKey, CompanyRecord } from '../shared/company.js';
 import { matchesRecruitmentCohort, recruitmentCohortYear } from '../shared/recruitment-cohort.js';
+import { matchesSeedCampusAnnouncement } from './company-source-reviews.js';
 
 export const companyCities = [
   '北京', '上海', '天津', '重庆', '广州', '深圳', '杭州', '南京', '苏州', '武汉', '西安', '成都', '长沙', '合肥',
@@ -113,6 +114,6 @@ export function companyDirectoryRecord(record: CompanyRecord): CompanyRecord {
     directions: normalizeCompanyLabels('directions', record.directions),
     educationLevels: normalizeCompanyLabels('educationLevels', record.educationLevels),
     recruitmentTypes: normalizeCompanyLabels('recruitmentTypes', record.recruitmentTypes),
-    cohorts: normalizeCompanyLabels('cohorts', record.cohorts),
+    cohorts: matchesSeedCampusAnnouncement(record) ? ['2027届'] : normalizeCompanyLabels('cohorts', record.cohorts),
   };
 }

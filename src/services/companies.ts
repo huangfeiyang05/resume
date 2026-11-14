@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { companyFilterKeys } from '../../shared/company';
-import type { CompanyFacet, CompanyFilterKey, CompanyFilters, CompanyMatchField, CompanyRecord, CompanySearchInput, CompanySearchResult, CompanySort, CompanySource } from '../../shared/types';
+import type { CompanyDetail, CompanyFacet, CompanyFilterKey, CompanyFilters, CompanyMatchField, CompanyRecord, CompanySearchInput, CompanySearchResult, CompanySort, CompanySource } from '../../shared/types';
 import { ApiError, request } from './api';
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -69,11 +69,17 @@ export const companyApi = {
     if (!validResult(value) || value.page !== (input.page ?? 1) || value.pageSize !== (input.pageSize ?? 20)) invalidResponse();
     return value;
   },
-  async detail(id: string): Promise<CompanyRecord> {
+  async detail(id: string): Promise<CompanyDetail> {
     if (!text(id, 100, false) || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id)) invalidInput();
     const value = await request<unknown>(`/career/companies/${encodeURIComponent(id)}`);
+    if (!record(value)) invalidResponse();
+    const { sourceReview } = value;
     if (!company(value) || value.id !== id) invalidResponse();
-    return value;
+    if (sourceReview === undefined) return value;
+    if (!record(sourceReview) || !instant(sourceReview.checkedAt) || !text(sourceReview.note, 2000, false)
+      || (sourceReview.status !== 'historical' && sourceReview.status !== 'corrected' && sourceReview.status !== 'unavailable')
+      || (sourceReview.sourceUrl !== undefined && !url(sourceReview.sourceUrl))) invalidResponse();
+    return { ...value, sourceReview: { status: sourceReview.status, checkedAt: sourceReview.checkedAt, note: sourceReview.note, sourceUrl: sourceReview.sourceUrl } };
   },
 };
 
@@ -86,7 +92,7 @@ export function useCompanyLibrary(options: { autoLoad?: boolean } = {}) {
   const query = ref(''), sort = ref<CompanySort>('relevance'), filters = ref<CompanyFilters>(emptyFilters());
   const result = ref<CompanySearchResult>(), loading = ref(false), error = ref(''), notice = ref('');
   const appliedInput = ref<CompanySearchInput>();
-  const selectedId = ref(''), selected = ref<CompanyRecord>(), detailLoading = ref(false), detailError = ref('');
+  const selectedId = ref(''), selected = ref<CompanyDetail>(), detailLoading = ref(false), detailError = ref('');
   const pages = computed(() => Math.max(1, Math.ceil((result.value?.total ?? 0) / (result.value?.pageSize ?? 20))));
   const filterCount = computed(() => companyFilterKeys.reduce((sum, key) => sum + filters.value[key].length, 0));
   let disposed = false, searchRequest = 0, detailRequest = 0;

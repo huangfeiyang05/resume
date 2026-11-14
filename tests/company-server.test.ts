@@ -36,6 +36,45 @@ async function directory(t: TestContext) {
   t.after(() => rm(path, { recursive: true, force: true }));
   return path;
 }
+
+test('company details flag the retired official link without changing cohort matching or source text', async t => {
+  const path = join(await directory(t), 'company-catalog.json');
+  const recruitmentUrl = 'https://hr.4399om.com/campus/graduate/?jobType=campus_chanpinlei&jobID=JO20250728002';
+  const old = company({ recruitmentUrl });
+  const next = company({ id: 'synthetic-next', recruitmentUrl, cohorts: ['2027届'] });
+  await writeFile(path, JSON.stringify({ version: 1, records: [old, next] }));
+  const repository = new CompanyCatalogRepository(path);
+  const detail = await repository.get(old.id);
+  assert.match(detail.sourceReview?.note ?? '', /26 届历史招聘资料/);
+  assert.equal(detail.summary, old.summary);
+  assert.deepEqual(detail.cohorts, old.cohorts);
+  assert.equal((await repository.get(next.id)).sourceReview, undefined);
+  const snapshot = await repository.load();
+  const result = searchCompanies(snapshot, { q: '', page: 1, pageSize: 20, sort: 'relevance', filters: { cohorts: ['27届'] } });
+  assert.deepEqual(result.items.map(item => item.id), [next.id]);
+});
+
+test('company searches use the officially confirmed Seed cohort and retain the imported evidence', async t => {
+  const path = join(await directory(t), 'company-catalog.json');
+  const seed = company({
+    name: '字节跳动Seed-2027 届大模型人才校招', recruitmentUrl: 'https://mp.weixin.qq.com/s/KbD0clq20SOkbQCaXSS0OA',
+    cohorts: ['26届', '27届'], summary: '招聘对象原文：26届,27届',
+  });
+  const unavailable = company({ id: 'synthetic-unavailable', recruitmentUrl: 'https://www.hzmetrojob.com/posts-school' });
+  await writeFile(path, JSON.stringify({ version: 1, records: [seed, unavailable] }));
+  const repository = new CompanyCatalogRepository(path);
+  const detail = await repository.get(seed.id);
+  assert.deepEqual(detail.cohorts, ['2027届']);
+  assert.equal(detail.summary, seed.summary);
+  assert.equal(detail.sourceReview?.status, 'corrected');
+  assert.match(detail.sourceReview?.sourceUrl ?? '', /^https:\/\/seed\.bytedance\.com\//);
+  assert.equal((await repository.get(unavailable.id)).sourceReview?.status, 'unavailable');
+  const snapshot = await repository.load();
+  assert.deepEqual(snapshot.records[0].cohorts, seed.cohorts);
+  assert.equal(searchCompanies(snapshot, { filters: { cohorts: ['26届'] } }).items.some(item => item.id === seed.id), false);
+  assert.equal(searchCompanies(snapshot, { q: 'Seed 26届' }).total, 0);
+  assert.deepEqual(searchCompanies(snapshot, { q: 'Seed', filters: { cohorts: ['27届'] } }).items.map(item => item.id), [seed.id]);
+});
 async function fixture(t: TestContext) {
   const root = await directory(t), catalogPath = join(root, 'company-catalog.json');
   const store = new JsonStore(join(root, 'resumes.json'));

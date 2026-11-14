@@ -531,7 +531,7 @@
     },
     {
       "company": "千寻智能",
-      "title": "采购商务专员",
+      "title": "采购专员",
       "major": "供应链、物流与工业工程",
       "location": "北京",
       "description": "职责：跟进采购订单、对账与付款，维护供应商交付进度和 ERP 台账。\n要求：2027届校招，本科及以上，专业不限，熟练使用 Excel 与 ERP。\n加分项：理工科背景。",
@@ -541,7 +541,7 @@
       "origin": "catalog",
       "sourceLabel": "千寻智能官方校园招聘",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "updatedAt": "2026-11-14T00:00:00+08:00",
       "audience": "campus",
       "checkedAt": "2026-11-13T00:00:00+08:00"
     },
@@ -598,16 +598,16 @@
       "title": "用户产品实习生（J107136）",
       "major": "市场、新闻传播与产品运营",
       "location": "北京",
-      "description": "职责：参与百度贴吧移动端调研、原型和需求文档，跟进测试上线并查看日常数据。\n要求：本科及以上，熟练使用 Axure、Figma 等设计工具和 Excel；计算机、统计、数学、经济金融相关专业、熟悉 SQL 或每周能实习 4 天以上者优先。",
+      "description": "职责：参与百度贴吧移动端调研、原型和需求文档，跟进测试上线并监控日常数据。\n要求：本科及以上，能使用 AI 工具提升工作效率，熟练使用 Axure、Figma 等设计工具和 Excel。计算机、统计、数学、经济金融相关专业、熟练使用 SQL 或每周能实习 4 天以上者优先。",
       "companyOverview": "",
       "sourceUrl": "https://talent.baidu.com/jobs/detail/INTERN/39826653-ebc4-4fa7-b7e7-4b4f8e07e800",
       "id": "baidu-j107136",
       "origin": "catalog",
       "sourceLabel": "百度官方招聘，岗位页标注 2026-11-09",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "updatedAt": "2026-11-14T00:00:00+08:00",
       "audience": "internship",
-      "checkedAt": "2026-11-13T00:00:00+08:00"
+      "checkedAt": "2026-11-14T00:00:00+08:00"
     },
     {
       "company": "MiniMax",
@@ -662,16 +662,16 @@
       "title": "内容策划实习生",
       "major": "市场、新闻传播与产品运营",
       "location": "上海",
-      "description": "职责：为校园赛事、辩论赛等活动整理选题与人物素材，撰写活动方案或短视频脚本，协助现场执行和传播复盘。\n要求：全日制本科及以上，2028 届及以后毕业，每周出勤 5 天并可实习至 2027 年 3 月。活动策划、编导或文案作品优先。",
+      "description": "职责：为校园赛事、辩论赛等活动整理选题与人物素材，撰写活动方案或短视频脚本，协助现场执行和传播复盘。\n要求：全日制本科及以上，2028 届及以后毕业，实习可持续至 2027 年 3 月，每周出勤 5 天，特殊情况可提前请假，能接受偶尔出差。活动策划、编导或文案作品优先。",
       "companyOverview": "",
       "sourceUrl": "https://jobs.bilibili.com/campus/positions/31300?type=0",
       "id": "bilibili-31300",
       "origin": "catalog",
       "sourceLabel": "哔哩哔哩官方招聘，发布于 2026-11-11",
       "availability": "open",
-      "updatedAt": "2026-11-13T00:00:00+08:00",
+      "updatedAt": "2026-11-14T00:00:00+08:00",
       "audience": "internship",
-      "checkedAt": "2026-11-13T00:00:00+08:00"
+      "checkedAt": "2026-11-14T00:00:00+08:00"
     },
     {
       "company": "得物",
@@ -960,6 +960,54 @@
       "updatedAt": "2026-11-13T00:00:00+08:00",
       "audience": "campus",
       "checkedAt": "2026-11-13T00:00:00+08:00"
+    },
+    {
+      "company": "4399游戏",
+      "title": "AI 创新人才储备",
+      "major": "市场、新闻传播与产品运营",
+      "location": "广州",
+      "description": "职责：在游戏、产品、运营和内部协作中探索 AI 应用，例如分析数据、优化工作流、搭建工具或制作内容，并整理可复用的方法或原型。入职方向根据能力与业务需要确定。\n要求：2027 届应届生，本科及以上，专业不限。有持续使用 AI 的习惯，能说明用 AI 解决过什么问题及取得的具体改进。项目、工具或自动化等实践案例优先。",
+      "companyOverview": "岗位来自 4399 游戏的 2027 届校园招聘。",
+      "sourceUrl": "https://hr.4399om.com/campus/graduate/?jobType=campus_chanpinlei&jobID=JO20260728001",
+      "id": "4399-jo20260728001",
+      "origin": "catalog",
+      "sourceLabel": "4399 游戏官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-14T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-14T00:00:00+08:00"
+    },
+    {
+      "company": "4399游戏",
+      "title": "游戏策划管培生",
+      "major": "市场、新闻传播与产品运营",
+      "location": "广州",
+      "description": "职责：参与游戏玩法与功能设计，编写设计需求或配置逻辑，跟进项目实现并根据玩家反馈调优。\n要求：2027 届校招，本科及以上，专业不限。对一两个游戏品类有深入体验，能表达对游戏设计的判断。个人策划案、游戏拆解等作品或相关项目经历优先。",
+      "companyOverview": "岗位来自 4399 游戏的 2027 届校园招聘。",
+      "sourceUrl": "https://hr.4399om.com/campus/graduate/?jobType=campus_chanpinlei&jobID=JO20260725001",
+      "id": "4399-jo20260725001",
+      "origin": "catalog",
+      "sourceLabel": "4399 游戏官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-14T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-14T00:00:00+08:00"
+    },
+    {
+      "company": "4399游戏",
+      "title": "游戏 UI 设计师",
+      "major": "设计、艺术与创意",
+      "location": "广州",
+      "description": "职责：设计游戏界面和图标、制定 UI 美术规范，并与研发、策划和美术协作优化操作体验。\n要求：2027 届校招，本科及以上，美术相关专业，能熟练使用设计软件。投递须附 200 MB 以内的作品压缩包，或提供个人主页、网盘作品链接。",
+      "companyOverview": "岗位来自 4399 游戏的 2027 届校园招聘。",
+      "sourceUrl": "https://hr.4399om.com/campus/graduate/?jobType=campus_yanfameishulei&jobID=JO20260725025",
+      "id": "4399-jo20260725025",
+      "origin": "catalog",
+      "sourceLabel": "4399 游戏官方校园招聘",
+      "availability": "open",
+      "updatedAt": "2026-11-14T00:00:00+08:00",
+      "audience": "campus",
+      "checkedAt": "2026-11-14T00:00:00+08:00"
     }
   ],
   "materials": [

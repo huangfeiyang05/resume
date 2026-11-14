@@ -3,7 +3,7 @@ export type { CompanyBatchEvent, CompanyBatchPreview, CompanyBatchState, Company
 export type { CareerAttachment, CareerFileFormat } from './career-attachment.js';
 export type { AdminOverview, AdminPage, AdminUser, AdminUserQuery, AdminTask, AdminTaskQuery, AdminUsageStatus, AdminOrder, AdminOrderQuery, AdminRefund, AdminRefundPreview, AdminPricePublication, AdminPricingState, AdminPricingPreview } from './admin.js';
 export type { CareerAssistantInput, CareerAssistantResult } from './career-assistant.js';
-export type { CompanySource, CompanyRecord, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
+export type { CompanySource, CompanyRecord, CompanyDetail, CompanyFilterKey, CompanyFilters, CompanySort, CompanySearchInput, CompanyMatchField, CompanySearchHit, CompanyFacet, CompanySearchResult, CompanyCatalogFile } from './company.js';
 export type { ResumeExportTemplate } from './resume-layout.js';
 export type ResumeExportFormat = 'docx' | 'pdf';
 export type { ImportedResume, ResumeImportChunk, ResumeImportStart, ResumeImportUpload } from './resume-import.js';
