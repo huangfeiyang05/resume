@@ -1,5 +1,6 @@
 import type { Resume } from './types.js';
 import type { CareerAttachment } from './career-attachment.js';
+import { matchesRecruitmentCohort, recruitmentCohortYear } from './recruitment-cohort.js';
 
 export type ApplicationStatus = 'planned' | 'applied' | 'interview' | 'offer' | 'rejected' | 'withdrawn';
 export type CareerJobAudience = 'campus' | 'internship' | 'experienced' | 'early-career';
@@ -28,6 +29,14 @@ export interface CareerJob {
   /** Reviewed source metadata for shared postings. Older and personal entries may omit it. */
   audience?: CareerJobAudience;
   checkedAt?: string;
+}
+
+export function careerJobMatchesQuery(job: CareerJob, query: string): boolean {
+  const keyword = query.normalize('NFKC').trim().toLowerCase();
+  if (!keyword) return true;
+  const year = recruitmentCohortYear(keyword);
+  if (year !== undefined) return matchesRecruitmentCohort(`${job.title}\n${job.description}`, year);
+  return `${job.title} ${job.company} ${job.major} ${job.location} ${job.description}`.normalize('NFKC').toLowerCase().includes(keyword);
 }
 
 export interface CareerMaterial {

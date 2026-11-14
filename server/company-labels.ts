@@ -1,4 +1,5 @@
 import type { CompanyFilterKey, CompanyRecord } from '../shared/company.js';
+import { recruitmentCohortYear } from '../shared/recruitment-cohort.js';
 
 export const companyCities = [
   '北京', '上海', '天津', '重庆', '广州', '深圳', '杭州', '南京', '苏州', '武汉', '西安', '成都', '长沙', '合肥',
@@ -36,8 +37,8 @@ export function normalizeCompanyLabel(key: CompanyFilterKey, value: string): str
   const label = value.trim().replace(/\s+/g, ' ');
   const normalized = label.normalize('NFKC');
   if (key === 'cohorts') {
-    const year = /^(20\d{2}|\d{2})(?:\s*[届年])?(?:\s*(?:应届生|(?:应届)?毕业生|毕业))?$/.exec(normalized)?.[1];
-    if (year) return `${year.length === 2 ? `20${year}` : year}届`;
+    const year = recruitmentCohortYear(normalized);
+    if (year) return `${year}届`;
   } else if (key === 'educationLevels') {
     const level = /^(本科|大专|专科|硕士(?:研究生)?|博士(?:研究生)?)(?:\s*(及以上|以上))?$/.exec(normalized);
     if (level) {

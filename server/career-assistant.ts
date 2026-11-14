@@ -3,6 +3,7 @@ import type { CompanyCatalogSnapshot } from './company-catalog.js';
 import type { CompanyFilters } from '../shared/company.js';
 import type { CareerJob } from '../shared/career.js';
 import { careerJobIsStale } from '../shared/career.js';
+import { matchesRecruitmentCohort, recruitmentCohortYear } from '../shared/recruitment-cohort.js';
 import type { Resume } from '../shared/types.js';
 import { CompanyCatalogRepository } from './company-catalog.js';
 import { normalizeCompanyLabel, normalizeCompanyLabels } from './company-labels.js';
@@ -222,12 +223,8 @@ function findOfficialJobs(jobs: CareerJob[], parsed: Parsed, now: number): Caree
     .filter(job => parsed.queryTerms.every(term => matchesTerm(`${job.title} ${job.major} ${job.description}`, term)))
     .filter(job => !cohorts?.length || cohorts.some(cohort => {
       if (cohort === '应届生') return job.audience === 'campus' || job.audience === 'early-career';
-      const text = `${job.title} ${job.description}`;
-      return [...text.matchAll(/(?<!\d)(20\d{2}|\d{2})\s*届(?:\s*(及以后|之后|以后))?/g)].some(match => {
-        const year = Number(match[1].length === 2 ? `20${match[1]}` : match[1]);
-        const requested = Number(cohort.slice(0, 4));
-        return match[2] ? requested >= year : requested === year;
-      });
+      const year = recruitmentCohortYear(cohort);
+      return year !== undefined && matchesRecruitmentCohort(`${job.title}\n${job.description}`, year);
     }))
     .filter(job => !recruitmentTypes?.length || recruitmentTypes.some(value => Object.hasOwn(officialAudience, value)
       ? officialAudience[value] === job.audience : `${job.title} ${job.description} ${job.sourceLabel}`.includes(value)))

@@ -3,6 +3,8 @@ import test, { type TestContext } from 'node:test';
 import type { CareerApplication, CareerJob, CareerWorkspace, Resume } from '../shared/types.js';
 import { ApiError, onUnauthorized, setAuthToken } from '../src/services/api.js';
 import { careerApi, jobAcceptingPlans, useCareerWorkspace } from '../src/services/career.js';
+import { careerJobMatchesQuery } from '../shared/career.js';
+import { shortRecruitmentCohort } from '../shared/recruitment-cohort.js';
 
 type RequestOptions = {
   url: string; method: string; data?: unknown; header: Record<string, string>; withCredentials?: boolean;
@@ -24,6 +26,23 @@ function application(overrides: Partial<CareerApplication> = {}): CareerApplicat
 function workspace(): CareerWorkspace {
   return { mode: 'preview', externalDeliveryAvailable: false, catalogState: 'empty', catalogMessage: '资料后续补充', jobs: [job], materials: [], portals: [], favoriteJobIds: [], applications: [] };
 }
+
+test('job search recognizes alternate cohort formats and keeps explicit years separate from dates', () => {
+  assert.equal(shortRecruitmentCohort('2026届'), '26届');
+  assert.equal(shortRecruitmentCohort('2026届及以后'), '2026届及以后');
+  const titled = { ...job, title: '合成工程师（26届校招）', description: '截至 2027 年 1 月。' };
+  const described = { ...job, description: '要求：２０２６ 届毕业生。' };
+  const openEnded = { ...job, description: '要求：2024届及以后毕业。' };
+  for (const query of ['26届', '2026', '2026届', '2026届毕业生']) {
+    for (const candidate of [titled, described, openEnded]) assert.ok(careerJobMatchesQuery(candidate, query));
+  }
+  assert.ok(!careerJobMatchesQuery(titled, '27届'));
+  assert.ok(!careerJobMatchesQuery(openEnded, '23届'));
+  assert.ok(!careerJobMatchesQuery({ ...job, description: '不接受2026届。' }, '26届'));
+  assert.ok(!careerJobMatchesQuery(job, '26届'));
+  assert.ok(careerJobMatchesQuery(described, '合成测试城市'));
+  assert.equal(described.description, '要求：２０２６ 届毕业生。');
+});
 function fixture(t: TestContext, native = false) {
   const globals = globalThis as typeof globalThis & { uni?: unknown; wx?: unknown };
   const originalUni = globals.uni, originalWx = globals.wx;

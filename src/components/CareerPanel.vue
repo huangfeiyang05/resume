@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from 'vue';
 import type { ApplicationStatus, CareerApplication, CareerJob, CareerJobAudience, CareerJobInput, CompanyRecord, Resume, WorkbenchFeature } from '../../shared/types';
-import { careerJobAudienceLabels, careerJobIsStale } from '../../shared/career';
+import { careerJobAudienceLabels, careerJobIsStale, careerJobMatchesQuery } from '../../shared/career';
 import { inputLimits } from '../../shared/limits';
 import { careerFileFallbackText } from '../../shared/career-attachment';
 import { workbenchFeatureNames, workbenchRequiredPlan } from '../../shared/workbench';
@@ -54,11 +54,11 @@ const jobMajors = computed(() => ['', ...Array.from(new Set(jobs.value.map(item 
 const materialMajors = computed(() => ['', ...Array.from(new Set(materials.value.map(item => item.major))).sort()]);
 const favoriteSet = computed(() => new Set(favoriteJobIds.value));
 const filteredJobs = computed(() => {
-  const query = jobQuery.value.trim().toLowerCase();
+  const query = jobQuery.value;
   return jobs.value.filter(item => (!major.value || item.major === major.value)
     && (!audience.value || item.audience === audience.value)
     && (!favoritesOnly.value || favoriteSet.value.has(item.id))
-    && (!query || `${item.title} ${item.company} ${item.major} ${item.location} ${item.description}`.toLowerCase().includes(query)));
+    && careerJobMatchesQuery(item, query));
 });
 const filteredMaterials = computed(() => {
   const query = materialQuery.value.trim().toLowerCase();

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { companyFilterKeys } from '../../shared/company';
+import { shortRecruitmentCohort } from '../../shared/recruitment-cohort';
 import type { CompanyFilterKey, CompanyMatchField, CompanyRecord, CompanySort } from '../../shared/types';
 import { useCompanyLibrary } from '../services/companies';
 import AppIcon from './AppIcon.vue';
@@ -16,6 +17,9 @@ const matchLabels: Record<CompanyMatchField, string> = { name: '企业名称', a
 const sorts: Array<{ value: CompanySort; label: string }> = [{ value: 'relevance', label: '文本相关' }, { value: 'name', label: '企业名称' }, { value: 'updated', label: '资料整理时间' }];
 const sortIndex = computed(() => Math.max(0, sorts.findIndex(item => item.value === sort.value)));
 const activeFilters = computed(() => companyFilterKeys.flatMap(key => filters.value[key].map(value => ({ key, value }))));
+function filterLabel(key: CompanyFilterKey, value: string) {
+  return key === 'cohorts' ? shortRecruitmentCohort(value) : value;
+}
 function options(key: CompanyFilterKey) {
   const values = result.value?.facets[key] ?? [];
   const missing = filters.value[key].filter(value => !values.some(item => item.value === value)).map(value => ({ value, count: 0 }));
@@ -46,13 +50,13 @@ function addJob() { if (selected.value) { emit('addJob', selected.value); c.clos
     <view v-if="showFilters" class="glass-panel company-filters">
       <text class="company-filter-help">同类多选，不同分类共同筛选。</text>
       <view v-for="key in companyFilterKeys" :key="key" class="company-filter-row"><text class="company-filter-label">{{ labels[key] }}</text><view class="company-filter-options">
-        <button v-for="item in options(key)" :key="item.value" class="company-chip" :class="{ active: filters[key].includes(item.value) }" :aria-pressed="filters[key].includes(item.value)" :disabled="loading" @click="c.toggleFilter(key, item.value)" role="button" tabindex="0">{{ item.value }} <text>{{ item.count }}</text></button>
+        <button v-for="item in options(key)" :key="item.value" class="company-chip" :class="{ active: filters[key].includes(item.value) }" :aria-pressed="filters[key].includes(item.value)" :disabled="loading" @click="c.toggleFilter(key, item.value)" role="button" tabindex="0">{{ filterLabel(key, item.value) }} <text>{{ item.count }}</text></button>
         <text v-if="!options(key).length" class="company-muted">暂无分类信息</text>
         <button v-if="(result?.facets[key].length ?? 0) > 12" class="text-button" @click="toggleExpanded(key)" role="button" tabindex="0">{{ expanded.includes(key) ? '收起' : '展开更多' }}</button>
         <text v-if="expanded.includes(key) && (result?.facets[key].length ?? 0) > 80" class="company-muted">先展示前 80 项，可用关键词缩小范围。</text>
       </view></view>
     </view>
-    <view v-if="activeFilters.length" class="company-selected"><button v-for="item in activeFilters" :key="`${item.key}:${item.value}`" class="company-chip active" :disabled="loading" @click="c.toggleFilter(item.key, item.value)" role="button" tabindex="0">{{ labels[item.key] }}：{{ item.value }} ×</button></view>
+    <view v-if="activeFilters.length" class="company-selected"><button v-for="item in activeFilters" :key="`${item.key}:${item.value}`" class="company-chip active" :disabled="loading" @click="c.toggleFilter(item.key, item.value)" role="button" tabindex="0">{{ labels[item.key] }}：{{ filterLabel(item.key, item.value) }} ×</button></view>
     <text v-if="notice" class="company-notice" role="status">{{ notice }}</text>
     <view v-if="loading" class="glass-panel company-empty" role="status"><view class="spinner" /><text>正在查询企业资料…</text></view>
     <view v-else-if="error || result?.catalogState === 'unavailable'" class="glass-panel company-empty" role="alert"><text>{{ error || result?.catalogMessage }}</text><button class="button secondary" @click="c.reload" role="button" tabindex="0">重新查询</button></view>
