@@ -5,7 +5,55 @@ import { recruitmentCohortYear } from '../shared/recruitment-cohort.js';
 const checkedAt = '2026-11-14T00:00:00+08:00';
 const retired4399Url = 'https://hr.4399om.com/campus/graduate/?jobType=campus_chanpinlei&jobID=JO20250728002';
 
-export function matchesSeedCampusAnnouncement(record: CompanyRecord): boolean {
+type AnnouncementReview = {
+  name: string;
+  review: NonNullable<CompanyDetail['sourceReview']>;
+  originalCohorts?: readonly string[];
+  correctedCohorts?: readonly string[];
+};
+
+const announcementReviews = new Map<string, AnnouncementReview>([
+  ['https://zhaopin.szgzjg.com/company/2000000000000000015', {
+    name: '苏州地铁',
+    review: {
+      status: 'historical', checkedAt,
+      note: '江苏省高校招生就业指导服务中心存档确认，这是苏州地铁 2026 年度公开招聘第一批，报名已于 2026 年 6 月 30 日 17 点截止。公告同时列有应届生专门条件，具体资格按原岗位要求执行。',
+      sourceUrl: 'https://zjzx.91job.org.cn/index.php?a=show&c=article&id=10730&m=home&site=1',
+    },
+  }],
+  ['https://gzw.my.gov.cn/mysgzw/c101662/202606/054a8170245346ae9fc078a08a86c73b.shtml', {
+    name: '绵阳市投资控股（集团）',
+    review: {
+      status: 'historical', checkedAt,
+      note: '绵投集团官网存档确认，本批招聘面向 26 届应届生和择业期内未就业的 25 届毕业生。25 届还有社保与档案条件，见原公告。报名已于 2026 年 6 月 24 日截止。',
+      sourceUrl: 'https://mtkg.cn/olerecruit.html',
+    },
+  }],
+  ['https://xyzp.51job.com/tcrcb2026s', {
+    name: '太仓农村商业银行', originalCohorts: ['2026届'], correctedCohorts: ['2026届', '部分往届'],
+    review: {
+      status: 'historical', checkedAt,
+      note: '对外经济贸易大学就业网发布的同批简章确认，柜面服务岗同时接受符合条件的境内外往届生，要求 2024 年 1 月 1 日及以后取得毕业证、学位证。报名已于 2026 年 4 月 20 日 12 点截止。',
+      sourceUrl: 'https://aeo.uibe.edu.cn/front/zpxx.jspa?tid=2038533491477446658',
+    },
+  }],
+]);
+
+function findAnnouncementReview(record: CompanyRecord): AnnouncementReview | undefined {
+  const entry = record.recruitmentUrl ? announcementReviews.get(record.recruitmentUrl) : undefined;
+  if (entry?.name === record.name) return entry;
+}
+
+export function reviewedCompanyCohorts(record: CompanyRecord): readonly string[] {
+  if (matchesSeedCampusAnnouncement(record)) return ['2027届'];
+  const entry = findAnnouncementReview(record);
+  if (entry?.originalCohorts?.length === record.cohorts.length && entry.originalCohorts.every(label => record.cohorts.includes(label))) {
+    return entry.correctedCohorts ?? record.cohorts;
+  }
+  return record.cohorts;
+}
+
+function matchesSeedCampusAnnouncement(record: CompanyRecord): boolean {
   return record.name === '字节跳动Seed-2027 届大模型人才校招'
     && record.recruitmentUrl === 'https://mp.weixin.qq.com/s/KbD0clq20SOkbQCaXSS0OA'
     && record.cohorts.length === 2 && record.cohorts.some(label => recruitmentCohortYear(label) === 2026)
@@ -41,6 +89,8 @@ export function companySourceReview(record: CompanyRecord): CompanyDetail['sourc
       sourceUrl: 'https://hr.sensetime.com/campus/',
     };
   }
+  const announcement = findAnnouncementReview(record);
+  if (announcement) return announcement.review;
   if (recruitmentUrl && unavailableLinks.has(createHash('sha256').update(recruitmentUrl).digest('hex'))) {
     return { status: 'unavailable', checkedAt, note: '两次检查均未找到原链接指向的页面。请在招聘方官网查询该职位的最新公告。' };
   }

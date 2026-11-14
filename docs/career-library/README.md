@@ -10,6 +10,7 @@
 - 4399 的 3 条历史企业资料保留原 26 届记录。原岗位编号 `JO20250728002` 已不在 [官网当前岗位列表](https://hr.4399om.com/main/?r=officialSite%2FjobList&type=1&applicationType=1) 中，旧链接会改显示当前批次。企业详情说明此次核对结果，具体岗位按新编号单独收录。
 - 字节跳动 Seed 大模型人才校招按 [官网项目公告](https://seed.bytedance.com/zh/blog/bytedance-seed-2027-foundation-model-campus-recruitment-is-now-open-internships-included) 修正为 27 届筛选，详情保留原文及实习毕业时间要求。历史企业资料中 53 条原链接在两次检查中返回 404，详情显示当日核对结果。
 - 根据高校就业网存档标注杭州地铁 26 届春招第二批已过期。商汤旧实习资料补充现行 27 届校招的官方依据。得物供应链 AI 产品经理按原岗位编号复核并更新摘要。
+- 苏州地铁第一批、绵投集团 26 届校招和太仓农村商业银行 26 届春招补充同批公告存档和报名截止时间。太仓农商行的筛选补充“部分往届”，详情保留具体毕业日期限制。
 - [技术、工程、科研与健康专业来源记录](tech-sources.md)，对应 [复习提纲](tech-materials.json) 和 [招聘入口](tech-portals.json)。
 - [经管、人文、设计、教育与物流专业来源记录](general-sources.md)，对应 [复习提纲](general-materials.json) 和 [招聘入口](general-portals.json)。
 - [已有原创专业简历提示卡](../resume-library/playbooks.json) 与 [参考资料边界](../resume-library/README.md)。外部简历原件不打包到服务，也不自动进入模型或 RAG。

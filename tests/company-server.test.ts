@@ -75,6 +75,21 @@ test('company searches use the officially confirmed Seed cohort and retain the i
   assert.equal(searchCompanies(snapshot, { q: 'Seed 26届' }).total, 0);
   assert.deepEqual(searchCompanies(snapshot, { q: 'Seed', filters: { cohorts: ['27届'] } }).items.map(item => item.id), [seed.id]);
 });
+
+test('confirmed historical recruitment adds the missing audience to detail and filters', async t => {
+  const path = join(await directory(t), 'company-catalog.json');
+  const bank = company({ name: '太仓农村商业银行', recruitmentUrl: 'https://xyzp.51job.com/tcrcb2026s' });
+  await writeFile(path, JSON.stringify({ version: 1, records: [bank] }));
+  const repository = new CompanyCatalogRepository(path);
+  const detail = await repository.get(bank.id);
+  assert.deepEqual(detail.cohorts, ['2026届', '部分往届']);
+  assert.equal(detail.sourceReview?.status, 'historical');
+  assert.match(detail.sourceReview?.note ?? '', /4 月 20 日 12 点截止/);
+  const snapshot = await repository.load();
+  assert.deepEqual(snapshot.records[0].cohorts, bank.cohorts);
+  assert.equal(searchCompanies(snapshot, { filters: { cohorts: ['部分往届'] } }).total, 1);
+  assert.equal(searchCompanies(snapshot, { filters: { cohorts: ['27届'] } }).total, 0);
+});
 async function fixture(t: TestContext) {
   const root = await directory(t), catalogPath = join(root, 'company-catalog.json');
   const store = new JsonStore(join(root, 'resumes.json'));
