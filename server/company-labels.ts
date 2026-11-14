@@ -1,5 +1,5 @@
 import type { CompanyFilterKey, CompanyRecord } from '../shared/company.js';
-import { recruitmentCohortYear } from '../shared/recruitment-cohort.js';
+import { matchesRecruitmentCohort, recruitmentCohortYear } from '../shared/recruitment-cohort.js';
 
 export const companyCities = [
   '北京', '上海', '天津', '重庆', '广州', '深圳', '杭州', '南京', '苏州', '武汉', '西安', '成都', '长沙', '合肥',
@@ -55,6 +55,52 @@ export function normalizeCompanyLabel(key: CompanyFilterKey, value: string): str
 
 export function normalizeCompanyLabels(key: CompanyFilterKey, values: readonly string[]): string[] {
   return [...new Set(values.map(value => normalizeCompanyLabel(key, value)))];
+}
+
+const otherRecruitmentAudiences = new Set(['海外往届', '部分往届']);
+const cohortRange = /(?<!\d)(20\d{2}|\d{2})(?:\s*[年届])?\s*(?:[-–—~至到、及和]|以及)\s*(20\d{2}|\d{2})\s*届/g;
+const cohortMention = /(?<!\d)(20\d{2}|\d{2})\s*届/g;
+const graduationDates = /(?<!\d)(20\d{2})(?:\s*年(?:\s*\d{1,2}月(?:\d{1,2}日)?)?|\.\d{1,2}(?:\.\d{1,2})?)(?:\s*(?:[-–—~至到、及和]|以及)\s*(?:(20\d{2})(?:\s*年(?:\s*\d{1,2}月(?:\d{1,2}日)?)?|\.\d{1,2}(?:\.\d{1,2})?)|\d{1,2}(?:月(?:\d{1,2}日)?|\.\d{1,2})))?/g;
+
+export function companyCohortFacets(labels: readonly string[]): string[] {
+  const facets = new Set<string>();
+  function addYears(first: string, last = first) {
+    const start = recruitmentCohortYear(first)!;
+    const end = recruitmentCohortYear(last)!;
+    if (end < start || end - start > 10) return;
+    for (let year = start; year <= end; year++) facets.add(`${year}届`);
+  }
+  for (const label of labels) {
+    const normalized = label.normalize('NFKC').trim();
+    if (otherRecruitmentAudiences.has(normalized)) {
+      facets.add(normalized);
+      continue;
+    }
+    if (recruitmentCohortYear(normalized) !== undefined) {
+      addYears(normalized);
+      continue;
+    }
+    // An explicit cohort takes precedence over its explanatory calendar window.
+    const explicit = [...normalized.matchAll(cohortMention)];
+    if (explicit.length) {
+      for (const match of normalized.matchAll(cohortRange)) {
+        if (matchesRecruitmentCohort(normalized, recruitmentCohortYear(match[2])!)) addYears(match[1], match[2]);
+      }
+      for (const match of explicit) {
+        if (matchesRecruitmentCohort(normalized, recruitmentCohortYear(match[1])!)) addYears(match[1]);
+      }
+      continue;
+    }
+    for (const match of normalized.matchAll(graduationDates)) {
+      const before = normalized.slice(0, match.index);
+      const after = normalized.slice(match.index + match[0].length);
+      if (/毕业(?:时间|日期)\s*(?:在|为|[:：])?\s*$/.test(before)
+        || /^\s*(?:期间|之间|内|的|应届|预计|于)*\s*(?:毕业|取得学历学位的毕业生)/.test(after)) {
+        addYears(match[1], match[2]);
+      }
+    }
+  }
+  return [...facets];
 }
 
 /** Read projection for search and details. Persisted source labels and revision hashes stay available to the administrator. */

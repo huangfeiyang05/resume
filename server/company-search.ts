@@ -1,6 +1,7 @@
 import { companyFilterKeys, type CompanyFacet, type CompanyFilterKey, type CompanyMatchField, type CompanyRecord, type CompanySearchInput, type CompanySearchResult } from '../shared/company.js';
 import type { CompanyCatalogSnapshot } from './company-catalog.js';
-import { companyDirectoryRecord, normalizeCompanyLabel } from './company-labels.js';
+import { companyCohortFacets, companyDirectoryRecord, normalizeCompanyLabel } from './company-labels.js';
+import { recruitmentCohortYear } from '../shared/recruitment-cohort.js';
 
 const fields: readonly CompanyMatchField[] = ['name', 'aliases', 'industries', 'nature', 'locations', 'directions', 'educationLevels', 'recruitmentTypes', 'cohorts', 'summary'];
 const weights: Record<CompanyMatchField, number> = { name: 120, aliases: 100, industries: 35, nature: 35, locations: 30, directions: 30, educationLevels: 20, recruitmentTypes: 20, cohorts: 20, summary: 5 };
@@ -22,6 +23,7 @@ interface IndexedCompany {
   record: CompanyRecord;
   values: Record<CompanyMatchField, string[]>;
   keywords: Record<CompanyMatchField, string[]>;
+  cohortFacets: string[];
   name: string;
 }
 const indexes = new WeakMap<readonly CompanyRecord[], IndexedCompany[]>();
@@ -40,6 +42,7 @@ function index(records: readonly CompanyRecord[]): IndexedCompany[] {
     for (const field of fields) original[field] = [...new Set([...original[field], ...values[field]])];
     return {
       record, name: normalizeCompanyText(record.name), values, keywords: original,
+      cohortFacets: companyCohortFacets(source.cohorts),
     };
   });
   // Repository snapshots are frozen. Mutable caller-owned arrays must not retain a stale index.
@@ -52,7 +55,9 @@ const cohortYear = (label: string) => /^20\d{2}届$/.test(label) ? Number(label.
 
 /** Transparent text coverage and exact facets; this is not candidate or recruitment scoring. */
 export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanySearchInput = {}): CompanySearchResult {
-  const q = normalizeCompanyText(input.q ?? ''), terms = [...new Set(q.split(' ').filter(Boolean))]
+  const q = normalizeCompanyText(input.q ?? '');
+  const queryYear = recruitmentCohortYear(q);
+  const terms = [...new Set(queryYear === undefined ? q.split(' ').filter(Boolean) : [q])]
     .map(text => ({
       text,
       aliases: Object.fromEntries(companyFilterKeys.map(key => [
@@ -65,8 +70,14 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
   })).filter(filter => filter.values.length);
   type Match = { entry: IndexedCompany; matchedFields: CompanyMatchField[]; tier: number; score: number };
   const keywordMatches: Match[] = [], matches: Match[] = [];
-  const passesFilters = (entry: IndexedCompany, except?: CompanyFilterKey) => filters.every(filter => filter.key === except
-    || entry.values[filter.key === 'natures' ? 'nature' : filter.key].some(value => filter.values.includes(value)));
+  const passesFilters = (entry: IndexedCompany, except?: CompanyFilterKey) => filters.every(filter => {
+    if (filter.key === except) return true;
+    if (filter.key === 'cohorts') return filter.values.some(value => {
+      const year = recruitmentCohortYear(value);
+      return year === undefined ? entry.keywords.cohorts.includes(value) : entry.cohortFacets.includes(`${year}届`);
+    });
+    return entry.values[filter.key === 'natures' ? 'nature' : filter.key].some(value => filter.values.includes(value));
+  });
   for (const entry of index(catalog.records)) {
     const matched = new Set<CompanyMatchField>();
     let score = 0;
@@ -74,8 +85,10 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
       let found = false;
       for (const field of fields) {
         const alias = aliases[field];
-        const fieldMatches = entry.keywords[field].some(value => field === 'nature' ? natureMatches(value, text) : value.includes(text))
-          || (!!alias && alias !== text && entry.values[field].includes(alias));
+        const fieldMatches = queryYear !== undefined
+          ? field === 'cohorts' && entry.cohortFacets.includes(`${queryYear}届`)
+          : entry.keywords[field].some(value => field === 'nature' ? natureMatches(value, text) : value.includes(text))
+            || (!!alias && alias !== text && entry.values[field].includes(alias));
         if (fieldMatches) { found = true; matched.add(field); score += weights[field]; }
       }
       return found;
@@ -97,7 +110,7 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
     for (const { entry } of keywordMatches) {
       if (!passesFilters(entry, key)) continue;
       const seen = new Set<string>();
-      for (const value of values(entry.record, key)) {
+      for (const value of key === 'cohorts' ? entry.cohortFacets : values(entry.record, key)) {
         const canonical = normalizeCompanyText(value);
         if (!canonical || seen.has(canonical)) continue;
         seen.add(canonical);

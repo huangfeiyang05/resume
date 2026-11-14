@@ -190,11 +190,16 @@ test('company directory groups equivalent cohort and facet labels without changi
   const another = company({ id: 'synthetic-bare', cohorts: ['2026届', '2025'], locations: ['深圳市'], recruitmentTypes: ['校招'], educationLevels: ['博士'], nature: '央企' });
   const distinct = company({ id: 'synthetic-distinct', cohorts: ['2025届', '27届', '2026年9月至2027年8月毕业的在校生'],
     locations: ['广东省', '上海'], recruitmentTypes: ['秋招补录', '日常实习'], educationLevels: ['本科', '本科及以上'], nature: '国企' });
-  await f.catalog([original, another, distinct]);
+  const explicit = company({ id: 'synthetic-explicit', cohorts: ['2026届本科及以上毕业生（毕业时间2025年10月-2026年9月）', '招聘名额'] });
+  const range = company({ id: 'synthetic-range', cohorts: ['境外毕业时间2025.1.1-2026.7.31'] });
+  const cohortRange = company({ id: 'synthetic-cohort-range', cohorts: ['面向2024—2026届应届生'] });
+  const noCohort = company({ id: 'synthetic-no-cohort', cohorts: ['本次共招聘104人', '详见2026年招聘计划', '本科及以上在校生', '不接受2026届'] });
+  await f.catalog([original, another, distinct, explicit, range, cohortRange, noCohort]);
   const before = await readFile(f.catalogPath, 'utf8');
   const list = (await reader('/career/companies')).body.data;
-  assert.deepEqual(list.facets.cohorts.slice(0, 3), [
-    { value: '2027届', count: 1 }, { value: '2026届', count: 2 }, { value: '2025届', count: 2 },
+  assert.deepEqual(list.facets.cohorts, [
+    { value: '2027届', count: 1 }, { value: '2026届', count: 6 }, { value: '2025届', count: 4 },
+    { value: '2024届', count: 1 }, { value: '海外往届', count: 1 },
   ]);
   for (const [key, expected] of Object.entries({
     locations: ['深圳', '广东省', '全国（不含深圳）'],
@@ -210,14 +215,15 @@ test('company directory groups equivalent cohort and facet labels without changi
     assert.equal(filtered.body.data.total, 2);
     assert.equal(filtered.body.data.facets.cohorts.find((item: { value: string }) => item.value === '2026届').count, 2);
     const keyword = (await reader(`/career/companies?q=${encodeURIComponent(alias)}`)).body.data;
-    assert.ok(keyword.items.some((item: CompanyRecord) => item.id === 'synthetic-alpha'));
-    assert.ok(keyword.items.some((item: CompanyRecord) => item.id === 'synthetic-bare'));
+    assert.deepEqual(keyword.items.map((item: CompanyRecord) => item.id).sort(),
+      ['synthetic-alpha', 'synthetic-bare', 'synthetic-cohort-range', 'synthetic-distinct', 'synthetic-explicit', 'synthetic-range']);
   }
   const detail = (await reader('/career/companies/synthetic-alpha')).body.data;
   assert.deepEqual(detail.cohorts, ['2026届', '2026届及以后', '海外往届']);
   assert.deepEqual(detail.educationLevels, ['专科及以上', '博士']);
   assert.deepEqual(detail.locations, ['深圳', '全国（不含深圳）']);
   assert.equal(detail.summary, original.summary);
+  assert.deepEqual((await reader('/career/companies/synthetic-explicit')).body.data.cohorts, explicit.cohorts);
   assert.equal(await readFile(f.catalogPath, 'utf8'), before);
 });
 

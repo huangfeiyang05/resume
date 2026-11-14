@@ -6,7 +6,7 @@ import { careerJobIsStale } from '../shared/career.js';
 import { matchesRecruitmentCohort, recruitmentCohortYear } from '../shared/recruitment-cohort.js';
 import type { Resume } from '../shared/types.js';
 import { CompanyCatalogRepository } from './company-catalog.js';
-import { normalizeCompanyLabel, normalizeCompanyLabels } from './company-labels.js';
+import { companyCohortFacets, normalizeCompanyLabels } from './company-labels.js';
 import { normalizeCompanyText, searchCompanies } from './company-search.js';
 import { validateCompanyId } from './company-validation.js';
 import { resumeContentHash } from './resume-history.js';
@@ -186,15 +186,14 @@ function criteria(parsed: Parsed, catalog: CompanyCatalogSnapshot) {
   }
   for (const key of ['industries', 'educationLevels', 'recruitmentTypes', 'cohorts'] as const) if (parsed.facetTerms[key]?.length) {
     const requested = parsed.facetTerms[key]!;
+    if (key === 'cohorts' && !requested.includes('应届生')) {
+      filters.cohorts = requested;
+      continue;
+    }
     const matches = (label: string, wanted: string) => {
       const normalized = normalizeCompanyText(label);
       if (key === 'cohorts') {
-        const cohort = normalizeCompanyLabel(key, normalized);
-        if (wanted === '应届生') return /应届|(?:20)?\d{2}\s*届/.test(cohort);
-        if (cohort === wanted) return true;
-        const year = wanted.slice(0, 4);
-        const match = new RegExp(`(?<!\\d)(?:${year}|${year.slice(2)})\\s*(?:届|年毕业|$)`).exec(normalized);
-        return !!match && assistantLocationMatches(normalized, match[0]);
+        return /应届|(?:20)?\d{2}\s*届/.test(normalized) || companyCohortFacets([label]).some(value => value.endsWith('届'));
       }
       if (key === 'educationLevels' && /(?:及以上|以上)$/.test(wanted)) {
         const levels = ['高中', '中专', '大专', '本科', '硕士', '博士'];
