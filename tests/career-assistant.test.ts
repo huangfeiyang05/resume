@@ -107,9 +107,9 @@ test('assistant filters explicit cohorts, education, campus recruitment, industr
   const first = await f.ask('找合成甲科技的 Java 岗位', { requirements: '2026届 本科 校招 软件行业' });
   assert.deepEqual(first.companies.map(item => item.id), ['synthetic-a']);
   assert.ok(first.criteria.query.includes('合成甲科技'));
-  assert.deepEqual(first.criteria.filters.cohorts, ['2026届', '26届']);
+  assert.deepEqual(first.criteria.filters.cohorts, ['2026届']);
   assert.deepEqual(first.criteria.filters.educationLevels, ['本科及以上']);
-  assert.deepEqual(first.criteria.filters.recruitmentTypes, ['校园招聘']);
+  assert.deepEqual(first.criteria.filters.recruitmentTypes, ['校招']);
   assert.deepEqual(first.criteria.filters.industries, ['软件']);
   assert.match(first.reply, /不表示你已满足/);
   const masters = await f.ask('找上海校招 Java 岗位', { requirements: '26届 硕士及以上' });

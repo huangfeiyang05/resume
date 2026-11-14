@@ -356,7 +356,7 @@ try {
   assert.equal((await request(videoPath, 'GET', undefined, owner)).status, 404);
   checks.push('career-video-protected-range-and-rollback');
   const batchPath = '/admin/company-batches';
-  const csv = Buffer.from('公司名称,招聘批次,招聘链接\n合成验收单位,秋招,https://example.test/careers\n');
+  const csv = Buffer.from('公司名称,招聘批次,招聘链接,届别\n合成验收单位,秋招,https://example.test/careers,26届、2026届毕业生\n');
   const batchId = randomUUID();
   const batchChunk = { id: batchId, index: 0, data: csv.toString('base64') };
   assert.equal((await request(`${batchPath}/chunk`, 'POST', batchChunk, owner)).status, 401);
@@ -371,6 +371,9 @@ try {
   assert.equal(publishedBatch.status, 200);
   assert.deepEqual((await request(`${batchPath}/apply`, 'POST', publishBatch, admin)).body.data, publishedBatch.body.data);
   assert.equal((await request('/career/companies', 'GET', undefined, owner)).body.data.total, 1);
+  const grouped = (await request('/career/companies?cohorts=2026', 'GET', undefined, owner)).body.data;
+  assert.equal(grouped.total, 1);
+  assert.deepEqual(grouped.facets.cohorts, [{ value: '2026届', count: 1 }]);
   assert.equal((await request('/career/companies', 'GET', undefined, quotaAccount)).status, 403);
   const batchRollback = await request(`${batchPath}/rollback-preview`, 'POST', {}, admin);
   assert.equal(batchRollback.status, 200);
@@ -443,13 +446,15 @@ try {
   const detail = await request(editDetailPath, 'GET', undefined, admin);
   assert.equal(detail.status, 200);
   const { record, catalogRevision } = detail.body.data;
+  assert.equal(record.nature, '民营');
+  const memberRecord = { ...record, nature: '民营企业' };
   const editInput = { companyId, catalogRevision, sourceTitle: '合成更正依据', changes: { locations: ['宁波'] } };
   assert.equal((await request(`${batchPath}/edit-preview`, 'POST', editInput, owner)).status, 401);
   const edit = await request(`${batchPath}/edit-preview`, 'POST', editInput, admin);
   assert.equal(edit.status, 200);
   assert.deepEqual(edit.body.data.edit.fields, [{ key: 'locations', before: ['杭州'], after: ['宁波'] }]);
   const memberDetail = `/career/companies/${companyId}`;
-  assert.deepEqual((await request(memberDetail, 'GET', undefined, owner)).body.data, record);
+  assert.deepEqual((await request(memberDetail, 'GET', undefined, owner)).body.data, memberRecord);
   const confirmEdit = { id: edit.body.data.id, confirmed: true };
   const edited = await request(`${batchPath}/apply`, 'POST', confirmEdit, admin);
   assert.equal(edited.status, 200);
@@ -457,11 +462,11 @@ try {
   assert.deepEqual((await request(`${batchPath}/apply`, 'POST', confirmEdit, admin)).body.data, edited.body.data);
   assert.equal((await request(`${batchPath}/edit-preview`, 'POST', editInput, admin)).status, 409);
   const changed = (await request(memberDetail, 'GET', undefined, owner)).body.data;
-  assert.deepEqual(changed, { ...record, locations: ['宁波'], updatedAt: changed.updatedAt });
+  assert.deepEqual(changed, { ...memberRecord, locations: ['宁波'], updatedAt: changed.updatedAt });
   const undoEdit = await request(`${batchPath}/rollback-preview`, 'POST', {}, admin);
   assert.deepEqual(undoEdit.body.data.edit.fields, [{ key: 'locations', before: ['宁波'], after: ['杭州'] }]);
   assert.equal((await request(`${batchPath}/apply`, 'POST', { id: undoEdit.body.data.id, confirmed: true }, admin)).status, 200);
-  assert.deepEqual((await request(memberDetail, 'GET', undefined, owner)).body.data, record);
+  assert.deepEqual((await request(memberDetail, 'GET', undefined, owner)).body.data, memberRecord);
   checks.push('company-single-edit-admin-only-diff-revision-idempotence-and-rollback');
 
   assert.equal((await request(path, 'PUT', { title: '过期请求', revision: 1 }, owner)).status, 409);

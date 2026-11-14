@@ -1,5 +1,6 @@
 import { companyFilterKeys, type CompanyFacet, type CompanyFilterKey, type CompanyMatchField, type CompanyRecord, type CompanySearchInput, type CompanySearchResult } from '../shared/company.js';
 import type { CompanyCatalogSnapshot } from './company-catalog.js';
+import { companyDirectoryRecord, normalizeCompanyLabel } from './company-labels.js';
 
 const fields: readonly CompanyMatchField[] = ['name', 'aliases', 'industries', 'nature', 'locations', 'directions', 'educationLevels', 'recruitmentTypes', 'cohorts', 'summary'];
 const weights: Record<CompanyMatchField, number> = { name: 120, aliases: 100, industries: 35, nature: 35, locations: 30, directions: 30, educationLevels: 20, recruitmentTypes: 20, cohorts: 20, summary: 5 };
@@ -17,30 +18,51 @@ function natureMatches(value: string, term: string): boolean {
   return value.split(/[、,，;；/|()（）\s]+/).some(label => synonyms.includes(label)
     || synonyms.includes(label.replace(/^(?:中央|地方|省属|市属|区属|县属)/, '')));
 }
-interface IndexedCompany { record: CompanyRecord; values: Record<CompanyMatchField, string[]>; name: string }
+interface IndexedCompany {
+  record: CompanyRecord;
+  values: Record<CompanyMatchField, string[]>;
+  keywords: Record<CompanyMatchField, string[]>;
+  name: string;
+}
 const indexes = new WeakMap<readonly CompanyRecord[], IndexedCompany[]>();
+function indexedValues(record: CompanyRecord): IndexedCompany['values'] {
+  return Object.fromEntries(fields.map(field => {
+    const value = record[field];
+    return [field, (Array.isArray(value) ? value : [value]).map(normalizeCompanyText).filter(Boolean)];
+  })) as IndexedCompany['values'];
+}
 function index(records: readonly CompanyRecord[]): IndexedCompany[] {
   const cached = indexes.get(records);
   if (cached) return cached;
-  const result = records.map(record => ({
-    record, name: normalizeCompanyText(record.name),
-    values: Object.fromEntries(fields.map(field => {
-      const value = record[field];
-      return [field, (Array.isArray(value) ? value : [value]).map(normalizeCompanyText).filter(Boolean)];
-    })) as Record<CompanyMatchField, string[]>,
-  }));
+  const result = records.map(source => {
+    const record = companyDirectoryRecord(source);
+    const original = indexedValues(source), values = indexedValues(record);
+    for (const field of fields) original[field] = [...new Set([...original[field], ...values[field]])];
+    return {
+      record, name: normalizeCompanyText(record.name), values, keywords: original,
+    };
+  });
   // Repository snapshots are frozen. Mutable caller-owned arrays must not retain a stale index.
   if (Object.isFrozen(records)) indexes.set(records, result);
   return result;
 }
 function values(record: CompanyRecord, key: CompanyFilterKey): string[] { return key === 'natures' ? (record.nature ? [record.nature] : []) : record[key]; }
 function compare(a: string, b: string) { return a.localeCompare(b, 'zh-CN') || (a < b ? -1 : a > b ? 1 : 0); }
+const cohortYear = (label: string) => /^20\d{2}届$/.test(label) ? Number(label.slice(0, 4)) : 0;
 
 /** Transparent text coverage and exact facets; this is not candidate or recruitment scoring. */
 export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanySearchInput = {}): CompanySearchResult {
-  const q = normalizeCompanyText(input.q ?? ''), terms = [...new Set(q.split(' ').filter(Boolean))];
+  const q = normalizeCompanyText(input.q ?? ''), terms = [...new Set(q.split(' ').filter(Boolean))]
+    .map(text => ({
+      text,
+      aliases: Object.fromEntries(companyFilterKeys.map(key => [
+        key === 'natures' ? 'nature' : key, normalizeCompanyText(normalizeCompanyLabel(key, text)),
+      ])) as Partial<Record<CompanyMatchField, string>>,
+    }));
   const page = input.page ?? 1, pageSize = input.pageSize ?? 20;
-  const filters = companyFilterKeys.map(key => ({ key, values: (input.filters?.[key] ?? []).map(normalizeCompanyText) })).filter(filter => filter.values.length);
+  const filters = companyFilterKeys.map(key => ({
+    key, values: (input.filters?.[key] ?? []).map(value => normalizeCompanyText(normalizeCompanyLabel(key, value))),
+  })).filter(filter => filter.values.length);
   type Match = { entry: IndexedCompany; matchedFields: CompanyMatchField[]; tier: number; score: number };
   const keywordMatches: Match[] = [], matches: Match[] = [];
   const passesFilters = (entry: IndexedCompany, except?: CompanyFilterKey) => filters.every(filter => filter.key === except
@@ -48,9 +70,14 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
   for (const entry of index(catalog.records)) {
     const matched = new Set<CompanyMatchField>();
     let score = 0;
-    if (!terms.every(term => {
+    if (!terms.every(({ text, aliases }) => {
       let found = false;
-      for (const field of fields) if (entry.values[field].some(value => field === 'nature' ? natureMatches(value, term) : value.includes(term))) { found = true; matched.add(field); score += weights[field]; }
+      for (const field of fields) {
+        const alias = aliases[field];
+        const fieldMatches = entry.keywords[field].some(value => field === 'nature' ? natureMatches(value, text) : value.includes(text))
+          || (!!alias && alias !== text && entry.values[field].includes(alias));
+        if (fieldMatches) { found = true; matched.add(field); score += weights[field]; }
+      }
       return found;
     })) continue;
     const tier = !q ? 0 : entry.name === q ? 4 : entry.values.aliases.includes(q) ? 3 : entry.name.startsWith(q) ? 2 : entry.values.aliases.some(alias => alias.startsWith(q)) ? 1 : 0;
@@ -79,7 +106,8 @@ export function searchCompanies(catalog: CompanyCatalogSnapshot, input: CompanyS
         else counts.set(canonical, { value, count: 1 });
       }
     }
-    return [key, [...counts.values()].sort((a, b) => b.count - a.count || compare(a.value, b.value))];
+    return [key, [...counts.values()].sort((a, b) => (key === 'cohorts' ? cohortYear(b.value) - cohortYear(a.value) : 0)
+      || b.count - a.count || compare(a.value, b.value))];
   })) as Record<CompanyFilterKey, CompanyFacet[]>;
   return {
     access: 'authenticated-test', catalogState: catalog.state, catalogMessage: catalog.message, catalogRevision: catalog.revision,

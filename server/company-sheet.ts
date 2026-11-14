@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { companyCities } from './company-labels.js';
 import { companyUrlContainsPrivateData } from './company-privacy.js';
 
 const sourceHeaders = ['更新/开启时间', '企业/招聘单位名称', '企业/单位性质', '行业分类', '招聘类型/批次', '招聘对象', '招聘岗位', '工作地点', '网申截止时间', '投递方式', '官方招聘推文', '备注'];
@@ -51,7 +52,6 @@ const industryGroups: Array<[string, RegExp]> = [
   ['旅游酒店与餐饮', /旅游|酒店|餐饮|文旅/],
   ['国防与军工', /国防|军工|兵器|兵装/],
 ];
-const cityNames = ['北京','上海','天津','重庆','广州','深圳','杭州','南京','苏州','武汉','西安','成都','长沙','合肥','郑州','济南','青岛','厦门','福州','宁波','无锡','佛山','东莞','珠海','惠州','南昌','南宁','昆明','贵阳','太原','石家庄','哈尔滨','长春','沈阳','大连','海口','三亚','兰州','西宁','银川','乌鲁木齐','拉萨','香港','澳门','台北','常州','南通','扬州','镇江','徐州','盐城','泰州','淮安','连云港','温州','嘉兴','湖州','绍兴','金华','台州','舟山','丽水','衢州','泉州','漳州','莆田','龙岩','赣州','九江','芜湖','蚌埠','洛阳','新乡','许昌','焦作','烟台','潍坊','淄博','威海','临沂','泰安','济宁','德州','东营','聊城','菏泽','包头','呼和浩特','鄂尔多斯','唐山','保定','廊坊','秦皇岛','邯郸','沧州','衡水','淮南','阜阳','马鞍山','襄阳','宜昌','荆州','岳阳','株洲','湘潭','衡阳','绵阳','德阳','宜宾','泸州','乐山','自贡','达州','南充','遵义','六盘水','玉溪','曲靖','柳州','桂林','北海','中山','江门','汕头','湛江','肇庆','清远','韶关','茂名','揭阳','潮州','梅州','汕尾','阳江','河源','云浮','宝鸡','咸阳','榆林','延安','汉中','渭南','银川','大庆','齐齐哈尔','牡丹江','吉林','锦州','鞍山','营口'];
 const provinces = /^(?:河北|山西|辽宁|吉林|黑龙江|江苏|浙江|安徽|福建|江西|山东|河南|湖北|湖南|广东|海南|四川|贵州|云南|陕西|甘肃|青海|台湾)省/;
 const clean = (value: unknown) => String(value ?? '').replace(/[\u200b-\u200d\ufeff]/g, '').replace(/\r\n?/g, '\n').trim();
 const labels = (value: string) => [...new Set(value.split(/[\n、,，;；/|]+/).map(clean).filter(value => value && value.length <= 100))];
@@ -59,7 +59,7 @@ function locationLabels(value: string): string[] {
   return [...new Set(labels(value).map(item => {
     if (/不含|不包括|以外|除外|除.*外/.test(item)) return item;
     const candidate = item.replace(provinces, '');
-    const city = cityNames.find(city => candidate === city || candidate.startsWith(`${city}市`) || candidate.startsWith(`${city}（`) || candidate.startsWith(`${city}(`));
+    const city = companyCities.find(city => candidate === city || candidate.startsWith(`${city}市`) || candidate.startsWith(`${city}（`) || candidate.startsWith(`${city}(`));
     return city ?? item;
   }))];
 }

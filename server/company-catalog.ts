@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 import type { BigIntStats } from 'node:fs';
 import type { CompanyRecord } from '../shared/company.js';
+import { companyDirectoryRecord } from './company-labels.js';
 import { companyCatalogLimits, validateCompanyCatalog, validateCompanyId } from './company-validation.js';
 import { HttpError, notFound } from './errors.js';
 
@@ -83,6 +84,7 @@ export class CompanyCatalogRepository {
     validateCompanyId(id);
     const snapshot = await this.load();
     if (snapshot.state === 'unavailable') throw new HttpError(503, 'COMPANY_CATALOG_UNAVAILABLE', snapshot.message);
-    return snapshot.records.find(record => record.id === id) ?? notFound('企业资料');
+    const record = snapshot.records.find(item => item.id === id) ?? notFound('企业资料');
+    return companyDirectoryRecord(record);
   }
 }

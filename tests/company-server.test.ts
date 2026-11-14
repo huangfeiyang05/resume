@@ -154,7 +154,7 @@ test('company search uses AND keywords, OR within facets, AND across dimensions 
   assert.equal(query('industries=软件&industries=机械&locations=杭州').total, 2);
   const filtered = query('industries=软件&industries=机械&locations=杭州&natures=国有');
   assert.deepEqual(filtered.items.map(item => item.id), ['synthetic-beta']);
-  assert.deepEqual(filtered.facets.natures.map(item => [item.value, item.count]).sort(), [['国有', 1], ['民营', 1]], 'own-dimension selection must not hide OR alternatives');
+  assert.deepEqual(filtered.facets.natures.map(item => [item.value, item.count]).sort(), [['国企', 1], ['民营企业', 1]], 'own-dimension selection must not hide OR alternatives');
   assert.equal(filtered.facets.locations.find(item => item.value === '北京')?.count, 1, 'location facet ignores only its own selection');
   for (const key of companyFilterKeys) assert.ok(Array.isArray(filtered.facets[key]));
   assert.equal(filtered.access, 'authenticated-test');
@@ -178,6 +178,49 @@ test('company pagination is stable, has no duplicate items, and supports explici
   assert.equal(first.catalogRevision, second.catalogRevision);
 });
 
+test('company directory groups equivalent cohort and facet labels without changing source records', async t => {
+  const f = await fixture(t), reader = await f.account('company-labels');
+  const original = company({
+    cohorts: ['26届', '2026', '２０２６届毕业生', '2026届及以后', '海外往届'],
+    locations: ['广东省深圳市', '深圳', '全国（不含深圳）'],
+    educationLevels: ['大专及以上', '专科及以上', '博士研究生'],
+    recruitmentTypes: ['校园招聘', '实习(可转正)', '暑期实习'], nature: '中央企业',
+    summary: '招聘对象原文：26届、海外往届',
+  });
+  const another = company({ id: 'synthetic-bare', cohorts: ['2026届', '2025'], locations: ['深圳市'], recruitmentTypes: ['校招'], educationLevels: ['博士'], nature: '央企' });
+  const distinct = company({ id: 'synthetic-distinct', cohorts: ['2025届', '27届', '2026年9月至2027年8月毕业的在校生'],
+    locations: ['广东省', '上海'], recruitmentTypes: ['秋招补录', '日常实习'], educationLevels: ['本科', '本科及以上'], nature: '国企' });
+  await f.catalog([original, another, distinct]);
+  const before = await readFile(f.catalogPath, 'utf8');
+  const list = (await reader('/career/companies')).body.data;
+  assert.deepEqual(list.facets.cohorts.slice(0, 3), [
+    { value: '2027届', count: 1 }, { value: '2026届', count: 2 }, { value: '2025届', count: 2 },
+  ]);
+  for (const [key, expected] of Object.entries({
+    locations: ['深圳', '广东省', '全国（不含深圳）'],
+    educationLevels: ['博士', '专科及以上', '本科', '本科及以上'],
+    recruitmentTypes: ['校招', '可转正实习', '暑期实习', '秋招补录', '日常实习'],
+    natures: ['央企', '国企'],
+  })) {
+    for (const value of expected) assert.ok(list.facets[key].some((item: { value: string }) => item.value === value), value);
+  }
+  for (const alias of ['26届', '2026', '2026届', '2026届毕业生']) {
+    const filtered = await reader(`/career/companies?cohorts=${encodeURIComponent(alias)}&locations=深圳市&recruitmentTypes=校园招聘&natures=中央企业`);
+    assert.equal(filtered.status, 200);
+    assert.equal(filtered.body.data.total, 2);
+    assert.equal(filtered.body.data.facets.cohorts.find((item: { value: string }) => item.value === '2026届').count, 2);
+    const keyword = (await reader(`/career/companies?q=${encodeURIComponent(alias)}`)).body.data;
+    assert.ok(keyword.items.some((item: CompanyRecord) => item.id === 'synthetic-alpha'));
+    assert.ok(keyword.items.some((item: CompanyRecord) => item.id === 'synthetic-bare'));
+  }
+  const detail = (await reader('/career/companies/synthetic-alpha')).body.data;
+  assert.deepEqual(detail.cohorts, ['2026届', '2026届及以后', '海外往届']);
+  assert.deepEqual(detail.educationLevels, ['专科及以上', '博士']);
+  assert.deepEqual(detail.locations, ['深圳', '全国（不含深圳）']);
+  assert.equal(detail.summary, original.summary);
+  assert.equal(await readFile(f.catalogPath, 'utf8'), before);
+});
+
 test('ownership keyword synonyms apply only to explicit source nature labels and never manufacture classifications', async t => {
   const root = await directory(t), path = join(root, 'company-catalog.json');
   const supplied = ['国有企业', '国有控股', '央企', '中央企业', '省属国有企业', '民营企业', '私营', '外资', '外商独资', '省属事业单位', '市属事业单位', '非国有企业'];
@@ -196,7 +239,8 @@ test('ownership keyword synonyms apply only to explicit source nature labels and
   assert.ok(nameOnly.matchedFields.includes('name'));
   assert.equal(nameOnly.matchedFields.includes('nature'), false);
   assert.deepEqual(snapshot.records.map(item => item.nature), values.map(item => item.nature), 'source classifications must remain unchanged');
-  assert.equal(searchCompanies(snapshot, { filters: { natures: ['国企'] } }).total, 0, 'facet filters continue to select original labels exactly');
+  assert.deepEqual(searchCompanies(snapshot, { filters: { natures: ['国企'] } }).items.map(item => item.id),
+    ['nature-0'], 'facet aliases do not include distinct ownership categories');
 });
 
 test('company APIs require a trusted premium membership, share reference data and reject client identity or membership assertions', async t => {

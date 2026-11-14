@@ -5,6 +5,7 @@ import type { CareerJob } from '../shared/career.js';
 import { careerJobIsStale } from '../shared/career.js';
 import type { Resume } from '../shared/types.js';
 import { CompanyCatalogRepository } from './company-catalog.js';
+import { normalizeCompanyLabel, normalizeCompanyLabels } from './company-labels.js';
 import { normalizeCompanyText, searchCompanies } from './company-search.js';
 import { validateCompanyId } from './company-validation.js';
 import { resumeContentHash } from './resume-history.js';
@@ -187,7 +188,9 @@ function criteria(parsed: Parsed, catalog: CompanyCatalogSnapshot) {
     const matches = (label: string, wanted: string) => {
       const normalized = normalizeCompanyText(label);
       if (key === 'cohorts') {
-        if (wanted === '应届生') return /应届|(?:20)?\d{2}\s*届/.test(normalized);
+        const cohort = normalizeCompanyLabel(key, normalized);
+        if (wanted === '应届生') return /应届|(?:20)?\d{2}\s*届/.test(cohort);
+        if (cohort === wanted) return true;
         const year = wanted.slice(0, 4);
         const match = new RegExp(`(?<!\\d)(?:${year}|${year.slice(2)})\\s*(?:届|年毕业|$)`).exec(normalized);
         return !!match && assistantLocationMatches(normalized, match[0]);
@@ -201,7 +204,7 @@ function criteria(parsed: Parsed, catalog: CompanyCatalogSnapshot) {
       return assistantLocationMatches(normalized, normalizeCompanyText(wanted));
     };
     const labels = unique(catalog.records.flatMap(record => record[key]).filter(value => requested.some(wanted => matches(value, wanted))));
-    filters[key] = (labels.length ? labels : requested).slice(0, 30);
+    filters[key] = normalizeCompanyLabels(key, labels.length ? labels : requested).slice(0, 30);
   }
   return filters;
 }
