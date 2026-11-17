@@ -83,7 +83,7 @@ export interface MembershipQuote {
   period?: { startsAt: string | null; expiresAt: string };
   /** Identifies the amount and dates reviewed on the confirmation screen. */
   reviewId?: string;
-  /** A published virtual-payment product is configured for the exact plan and amount. */
+  /** A virtual-payment product is configured for the quote. WeChat validates the published price at payment. */
   virtualProductAvailable?: boolean;
 }
 

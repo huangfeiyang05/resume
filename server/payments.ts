@@ -98,7 +98,7 @@ export class PaymentService {
   async quote(userId: string, planId: PlanId): Promise<MembershipQuote> {
     const quote = this.quoteFor(await this.store.read(), userId, paid(planId), this.now().getTime());
     const gateway = this.virtual?.gateway;
-    return gateway?.config.enabled ? { ...quote, virtualProductAvailable: !!gateway.product(quote.planId, quote.amountCents) } : quote;
+    return gateway?.config.enabled ? { ...quote, virtualProductAvailable: !!gateway.product(quote) } : quote;
   }
 
   private quoteFor(snapshot: Database, userId: string, target: PaidPlanId, now: number): MembershipQuote {
@@ -176,7 +176,7 @@ export class PaymentService {
         if (device === 'ios' && !virtualGateway.config.ios) throw new HttpError(503, 'WECHAT_VIRTUAL_NOT_CONFIGURED', 'iOS 端的虚拟支付暂未开放。');
       } else {
         const quote = this.reviewedQuote(snapshot, userId, planId, this.now().getTime(), expected, reviewId);
-        virtualGateway.orderDetails(planId, quote.amountCents, device);
+        virtualGateway.orderDetails(quote, device);
       }
       identity = await verifyWechat(wechatLoginCode(input.wechatCode));
       if (!identity.sessionKey) throw new HttpError(502, 'WECHAT_SESSION_INVALID', '微信支付凭证暂不可用，请重试。');
@@ -190,7 +190,7 @@ export class PaymentService {
       if (identity && currentUser.wechatOpenid !== identity.openid) throw new HttpError(409, 'WECHAT_NOT_BOUND', '当前账号的微信支付身份已变化，请重新登录。');
       const now = this.now();
       const quote = this.reviewedQuote(database, userId, planId, now.getTime(), expected, reviewId);
-      const virtual = virtualGateway && device ? virtualGateway.orderDetails(planId, quote.amountCents, device) : undefined;
+      const virtual = virtualGateway && device ? virtualGateway.orderDetails(quote, device) : undefined;
       const order: StoredPaymentOrder = {
         id: randomUUID(), userId, planId, amountCents: quote.amountCents, status: 'pending',
         createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + orderTtlMilliseconds).toISOString(),

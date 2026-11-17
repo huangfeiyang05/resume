@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import type { CheckoutResult, MembershipQuote } from '../shared/types.js';
+import { AdminPricing } from '../server/admin-pricing.js';
 import { AuthService } from '../server/auth.js';
 import { createApiServer } from '../server/http.js';
 import { defaultPricing } from '../server/payment-config.js';
@@ -40,7 +41,8 @@ function encryptedPush(data: unknown, target = appid) {
   };
 }
 
-async function fixture(t: TestContext, { basic = 990, ios = true, enabled = true } = {}) {
+async function fixture(t: TestContext, { basic = 990, ios = true, enabled = true,
+  products = { basic: { [basic]: 'basic_month' } } as Record<string, Record<string, string>> } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'youfang-virtual-payment-'));
   const path = join(directory, 'resumes.json');
   const store = new JsonStore(path);
@@ -49,7 +51,7 @@ async function fixture(t: TestContext, { basic = 990, ios = true, enabled = true
     WECHAT_VIRTUAL_PAY_ENABLED: String(enabled), WECHAT_VIRTUAL_PAY_IOS_ENABLED: String(ios),
     WECHAT_VIRTUAL_PAY_OFFER_ID: '12345', WECHAT_VIRTUAL_PAY_APP_KEY: appKey,
     WECHAT_VIRTUAL_PAY_PUSH_TOKEN: token, WECHAT_VIRTUAL_PAY_PUSH_AES_KEY: aes.toString('base64').slice(0, -1),
-    WECHAT_VIRTUAL_PAY_PRODUCTS: JSON.stringify({ basic: { [basic]: 'basic_month' } }),
+    WECHAT_VIRTUAL_PAY_PRODUCTS: JSON.stringify(products),
   })!;
   const remote = new Map<string, Record<string, unknown>>();
   const calls: string[] = [];
@@ -117,6 +119,65 @@ test('virtual checkout checks platform availability, SKU and the reviewed quote 
   const result = await f.request('/billing/checkout', bearer, { ...input, device: 'other' });
   assert.equal(result.status, 201);
   assert.equal((await result.json()).data.order.amountCents, 1);
+});
+
+test('named virtual products follow published prices and preserve the original amount on existing orders', async t => {
+  const f = await fixture(t, { products: {
+    basic: { month: 'basic_month' }, premium: { first: 'premium_first', month: 'premium_month' },
+  } });
+  const a = await f.login('a-login');
+  const b = await f.login('b-login');
+
+  async function place(bearer: string, input: Awaited<ReturnType<typeof f.checkoutInput>>) {
+    const response = await f.request('/billing/checkout', bearer, input);
+    assert.equal(response.status, 201);
+    return (await response.json()).data as CheckoutResult;
+  }
+  async function confirmPaid(bearer: string, order: CheckoutResult, wxOrderId: string) {
+    const { outTradeNo, goodsPrice } = JSON.parse(order.virtual!.signData);
+    f.remote.set(outTradeNo, { order_id: outTradeNo, env_type: 1, order_type: 7, status: 2, order_fee: goodsPrice,
+      paid_fee: goodsPrice, wx_order_id: wxOrderId, paid_time: Math.floor(Date.now() / 1000) });
+    const response = await f.request('/billing/orders/' + order.order.id, bearer);
+    assert.equal((await response.json()).data.status, 'paid');
+  }
+
+  const originalInput = await f.checkoutInput(a.token, 'premium', 'premium-first-original');
+  const original = await place(a.token, originalInput);
+  assert.equal(JSON.parse(original.virtual!.signData).productId, 'premium_first');
+  assert.equal(JSON.parse(original.virtual!.signData).goodsPrice, 2490);
+
+  const admin = new AdminPricing(f.store);
+  const preview = await admin.preview({ revision: 0, prices: {
+    basicMonthlyCents: 990, premiumFirstPurchaseCents: 1490, premiumMonthlyCents: 2480,
+  } }, 'test-admin');
+  await admin.apply({ id: preview.id, confirmed: true }, 'test-admin');
+  const quote = (await (await f.request('/billing/quote?planId=premium', a.token)).json()).data as MembershipQuote;
+  assert.equal(quote.virtualProductAvailable, true);
+  assert.equal(quote.amountCents, 1490);
+  const stale = await f.request('/billing/checkout', a.token, { ...originalInput, requestId: 'premium-first-stale' });
+  assert.equal((await stale.json()).error.code, 'BILLING_PRICE_CHANGED');
+  const replay = await place(a.token, originalInput);
+  assert.equal(replay.order.id, original.order.id);
+  assert.deepEqual(replay.virtual, original.virtual);
+  const updated = await place(a.token, await f.checkoutInput(a.token, 'premium', 'premium-first-updated'));
+  assert.equal(JSON.parse(updated.virtual!.signData).productId, 'premium_first');
+  assert.equal(JSON.parse(updated.virtual!.signData).goodsPrice, 1490);
+
+  await confirmPaid(a.token, original, 'wx-paid-premium-original');
+  const renewal = await place(a.token, await f.checkoutInput(a.token, 'premium', 'premium-renewal-updated'));
+  assert.equal(JSON.parse(renewal.virtual!.signData).productId, 'premium_month');
+  assert.equal(JSON.parse(renewal.virtual!.signData).goodsPrice, 2480);
+
+  const basic = await place(b.token, { ...await f.checkoutInput(b.token), wechatCode: 'b-payment' });
+  assert.equal(JSON.parse(basic.virtual!.signData).productId, 'basic_month');
+  assert.equal(JSON.parse(basic.virtual!.signData).goodsPrice, 990);
+  await confirmPaid(b.token, basic, 'wx-paid-basic-updated');
+  const upgrade = (await (await f.request('/billing/quote?planId=premium', b.token)).json()).data as MembershipQuote;
+  assert.equal(upgrade.kind, 'upgrade');
+  assert.equal(upgrade.amountCents, 1490);
+  assert.equal(upgrade.virtualProductAvailable, false);
+  const unavailable = await f.request('/billing/checkout', b.token, { ...await f.checkoutInput(b.token, 'premium', 'upgrade-no-mapping'), wechatCode: 'b-payment' });
+  assert.equal((await unavailable.json()).error.code, 'WECHAT_VIRTUAL_PRODUCT_UNAVAILABLE');
 });
 
 test('signed WeChat delivery confirms payment exactly once and signed refunds revoke only that order', async t => {

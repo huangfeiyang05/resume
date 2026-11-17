@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { wechatVirtualIosMinimumCents, type WechatVirtualDevice, type WechatVirtualPaymentParams } from '../shared/payment.js';
+import { wechatVirtualIosMinimumCents, type MembershipQuote, type WechatVirtualDevice, type WechatVirtualPaymentParams } from '../shared/payment.js';
 import type { PaidPlanId } from '../shared/membership.js';
 import { HttpError } from './errors.js';
 import { virtualOfferIdPattern, virtualProductIdPattern, virtualTransactionIdPattern, type StoredPaymentOrder, type StoredVirtualOrder } from './payment-storage.js';
@@ -14,9 +14,11 @@ export interface WechatVirtualConfig {
   pushToken: string;
   pushAesKey: Buffer;
   products: ReadonlyMap<string, string>;
+  productsByPrice: boolean;
 }
 
-function productKey(planId: PaidPlanId, amount: number) { return planId + ':' + amount; }
+const productRoles = { basic: ['month'], premium: ['first', 'month', 'upgrade'] };
+function productKey(planId: PaidPlanId, key: string | number) { return planId + ':' + key; }
 
 export function loadWechatVirtualConfig(env: NodeJS.ProcessEnv = process.env): WechatVirtualConfig | undefined {
   const enabled = wechatFlag('WECHAT_VIRTUAL_PAY_ENABLED', env);
@@ -36,18 +38,24 @@ export function loadWechatVirtualConfig(env: NodeJS.ProcessEnv = process.env): W
   try { entries = JSON.parse(catalog); } catch { throw new Error('Invalid WeChat virtual payment product mapping.'); }
   const products = new Map<string, string>();
   const ids = new Set<string>();
+  let productsByPrice: boolean | undefined;
   for (const [plan, prices] of Object.entries(wechatRecord(entries))) {
     if (plan !== 'basic' && plan !== 'premium') throw new Error('Invalid WeChat virtual payment product plan.');
-    for (const [cents, id] of Object.entries(wechatRecord(prices))) {
-      if (!/^[1-9]\d{0,7}$/.test(cents) || typeof id !== 'string' || !virtualProductIdPattern.test(id) || ids.has(id)) {
+    for (const [key, id] of Object.entries(wechatRecord(prices))) {
+      const byPrice = /^[1-9]\d{0,7}$/.test(key);
+      if ((!byPrice && !productRoles[plan].includes(key)) || typeof id !== 'string' || !virtualProductIdPattern.test(id) || ids.has(id)) {
         throw new Error('Invalid or duplicate WeChat virtual payment product.');
       }
+      if (productsByPrice !== undefined && productsByPrice !== byPrice) {
+        throw new Error('Use either named or price-indexed WeChat virtual payment products.');
+      }
+      productsByPrice = byPrice;
       ids.add(id);
-      products.set(productKey(plan, Number(cents)), id);
+      products.set(productKey(plan, key), id);
     }
   }
-  if (!products.size) throw new Error('WeChat virtual payment product mapping is empty.');
-  return { enabled, ios, offerId, appKey, pushToken, pushAesKey: Buffer.from(aes + '=', 'base64'), products };
+  if (productsByPrice === undefined) throw new Error('WeChat virtual payment product mapping is empty.');
+  return { enabled, ios, offerId, appKey, pushToken, pushAesKey: Buffer.from(aes + '=', 'base64'), products, productsByPrice };
 }
 
 export type VirtualReceipt = { status: 'pending' | 'closed' } | {
@@ -69,18 +77,23 @@ function invalidResponse(): never {
 export class WechatVirtualGateway {
   constructor(readonly config: WechatVirtualConfig, private readonly api: WechatApi) {}
 
-  product(planId: PaidPlanId, amount: number): string | undefined {
-    return this.config.products.get(productKey(planId, amount));
+  product({ planId, kind, amountCents, listPriceCents }: MembershipQuote): string | undefined {
+    if (amountCents <= 0) return undefined;
+    const { products, productsByPrice } = this.config;
+    if (productsByPrice) return products.get(productKey(planId, amountCents));
+    if (planId === 'basic') return products.get(productKey(planId, 'month'));
+    if (kind === 'upgrade') return products.get(productKey(planId, 'upgrade'));
+    return products.get(productKey(planId, listPriceCents === undefined ? 'month' : 'first'));
   }
 
-  orderDetails(planId: PaidPlanId, amount: number, device: WechatVirtualDevice): StoredVirtualOrder {
+  orderDetails(quote: MembershipQuote, device: WechatVirtualDevice): StoredVirtualOrder {
     if (!this.config.enabled || (device === 'ios' && !this.config.ios)) {
       throw new HttpError(503, 'WECHAT_VIRTUAL_NOT_CONFIGURED', '此设备的微信小程序支付暂未开放。');
     }
-    if (device === 'ios' && amount < wechatVirtualIosMinimumCents) {
+    if (device === 'ios' && quote.amountCents < wechatVirtualIosMinimumCents) {
       throw new HttpError(409, 'WECHAT_VIRTUAL_IOS_MINIMUM', 'iOS 虚拟支付最低金额为 ¥1，当前报价暂不可购买。');
     }
-    const productId = this.product(planId, amount);
+    const productId = this.product(quote);
     if (!productId) throw new HttpError(409, 'WECHAT_VIRTUAL_PRODUCT_UNAVAILABLE', '当前金额对应的小程序商品暂不可购买。');
     return { offerId: this.config.offerId, productId, device };
   }
