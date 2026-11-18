@@ -78,9 +78,9 @@ const rows: Array<{ key: keyof Plan['features']; label: string }> = [
 ];
 const price = (cents: number | null) => cents === null ? '待定价' : cents === 0 ? '免费' : `¥${(cents / 100).toFixed(2)}`;
 const compareAtPrice = (plan: Plan | undefined) => plan && plan.priceCents !== null && plan.listPriceCents && plan.listPriceCents > plan.priceCents ? plan.listPriceCents : null;
-const selectedListPrice = computed(() => { const plan = selectedPlan.value; if (!plan || selectedAmount.value !== plan.priceCents) return null; return compareAtPrice(plan); });
+const selectedListPrice = computed(() => quote.value ? quote.value.listPriceCents ?? null : compareAtPrice(selectedPlan.value));
 const optionPrice = (plan: Plan) => selectedPlanId.value === plan.id && quote.value && quote.value.kind !== 'upgrade' ? quote.value.amountCents : plan.priceCents;
-const optionListPrice = (plan: Plan) => selectedPlanId.value === plan.id ? (quote.value?.listPriceCents ?? null) : compareAtPrice(plan);
+const optionListPrice = (plan: Plan) => quote.value?.planId === plan.id ? quote.value.listPriceCents ?? null : compareAtPrice(plan);
 const quoteSummary = computed(() => {
   if (quoteLoading.value) return '正在确认价格和有效期…';
   if (quoteError.value) return quoteError.value;
@@ -196,7 +196,14 @@ async function loadQuote() {
   quoteLoading.value = true;
   try {
     const result = await membershipApi.quote(plan);
-    if (version === quoteRequest) quote.value = result;
+    if (version !== quoteRequest) return;
+    quote.value = result;
+    plans.value = plans.value.map(option => option.id !== result.planId ? option : {
+      ...option,
+      priceCents: result.kind === 'upgrade' ? option.listPriceCents ?? option.priceCents : result.amountCents,
+      listPriceCents: result.listPriceCents,
+      promotionLabel: result.promotionLabel,
+    });
   } catch (cause) {
     if (version === quoteRequest) quoteError.value = cause instanceof Error ? cause.message : '价格和有效期暂时无法确认，请稍后重试。';
   } finally { if (version === quoteRequest) quoteLoading.value = false; }

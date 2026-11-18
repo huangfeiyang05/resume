@@ -16,7 +16,7 @@ export interface MembershipPrices {
   premiumFirstPurchaseCents: number | null;
 }
 
-/** Product planning only. Values are not active entitlements or validated launch prices. */
+/** Plan features and displayed monthly price. Checkout confirms the account's current quote. */
 export interface Plan {
   id: PlanId;
   name: string;

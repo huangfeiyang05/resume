@@ -91,7 +91,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 | GET | `/membership` | 返回 `MembershipState`：无可信会员时为免费 `preview`，有效可信会员为 `active`；包含当前方案、由服务器支付配置决定的 `paymentAvailable`、`policy` 和仅百分比的 `quota` |
 | GET | `/membership/quota` | 返回本人 `AiQuotaSummary`：`{status,remainingPercent,resetsAt,expiresAt,pending}`；不返回绝对 Token 或单次消耗 |
 | GET | `/membership/workbench` | 返回 `WorkbenchAccess`：`{planId,expiresAt,features}`，仅服务端当前有效会员记录授予相应工作台权限；无效会话为 401，不接受查询参数 |
-| GET | `/plans` | 返回 `free / basic / premium` 三档权益与服务器价格（分）；未配置支付时 `paymentAvailable` 为 false，价格仍返回当前服务端配置 |
+| GET | `/plans` | 返回 `free / basic / premium` 三档权益与月价（分）。匿名请求返回公开目录，登录后按当前账号的购买记录和会员状态显示适用价格。升级补差价由 `/billing/quote` 单独计算 |
 | GET | `/billing/quote?planId=` | 返回 `MembershipQuote`：金额、`purchase/renewal/upgrade/scheduled`、当前方案、确认标识及可选 `virtualProductAvailable`。升级补差价由服务端计算 |
 | GET | `/billing/payment-methods` | 公开，返回 `{wechat:boolean,alipay:boolean}`。小程序请求在虚拟支付启用后还返回 `wechatVirtual:{ios:boolean}` |
 | POST | `/billing/checkout` | 创建或复用本人订单。网页使用 `native` / `alipay-page` / `alipay-wap`；旧 `jsapi` 订单沿用 v3 处理。小程序 `wechat-virtual` 还须提供 `expectedAmountCents,reviewId,wechatCode,device`（`ios 或 other`），返回订单与微信签名参数。渠道启用、价格、商品与报价均由服务端核对。同一幂等键换方案、金额、报价或设备类型返回 409 |

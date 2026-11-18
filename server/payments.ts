@@ -83,7 +83,23 @@ export class PaymentService {
       ...(miniProgram && virtual?.enabled ? { wechatVirtual: { ios: virtual.ios } } : {}) };
   }
 
-  async plans() { return listPlans(billingPricing((await this.store.read()).pricingHistory, this.pricing)); }
+  async plans(userId?: string) {
+    const snapshot = await this.store.read();
+    const catalog = listPlans(billingPricing(snapshot.pricingHistory, this.pricing));
+    if (userId === undefined) return catalog;
+    const now = this.now().getTime();
+    return catalog.map(plan => {
+      if (plan.id === 'free') return plan;
+      const quote = this.quoteFor(snapshot, userId, plan.id, now);
+      return {
+        ...plan,
+        // An immediate upgrade quote is the difference. The plan card shows the monthly price.
+        priceCents: quote.kind === 'upgrade' ? plan.listPriceCents ?? plan.priceCents : quote.amountCents,
+        listPriceCents: quote.listPriceCents,
+        promotionLabel: quote.promotionLabel,
+      };
+    });
+  }
 
   async membership(userId: string): Promise<MembershipState> {
     const snapshot = await this.store.read();

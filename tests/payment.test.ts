@@ -215,6 +215,10 @@ test('a verified payment notification grants the term once and never trusts or r
   assert.equal(secondQuote.body.data.amountCents, 2000);
   assert.equal(secondQuote.body.data.listPriceCents, undefined);
   assert.equal(secondQuote.body.data.promotionLabel, undefined);
+  const premium = ((await request('/plans')).body.data as Plan[]).find(plan => plan.id === 'premium')!;
+  assert.equal(premium.priceCents, 2990, 'the monthly card price is distinct from an immediate upgrade difference');
+  assert.equal(premium.listPriceCents, undefined);
+  assert.equal(premium.promotionLabel, undefined);
   const repeated = await request('/billing/wechat/notify', 'POST', { id: 'notify-1' });
   assert.equal(repeated.status, 200);
   assert.equal(((await request('/membership')).body.data as MembershipState).quota.expiresAt, expiresAt);

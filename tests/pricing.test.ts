@@ -14,7 +14,7 @@ import { AdminRefunds } from '../server/refunds.js';
 import { ResumeService } from '../server/service.js';
 import { JsonStore } from '../server/store.js';
 import { getWorkbenchAccess } from '../server/workbench-access.js';
-import type { MembershipQuote } from '../shared/types.js';
+import type { MembershipQuote, Plan } from '../shared/types.js';
 
 const credentials = { email: 'operator@example.test', password: 'Synthetic26!' };
 const newPrices = { basicMonthlyCents: 1200, premiumMonthlyCents: 3500, premiumFirstPurchaseCents: 2800 };
@@ -160,6 +160,11 @@ test('reviewed renewals keep each paid period, switch entitlements on time, and 
   assert.equal((await getWorkbenchAccess(restarted, userId, now())).features.companyJobs, false);
   time = basicEnd;
   assert.equal((await reopenedPayments.membership(userId)).currentPlanId, 'free');
+  const returning = await reopenedPayments.quote(userId, 'premium');
+  assert.equal(returning.kind, 'purchase');
+  const premium = (await reopenedPayments.plans(userId)).find(plan => plan.id === 'premium')!;
+  assert.equal(premium.priceCents, returning.amountCents);
+  assert.equal(premium.promotionLabel, undefined, 'an expired membership does not restore the first-purchase price');
 });
 
 test('test and public APIs use separate data, prices, sessions, and payment paths', async t => {
@@ -208,6 +213,15 @@ test('test and public APIs use separate data, prices, sessions, and payment path
   assert.equal((await live.request('/admin/pricing', undefined, live.admin)).body.data.revision, 0);
   const quote = await sandbox.request('/billing/quote?planId=premium', undefined, sandbox.user);
   assert.equal(quote.body.data.amountCents, 2800);
+  async function premiumPlan(cookie?: string) {
+    const response = await sandbox.request('/plans', undefined, cookie);
+    assert.equal(response.status, 200);
+    return (response.body.data as Plan[]).find(plan => plan.id === 'premium')!;
+  }
+  const firstPlan = await premiumPlan(sandbox.user);
+  assert.equal(firstPlan.priceCents, quote.body.data.amountCents);
+  assert.equal(firstPlan.listPriceCents, 3500);
+  assert.equal(firstPlan.promotionLabel, '首充优惠');
   const checkout = { planId: 'premium', requestId: 'simulated-test-order-one', expectedAmountCents: 2800 };
   assert.equal((await live.request('/billing/simulate', checkout, live.user)).status, 404);
   assert.equal((await sandbox.request('/billing/alipay/notify', {}, sandbox.user)).status, 404);
@@ -221,6 +235,18 @@ test('test and public APIs use separate data, prices, sessions, and payment path
   const membership = await sandbox.request('/membership', undefined, sandbox.user);
   assert.equal(membership.body.data.paymentMode, 'simulation');
   assert.equal(membership.body.data.currentPlanId, 'premium');
+  const renewal = (await sandbox.request('/billing/quote?planId=premium', undefined, sandbox.user)).body.data;
+  assert.equal(renewal.kind, 'renewal');
+  const repeatPlan = await premiumPlan(sandbox.user);
+  assert.equal(repeatPlan.priceCents, 3500);
+  assert.equal(repeatPlan.priceCents, renewal.amountCents);
+  assert.equal(repeatPlan.listPriceCents, undefined);
+  assert.equal(repeatPlan.promotionLabel, undefined);
+  assert.equal((await premiumPlan()).priceCents, 2800);
+  const otherUser = await sandbox.request('/auth/register', { ...credentials, email: 'fresh-account@example.test' });
+  assert.equal(otherUser.status, 201);
+  assert.ok(otherUser.cookie);
+  assert.equal((await premiumPlan(otherUser.cookie)).priceCents, 2800);
   assert.equal((await new JsonStore(sandbox.store.path, 'test').read()).version, 5);
   const scheduled = (await sandbox.request('/billing/quote?planId=basic', undefined, sandbox.user)).body.data;
   assert.equal(scheduled.kind, 'scheduled');

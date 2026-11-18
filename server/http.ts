@@ -496,7 +496,9 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         json(response, 200, { data: await getWorkbenchAccess(service.store, service.userId) });
       } else if (path === '/api/v1/plans') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        json(response, 200, { data: await payments.plans() });
+        const token = sessionToken(request);
+        const userId = token === undefined ? undefined : (await auth.authenticate(token)).user.id;
+        json(response, 200, { data: await payments.plans(userId) });
       } else if (path === '/api/v1/billing/payment-methods') {
         if (method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         json(response, 200, { data: payments.methods(miniProgramClient) });
