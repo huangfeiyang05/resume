@@ -130,7 +130,7 @@ test('an existing email account binds a verified phone without changing its emai
   const emailUser: AuthUser = { id: 'email-owner', email: 'owner@example.test', emailVerified: true, hasPassword: true, createdAt: '2026-11-05T00:00:00.000Z' };
   respond(input => input.success({ statusCode: 200, data: { data: session(emailUser) } }));
   assert.equal(await auth.authenticate('login', { email: 'owner@example.test', password: 'Original-pw26!' }), true);
-  const input = { phone: '+86 13800138000', code: '123456', challengeId: 'new-phone-proof', currentPassword: 'Original-pw26!' };
+  const input = { phone: '+86 13800138000', code: '123456', challengeId: 'new-phone-proof' };
   respond(request => request.success({ statusCode: 200, data: { data: { ...emailUser, phone: '13800138000', phoneVerified: false } } }));
   assert.equal(await auth.bindPhone(input), false); assert.equal(auth.user.value?.phone, undefined);
   respond(request => request.success({ statusCode: 200, data: { data: { ...emailUser, phone: '13800138000', phoneVerified: true } } }));

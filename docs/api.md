@@ -46,7 +46,7 @@ H5 与微信工作台依据该响应显示锁态，点击提示所需等级并�
 | POST | `/auth/wechat` | 小程序静默免登：`{code}` → 按 openid 查找/创建账号并返回会话；未配置微信凭据时 501 `WECHAT_LOGIN_NOT_CONFIGURED` |
 | POST | `/auth/phone/code` | `{phone,purpose}` → 202 + 挑战；用途为 `login / bind-phone / verify-account`，后两者需会话 |
 | POST | `/auth/phone` | `{phone,challengeId,code}` → 200 + 会话；号码未绑定则在验证码验证后创建独立手机号账号 |
-| POST | `/auth/phone/bind` | `{phone,challengeId,code,currentPassword?}` 或当前手机证明 `currentCode/currentChallengeId`；需会话，返回本人 `AuthUser` |
+| POST | `/auth/phone/bind` | 已设密码的账号提交 `{phone,challengeId,code}`，无密码账号另提供当前身份凭证；需有效会话，返回本人 `AuthUser` |
 | POST | `/auth/email/bind` | `{email,challengeId,code,currentPassword?}` 或当前手机证明；无密码账号另需新 `password`；需会话 |
 
 `user` 只包含公开账号字段 `{id,email?,phone?,emailVerified,phoneVerified?,hasPassword?,createdAt}`，不包含密码哈希或会话哈希。邮箱会去除两端空白并转小写，最多 254 字符；新密码为 6–16 位，只能使用字母、数字和符号，不能包含空格、中文或控制字符。登录仍接受 6–128 位不含控制字符的旧密码，密码不自动去除空白。请求须经过服务端字段白名单、类型及长度校验，不能仅凭客户端类型信任输入；注册与登录有频率和密码计算并发限制。
@@ -65,7 +65,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 手机号登录只接受号码、随机挑战 ID 和六位验证码，不信任客户端传入的 `userId`、验证状态或会员身份。已绑定号码登录原账号；未绑定号码验证后原子创建 phone-only 账号，不生成假邮箱或默认密码。新绑定只增加当前账号登录标识，保持原账号 ID、简历、会员与会话范围；目标标识属于其他账号时拒绝，不自动合并。
 
-绑定要求有效会话、目标 `bind-phone / bind-email` 验证码和当前身份证明：已有密码使用 `currentPassword`，phone-only 使用当前已绑定手机号的 `verify-account` 验证码 `currentCode/currentChallengeId`，无密码的微信账号可用 `wechatCode` 核对当前 OpenID。无密码账号绑定邮箱还须设置合规新密码。用途、目标、挑战 ID 与用户均须匹配，登录码不能作绑定码。现有邮箱不直接替换，当前没有改绑或解绑接口。
+绑定要求有效会话与目标 `bind-phone / bind-email` 验证码。已设密码的账号绑定手机号时，以服务端校验的有效会话确认当前身份。需要核验其他身份凭证时，已设密码的账号使用 `currentPassword`，仅有手机号的账号使用当前手机号的 `verify-account` 验证码，无密码的微信账号可用 `wechatCode` 核对当前 OpenID。无密码账号绑定邮箱还须设置合规新密码。用途、目标、挑战 ID 与用户均须匹配，登录码不能作绑定码。当前没有改绑或解绑接口。
 
 短信验证码有效 5 分钟、60 秒冷却、最多 5 次错误。发送先持久化预占，供应商确认提交后才有效；失败也计入发送限额，不自动重试。默认单号 5 条/小时、10 条/24 小时，单 IP 标签 10 条/小时、30 条/24 小时，全服务 100 次/24 小时、2 并发。验证码只保存 HMAC，不进入响应或日志。供应商接受不证明最终送达，本地超时也不证明没有计费。
 

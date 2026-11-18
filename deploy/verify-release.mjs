@@ -498,7 +498,7 @@ try {
   checks.push('percentage-only-private-quota-actual-token-ledger-reload-and-free-rules');
   const phoneChallenge = await request('/auth/phone/code', 'POST', { phone: '13900000001', purpose: 'bind-phone' }, owner);
   assert.equal(phoneChallenge.status, 202);
-  const phoneBound = await request('/auth/phone/bind', 'POST', { phone: '13900000001', code: smsMessages[0].code, challengeId: phoneChallenge.body.data.challengeId, currentPassword: 'Smoke26!Pass' }, owner);
+  const phoneBound = await request('/auth/phone/bind', 'POST', { phone: '13900000001', code: smsMessages[0].code, challengeId: phoneChallenge.body.data.challengeId }, owner);
   assert.equal(phoneBound.status, 200); assert.equal(phoneBound.body.data.id, userId);
   fixtureTime += 61000;
   const loginChallenge = await request('/auth/phone/code', 'POST', { phone: '13900000001', purpose: 'login' });

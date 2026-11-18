@@ -51,7 +51,7 @@ test('SMS login creates a phone-only account and uses HttpOnly cookies on H5 wit
   assert.equal((await f.store.read()).users.length, 1);
 });
 
-test('binding a verified phone makes SMS and email login share the same user and saved resumes', async t => {
+test('binding a verified phone without re-entering a password lets both sign-in methods access the same resumes', async t => {
   const f = await fixture(t);
   const account = await f.request('/auth/register', 'POST', { email: 'synthetic-owner@example.test', password: 'FixturePass26!' });
   const userId = account.body.data.user.id;
@@ -59,7 +59,7 @@ test('binding a verified phone makes SMS and email login share the same user and
   const saved = await f.request('/resumes', 'POST', { title: '同账号简历', text: '项目经历\n整理实际交付与验收依据。' }, cookie);
   const challenge = await f.request('/auth/phone/code', 'POST', { phone: '13900000001', purpose: 'bind-phone' }, cookie);
   assert.equal(challenge.status, 202);
-  const bind = await f.request('/auth/phone/bind', 'POST', { phone: '13900000001', code: f.sms[0].code, challengeId: challenge.body.data.challengeId, currentPassword: 'FixturePass26!' }, cookie);
+  const bind = await f.request('/auth/phone/bind', 'POST', { phone: '13900000001', code: f.sms[0].code, challengeId: challenge.body.data.challengeId }, cookie);
   assert.equal(bind.status, 200); assert.equal(bind.body.data.id, userId);
   f.advance();
   const loginCode = await f.request('/auth/phone/code', 'POST', { phone: '+8613900000001', purpose: 'login' });

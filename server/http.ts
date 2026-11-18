@@ -383,14 +383,16 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         const userId = needsSession ? (await auth.authenticate(sessionToken(request))).user.id : undefined;
         json(response, 202, { data: await auth.requestPhoneCode(input, clientAddress(request), userId) }); return;
       }
-      if (path === '/api/v1/auth/phone/bind' || path === '/api/v1/auth/email/bind') {
+      if (path === '/api/v1/auth/phone/bind') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const token = sessionToken(request);
+        await auth.authenticate(token);
+        json(response, 200, { data: await auth.bindPhone(token, await body(request), clientAddress(request)) }); return;
+      }
+      if (path === '/api/v1/auth/email/bind') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const session = await auth.authenticate(sessionToken(request));
-        const input = await body(request);
-        const result = path.endsWith('/phone/bind')
-          ? await auth.bindPhone(session.user.id, input, clientAddress(request))
-          : await auth.bindEmail(session.user.id, input, clientAddress(request));
-        json(response, 200, { data: result }); return;
+        json(response, 200, { data: await auth.bindEmail(session.user.id, await body(request), clientAddress(request)) }); return;
       }
       if (path === '/api/v1/auth/password/reset') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');

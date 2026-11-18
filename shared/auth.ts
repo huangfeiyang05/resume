@@ -53,6 +53,7 @@ export interface SendPhoneCodeInput { phone: string; purpose: PhoneCodePurpose }
 export interface PhoneCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
 export interface PhoneLoginInput { phone: string; code: string; challengeId: string }
 export interface CurrentIdentityProof { currentPassword?: string; currentCode?: string; currentChallengeId?: string; wechatCode?: string }
+/** A password account can use its authenticated session without resending its password. */
 export interface BindPhoneInput extends PhoneLoginInput, CurrentIdentityProof {}
 export interface BindEmailInput extends CurrentIdentityProof { email: string; code: string; challengeId: string; password?: string }
 

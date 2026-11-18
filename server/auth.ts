@@ -330,9 +330,7 @@ export class AuthService {
     return result!;
   }
 
-  private async bindingIdentity(userId: string, input: Record<string, unknown>, client: string) {
-    const snapshot = (await this.store.read()).users.find(user => user.id === userId);
-    if (!snapshot) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
+  private async bindingIdentity(snapshot: StoredUser, input: Record<string, unknown>, client: string) {
     this.checkRateLimit(client, snapshot.email ?? snapshot.phone);
     if (snapshot.passwordHash) {
       if (input.currentCode !== undefined || input.currentChallengeId !== undefined || input.wechatCode !== undefined) invalid('请使用当前账号密码验证身份。');
@@ -364,18 +362,21 @@ export class AuthService {
     return current;
   }
 
-  async bindPhone(userId: string, body: unknown, client = 'local'): Promise<AuthUser> {
+  async bindPhone(token: string | undefined, body: unknown, client = 'local'): Promise<AuthUser> {
+    const { user: existing } = this.requireSession(await this.store.read(), token);
+    const userId = existing.id;
     const input = object(body, ['phone', 'code', 'challengeId', 'currentPassword', 'currentCode', 'currentChallengeId', 'wechatCode']);
     const phone = validatePhone(input.phone), proof = validateProof(input);
     const codes = this.configuredPhoneCodes('bind-phone');
-    const existing = (await this.store.read()).users.find(user => user.id === userId);
-    if (!existing) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
     if (existing.phone === phone && existing.phoneVerified === true) return publicUser(existing);
-    const identity = await this.bindingIdentity(userId, input, client);
+    const suppliedProof = ['currentPassword', 'currentCode', 'currentChallengeId', 'wechatCode'].some(key => Object.hasOwn(input, key));
+    const useSessionIdentity = !!existing.passwordHash && !suppliedProof;
+    if (useSessionIdentity) this.checkRateLimit(client, existing.email ?? existing.phone);
+    const identity = useSessionIdentity ? { snapshot: existing, currentProof: undefined } : await this.bindingIdentity(existing, input, client);
     let codeError: HttpError | undefined;
     const result = await this.store.mutate(database => {
-      const latest = database.users.find(user => user.id === userId);
-      if (latest?.phone === phone && latest.phoneVerified === true) return publicUser(latest);
+      const { user: latest } = this.requireSession(database, token);
+      if (latest.phone === phone && latest.phoneVerified === true) return publicUser(latest);
       const current = this.currentBindingUser(database, identity.snapshot);
       this.checkPhoneBinding(database, current, phone);
       // A phone-only account already has a verified phone and cannot replace it through this method.
@@ -399,7 +400,7 @@ export class AuthService {
     const existing = (await this.store.read()).users.find(user => user.id === userId);
     if (!existing) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
     if (existing.email === email && existing.emailVerified === true) return publicUser(existing);
-    const identity = await this.bindingIdentity(userId, input, client);
+    const identity = await this.bindingIdentity(existing, input, client);
     let passwordHash: string | undefined;
     if (!identity.snapshot.passwordHash) {
       if (typeof input.password !== 'string' || !PASSWORD_PATTERN.test(input.password)) invalid(PASSWORD_RULE_MESSAGE);
@@ -517,13 +518,17 @@ export class AuthService {
     return identity;
   }
 
-  async authenticate(token: string | undefined, scope?: 'admin'): Promise<AuthSession> {
+  private requireSession(database: Database, token: string | undefined, scope?: 'admin') {
     if (!token || !tokenPattern.test(token)) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录，或重新登录后继续。');
-    const database = await this.store.read();
     const tokenHash = sessionDigest(token, scope);
     const session = database.sessions.find(session => session.scope === scope && session.tokenHash === tokenHash && Date.parse(session.expiresAt) > this.now());
     const user = session && database.users.find(user => user.id === session.userId);
     if (!session || !user) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
+    return { session, user };
+  }
+
+  async authenticate(token: string | undefined, scope?: 'admin'): Promise<AuthSession> {
+    const { session, user } = this.requireSession(await this.store.read(), token, scope);
     return { user: publicUser(user), expiresAt: session.expiresAt };
   }
 

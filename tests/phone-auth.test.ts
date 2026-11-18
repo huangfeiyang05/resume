@@ -71,11 +71,11 @@ test('an existing email account can bind a phone; either login retrieves the sam
   const service = new ResumeService(f.store).forUser(account.session.user.id);
   const resume = await service.createResume({ title: '合成账号资料', text: '项目经历\n记录实际交付并保留测试验证依据。' });
   const proof = await f.phone('13800000002', 'bind-phone', account.session.user.id);
-  const bound = await f.auth.bindPhone(account.session.user.id, { ...proof, currentPassword: password });
+  const bound = await f.auth.bindPhone(account.token, proof);
   assert.equal(bound.id, account.session.user.id);
   assert.equal(bound.phoneVerified, true);
   assert.equal(bound.email, 'email-first@example.test');
-  const replay = await f.auth.bindPhone(account.session.user.id, { ...proof, currentPassword: password });
+  const replay = await f.auth.bindPhone(account.token, proof);
   assert.deepEqual(replay, bound);
   const mobile = await f.auth.phoneLogin(await f.phone('13800000002'));
   const mail = await f.auth.login({ email: 'email-first@example.test', password });
@@ -102,19 +102,24 @@ test('phone-only account binds a verified email and sets a password after provin
   assert.equal((await f.store.read()).users.length, 1);
 });
 
-test('binding requires current identity and a target-bound challenge; phone/email purposes cannot be interchanged', async t => {
+test('binding requires a live account session and a target-bound challenge; login codes cannot be interchanged', async t => {
   const f = await fixture(t);
   const account = await f.auth.register({ email: 'identity-check@example.test', password });
   const proof = await f.phone('13800000004', 'bind-phone', account.session.user.id);
-  await assert.rejects(f.auth.bindPhone(account.session.user.id, proof), hasCode('CURRENT_IDENTITY_REQUIRED'));
-  await assert.rejects(f.auth.bindPhone(account.session.user.id, { ...proof, currentPassword: 'Incorrect-26!' }), hasCode('CURRENT_IDENTITY_INVALID'));
+  await assert.rejects(f.auth.bindPhone(undefined, proof), hasCode('AUTH_REQUIRED'));
+  await assert.rejects(f.auth.bindPhone(account.token, { ...proof, currentPassword: 'Incorrect-26!' }), hasCode('CURRENT_IDENTITY_INVALID'));
   const another = await f.auth.register({ email: 'another-owner@example.test', password });
-  await assert.rejects(f.auth.bindPhone(another.session.user.id, { ...proof, currentPassword: password }), hasCode('CODE_INVALID_OR_EXPIRED'));
+  await assert.rejects(f.auth.bindPhone(another.token, proof), hasCode('CODE_INVALID_OR_EXPIRED'));
   await assert.rejects(f.auth.phoneLogin(proof), hasCode('CODE_INVALID_OR_EXPIRED'));
+  await f.auth.logout(account.token);
+  await assert.rejects(f.auth.bindPhone(account.token, proof), hasCode('AUTH_REQUIRED'));
+  const renewed = await f.auth.login({ email: 'identity-check@example.test', password });
+  const loginProof = await f.phone(proof.phone);
+  await assert.rejects(f.auth.bindPhone(renewed.token, loginProof), hasCode('CODE_INVALID_OR_EXPIRED'));
   assert.equal((await f.store.read()).phoneChallenges.find(item => item.id === proof.challengeId)?.status, 'sent');
-  await f.auth.bindPhone(account.session.user.id, { ...proof, currentPassword: password });
+  await f.auth.bindPhone(renewed.token, proof);
   await assert.rejects(f.auth.requestPhoneCode({ phone: '13800000005', purpose: 'verify-account' }, 'test', account.session.user.id), hasCode('PHONE_MISMATCH'));
-  await assert.rejects(f.auth.bindPhone(account.session.user.id, { ...proof, userId: another.session.user.id }), hasCode('VALIDATION_ERROR'));
+  await assert.rejects(f.auth.bindPhone(renewed.token, { ...proof, userId: another.session.user.id }), hasCode('VALIDATION_ERROR'));
 });
 
 test('conflicting phone/email identifiers reject linking instead of merging accounts or moving private data', async t => {
@@ -123,7 +128,7 @@ test('conflicting phone/email identifiers reject linking instead of merging acco
   const mobile = await f.auth.phoneLogin(await f.phone('13800000006'));
   const mobileUser = mobile.session.user.id;
   const phoneProof = await f.phone('13800000006', 'bind-phone', emailAccount.session.user.id);
-  await assert.rejects(f.auth.bindPhone(emailAccount.session.user.id, { ...phoneProof, currentPassword: password }), hasCode('PHONE_ALREADY_BOUND'));
+  await assert.rejects(f.auth.bindPhone(emailAccount.token, phoneProof), hasCode('PHONE_ALREADY_BOUND'));
   const target = await f.email('already-owned@example.test', 'bind-email', mobileUser);
   const current = await f.phone('13800000006', 'verify-account', mobileUser);
   await assert.rejects(f.auth.bindEmail(mobileUser, { ...target, password, currentCode: current.code, currentChallengeId: current.challengeId }), hasCode('EMAIL_ALREADY_BOUND'));

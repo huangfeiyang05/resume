@@ -57,9 +57,9 @@ H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序
 
 ## 绑定两种登录方式
 
-绑定要求已登录会话、当前账号身份证明，以及目标号码/邮箱验证码：
+绑定要求有效登录会话和目标号码或邮箱验证码。
 
-- 已有密码的账号：提供 `currentPassword` 证明当前身份。
+- 已设密码的账号首次绑定手机号时，由服务端验证当前会话，并在保存时再次检查会话有效性。新客户端只提交新号码及绑定验证码。旧客户端传入密码时仍会核验。
 - 仅有手机号、没有密码的账号：使用已绑定手机号的 `verify-account` 挑战，提供 `currentCode / currentChallengeId`。
 - 绑定新手机号：再验证目标手机号的 `bind-phone` 挑战。
 - 绑定新邮箱：再验证目标邮箱的 `bind-email` 挑战；手机号账号还须设置符合现有 6–16 位规则的新密码，之后才能通过邮箱和密码登录。
@@ -77,7 +77,7 @@ H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序
 | `GET /auth/providers` | `phone:boolean` 来自服务端短信配置；不根据前端按钮或截图判断 |
 | `POST /auth/phone/code` | `{phone,purpose}`；用途 `login / bind-phone / verify-account`，后两者需会话；`verify-account` 仅当前账号已绑定手机号 |
 | `POST /auth/phone` | `{phone,code,challengeId}`；验证码登录，未注册则创建；返回与邮箱登录相同的会话 |
-| `POST /auth/phone/bind` | `{phone,code,challengeId,currentPassword?}` 或携带 `currentCode/currentChallengeId`；需会话 |
+| `POST /auth/phone/bind` | 已设密码的账号提交 `{phone,code,challengeId}`，服务端校验会话。无密码账号另提交适用的当前身份凭证 |
 | `POST /auth/email/code` | 原用途之外增加 `purpose:'bind-email'`；此用途需会话 |
 | `POST /auth/email/bind` | `{email,code,challengeId,currentPassword?}` 或当前手机证明；无密码账号另需 `password`；需会话 |
 

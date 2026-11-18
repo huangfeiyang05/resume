@@ -68,7 +68,7 @@ function authorizedPhone(event: { detail?: { code?: string } }) {
 async function submit() {
   if (disabled.value || !kind.value || kind.value === 'wechat-phone') return;
   formError.value = ''; emit('clearError');
-  let identity: { currentPassword?: string; currentCode?: string; currentChallengeId?: string; wechatCode?: string };
+  let identity: { currentPassword?: string; currentCode?: string; currentChallengeId?: string; wechatCode?: string } = {};
   const action = kind.value;
   const targetProof = action === 'phone' ? phoneProof.proof() : emailProof.proof();
   if (!targetProof) return;
@@ -76,8 +76,10 @@ async function submit() {
     formError.value = password.value !== confirmation.value ? '两次输入的新密码不一致。' : PASSWORD_RULE_MESSAGE; return;
   }
   if (hasPassword.value) {
-    if (!currentPassword.value) { formError.value = '请填写当前账号密码以确认身份。'; return; }
-    identity = { currentPassword: currentPassword.value };
+    if (action === 'email') {
+      if (!currentPassword.value) { formError.value = '请填写当前账号密码以确认身份。'; return; }
+      identity = { currentPassword: currentPassword.value };
+    }
   } else if (verifyWithWechat.value) {
     const owner = props.user.id;
     verifyingWechat.value = true;
@@ -128,12 +130,12 @@ async function submit() {
     </view>
   </AppModal>
   <!-- #endif -->
-  <AppModal v-if="kind === 'phone' || kind === 'email'" :title="kind === 'phone' ? '绑定手机号' : '绑定邮箱'" subtitle="验证新的登录方式，并确认当前账号身份。" @close="close">
+  <AppModal v-if="kind === 'phone' || kind === 'email'" :title="kind === 'phone' ? '绑定手机号' : '绑定邮箱'" :subtitle="kind === 'phone' ? '验证手机号后，将它绑定到当前账号。' : '验证新的登录方式，并确认当前账号身份。'" @close="close">
     <view class="binding-form">
       <template v-if="kind === 'phone'"><text class="field-label">新绑定的中国大陆手机号</text><input v-model="phone" class="text-input" type="text" inputmode="tel" autocomplete="tel" :maxlength="20" :disabled="disabled" placeholder="输入手机号" aria-label="要绑定的手机号" /><text class="field-label">新手机号验证码</text><view class="binding-code-row"><input v-model="phoneCode" class="text-input" type="text" inputmode="numeric" autocomplete="one-time-code" :maxlength="6" :disabled="disabled" placeholder="6 位数字验证码" aria-label="新手机号验证码" /><button class="button secondary" :disabled="disabled || phoneRemaining > 0" @click="sendTarget" role="button">{{ phoneSending ? '正在发送…' : phoneRemaining > 0 ? `${phoneRemaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="phoneProof.message.value" class="binding-note" role="status">{{ phoneProof.message.value }}</text></template>
       <template v-else><text class="field-label">新绑定的邮箱</text><input v-model="email" class="text-input" type="text" inputmode="email" autocomplete="email" :maxlength="254" :disabled="disabled" placeholder="输入邮箱地址" aria-label="要绑定的邮箱" /><text class="field-label">新邮箱验证码</text><view class="binding-code-row"><input v-model="emailCode" class="text-input" type="text" inputmode="numeric" autocomplete="one-time-code" :maxlength="6" :disabled="disabled" placeholder="6 位数字验证码" aria-label="新邮箱验证码" /><button class="button secondary" :disabled="disabled || emailRemaining > 0" @click="sendTarget" role="button">{{ emailSending ? '正在发送…' : emailRemaining > 0 ? `${emailRemaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="emailProof.message.value" class="binding-note" role="status">{{ emailProof.message.value }}</text></template>
-      <template v-if="hasPassword"><text class="field-label">当前账号密码</text><input v-model="currentPassword" class="text-input" password type="text" autocomplete="current-password" :maxlength="128" :disabled="disabled" placeholder="确认当前账号身份" aria-label="当前账号密码" /></template>
-      <template v-else>
+      <template v-if="kind === 'email' && hasPassword"><text class="field-label">当前账号密码</text><input v-model="currentPassword" class="text-input" password type="text" autocomplete="current-password" :maxlength="128" :disabled="disabled" placeholder="确认当前账号身份" aria-label="当前账号密码" /></template>
+      <template v-else-if="!hasPassword">
         <text v-if="verifyWithWechat" class="binding-note">确认绑定时会核验当前微信身份。</text>
         <template v-else>
           <text class="field-label">当前手机号验证 · {{ maskedPhone }}</text><view class="binding-code-row"><input v-model="accountCode" class="text-input" type="text" inputmode="numeric" :maxlength="6" :disabled="disabled" placeholder="当前手机号收到的验证码" aria-label="当前手机号验证码" /><button class="button secondary" :disabled="disabled || accountRemaining > 0 || !smsBinding" @click="sendAccount" role="button">{{ accountSending ? '正在发送…' : accountRemaining > 0 ? `${accountRemaining} 秒后重发` : '验证当前手机' }}</button></view><text v-if="accountProof.message.value" class="binding-note" role="status">{{ accountProof.message.value }}</text>
