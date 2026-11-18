@@ -49,7 +49,7 @@ H5 与微信工作台依据该响应显示锁态，点击提示所需等级并�
 | POST | `/auth/phone` | `{phone,challengeId,code}` → 200 + 会话；号码未绑定则在验证码验证后创建独立手机号账号 |
 | POST | `/auth/phone/bind` | 已设密码的账号提交 `{phone,challengeId,code}`，无密码账号另提供当前身份凭证；需有效会话，返回本人 `AuthUser` |
 | POST | `/auth/email/bind` | `{email,challengeId,code,currentPassword?}` 或当前手机证明；无密码账号另需新 `password`；需会话 |
-| POST | `/auth/phone/change`、`/auth/email/change` | 新手机号或邮箱、目标 `challengeId` 和 `code`、原联系方式的 `currentChallengeId` 和 `currentCode`。需会话，返回本人 `AuthUser` |
+| POST | `/auth/phone/change`、`/auth/email/change` | 新手机号或邮箱及其 `challengeId` 和 `code`。需有效会话，返回本人 `AuthUser` |
 
 `user` 只包含公开账号字段 `{id,email?,phone?,emailVerified,phoneVerified?,hasPassword?,createdAt}`，不包含密码哈希或会话哈希。邮箱会去除两端空白并转小写，最多 254 字符；新密码为 6–16 位，只能使用字母、数字和符号，不能包含空格、中文或控制字符。登录仍接受 6–128 位不含控制字符的旧密码，密码不自动去除空白。请求须经过服务端字段白名单、类型及长度校验，不能仅凭客户端类型信任输入；注册与登录有频率和密码计算并发限制。
 
@@ -69,7 +69,7 @@ H5 通过同源接口访问，Cookie 写请求需要来源校验。部署通过 
 
 绑定要求有效会话与目标 `bind-phone / bind-email` 验证码。已设密码的账号首次绑定手机号时，由服务端以有效会话确认当前身份。需要核验其他身份凭证时，已设密码的账号使用 `currentPassword`，仅有手机号的账号使用当前手机号的 `verify-account` 验证码，无密码的微信账号可用 `wechatCode` 核对当前 OpenID。无密码账号绑定邮箱还须设置合规新密码。用途、目标、挑战 ID 与用户均须匹配，登录码不能作绑定码。
 
-换绑时，原手机号使用 `verify-account`，原邮箱使用 `verify-email`。两端验证码在同一次账号更新中校验。成功后原联系方式失效，旧验证码不能继续用于登录或找回密码，当前会话保留，其他会话撤销。
+换绑时，服务端在保存时校验当前会话和新联系方式验证码。成功后原联系方式失效，相关验证码和本账号在同一渠道发出的其他换绑验证码一并失效。当前会话保留，其他会话撤销。
 
 短信验证码有效 5 分钟、60 秒冷却、最多 5 次错误。发送先持久化预占，供应商确认提交后才有效；失败也计入发送限额，不自动重试。默认单号 5 条/小时、10 条/24 小时，单 IP 标签 10 条/小时、30 条/24 小时，全服务 100 次/24 小时、2 并发。验证码只保存 HMAC，不进入响应或日志。供应商接受不证明最终送达，本地超时也不证明没有计费。
 

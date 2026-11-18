@@ -6,9 +6,8 @@ import type { WechatPhoneProvider } from './wechat-api.js';
 import { AccountProfiles } from './account-profile.js';
 import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../shared/auth.js';
 import { HttpError, invalid } from './errors.js';
-import { JsonStore, type Database, type StoredUser } from './store.js';
+import { JsonStore, type Database, type StoredEmailChallenge, type StoredPhoneChallenge, type StoredUser } from './store.js';
 import { EmailCodeService, validateEmail, validateProof } from './email-codes.js';
-import type { CodeProof } from './email-codes.js';
 import { PhoneCodeService, validatePhone } from './phone-codes.js';
 
 const ttl = 7 * 24 * 60 * 60 * 1000;
@@ -37,17 +36,14 @@ function object(body: unknown, allowed: string[]): Record<string, unknown> {
   return record;
 }
 
-function consumeContactProofs<Challenge extends { id: string }>(
-  challenges: Challenge[], currentProof: CodeProof, verifyCurrent: () => HttpError | undefined, verifyTarget: () => HttpError | undefined,
-) {
-  const index = challenges.findIndex(challenge => challenge.id === currentProof.challengeId);
-  const original = index >= 0 ? structuredClone(challenges[index]) : undefined;
-  const currentError = verifyCurrent();
-  if (currentError) return currentError;
-  const targetError = verifyTarget();
-  // Keep the failed target attempt without consuming a correct current-contact code.
-  if (targetError && original) challenges[index] = original;
-  return targetError;
+function invalidateBindingChallenges(challenges: (StoredEmailChallenge | StoredPhoneChallenge)[], userId: string) {
+  for (const challenge of challenges) {
+    if (challenge.userId === userId && (challenge.purpose === 'bind-phone' || challenge.purpose === 'bind-email')
+      && (challenge.status === 'pending' || challenge.status === 'sent')) {
+      challenge.status = 'superseded';
+      challenge.codeHash = '';
+    }
+  }
 }
 
 interface TestLoginAlias { username: string; email: string }
@@ -467,12 +463,19 @@ export class AuthService {
       const current = this.currentBindingUser(database, identity.snapshot);
       if (current.email && current.email !== email) throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
       if (database.users.some(user => user.id !== userId && user.email === email)) throw new HttpError(409, 'EMAIL_ALREADY_BOUND', '该邮箱已属于其他账号，请使用原账号登录；不会自动合并资料。');
-      const verifyTarget = () => codes.consume(database, email, 'bind-email', proof, userId);
       const currentProof = identity.currentProof;
-      codeError = currentProof ? consumeContactProofs(database.phoneChallenges, currentProof,
-        () => this.configuredPhoneCodes('verify-account').consume(database, current.phone!, 'verify-account', currentProof, userId),
-        verifyTarget) : verifyTarget();
-      if (codeError) return undefined;
+      const index = currentProof ? database.phoneChallenges.findIndex(challenge => challenge.id === currentProof.challengeId) : -1;
+      const original = index >= 0 ? structuredClone(database.phoneChallenges[index]) : undefined;
+      if (currentProof) {
+        codeError = this.configuredPhoneCodes('verify-account').consume(database, current.phone!, 'verify-account', currentProof, userId);
+        if (codeError) return undefined;
+      }
+      codeError = codes.consume(database, email, 'bind-email', proof, userId);
+      if (codeError) {
+        // Keep the failed target attempt without consuming the valid identity proof.
+        if (original) database.phoneChallenges[index] = original;
+        return undefined;
+      }
       current.email = email; current.emailVerified = true;
       if (passwordHash) current.passwordHash = passwordHash;
       return publicUser(current);
@@ -484,10 +487,10 @@ export class AuthService {
   async changeContact(kind: 'phone' | 'email', token: string | undefined, body: unknown, client = 'local'): Promise<AuthUser> {
     const tokenHash = requireSessionHash(token);
     const { user } = this.requireSession(await this.store.read(), tokenHash);
+    // Older clients may still include the original contact's proof.
     const input = object(body, [kind, 'code', 'challengeId', 'currentCode', 'currentChallengeId']);
     const target = kind === 'phone' ? validatePhone(input.phone) : validateEmail(input.email);
     const targetProof = validateProof(input);
-    const currentProof = validateProof({ code: input.currentCode, challengeId: input.currentChallengeId });
     if (!user[kind] || (kind === 'phone' && !user.phoneVerified)) invalid('请先绑定并验证当前联系方式。');
     this.checkRateLimit(client, user[kind]);
     let proofError: HttpError | undefined;
@@ -504,21 +507,19 @@ export class AuthService {
       }
       if (kind === 'phone') {
         const codes = this.configuredPhoneCodes('bind-phone');
-        proofError = consumeContactProofs(database.phoneChallenges, currentProof,
-          () => codes.consume(database, previous, 'verify-account', currentProof, current.id),
-          () => codes.consume(database, target, 'bind-phone', targetProof, current.id));
+        proofError = codes.consume(database, target, 'bind-phone', targetProof, current.id);
         if (proofError) return;
         codes.invalidatePhone(database, previous);
         codes.invalidatePhone(database, target);
+        invalidateBindingChallenges(database.phoneChallenges, current.id);
         current.phone = target; current.phoneVerified = true;
       } else {
         const codes = this.configuredCodes();
-        proofError = consumeContactProofs(database.emailChallenges, currentProof,
-          () => codes.consume(database, previous, 'verify-email', currentProof, current.id),
-          () => codes.consume(database, target, 'bind-email', targetProof, current.id));
+        proofError = codes.consume(database, target, 'bind-email', targetProof, current.id);
         if (proofError) return;
         codes.invalidateEmail(database, previous);
         codes.invalidateEmail(database, target);
+        invalidateBindingChallenges(database.emailChallenges, current.id);
         current.email = target; current.emailVerified = true;
       }
       database.sessions = database.sessions.filter(other => other.userId !== current.id || other.tokenHash === tokenHash);

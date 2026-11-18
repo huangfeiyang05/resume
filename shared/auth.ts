@@ -57,9 +57,8 @@ export interface CurrentIdentityProof { currentPassword?: string; currentCode?: 
 /** A password account can use its authenticated session without resending its password. */
 export interface BindPhoneInput extends PhoneLoginInput, CurrentIdentityProof {}
 export interface BindEmailInput extends CurrentIdentityProof { email: string; code: string; challengeId: string; password?: string }
-interface ContactChangeProof extends VerifyEmailInput { currentCode: string; currentChallengeId: string }
-export interface ChangePhoneInput extends ContactChangeProof { phone: string }
-export interface ChangeEmailInput extends ContactChangeProof { email: string }
+export type ChangePhoneInput = PhoneLoginInput;
+export interface ChangeEmailInput extends VerifyEmailInput { email: string }
 
 /** New passwords use 6-16 visible ASCII characters: letters, digits and symbols only. */
 export const PASSWORD_PATTERN = /^[\x21-\x7e]{6,16}$/;

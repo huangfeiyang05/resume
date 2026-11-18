@@ -18,11 +18,9 @@ const kind = ref<'phone' | 'email' | 'wechat-phone' | 'password'>();
 const replacing = ref(false);
 const phone = ref(''), email = ref(''), currentPassword = ref(''), password = ref(''), confirmation = ref(''), formError = ref('');
 const phoneProof = usePhoneChallenge(), emailProof = useEmailChallenge(), accountProof = usePhoneChallenge();
-const currentEmailProof = useEmailChallenge();
 const { code: phoneCode, busy: phoneSending, remaining: phoneRemaining } = phoneProof;
 const { code: emailCode, busy: emailSending, remaining: emailRemaining } = emailProof;
 const { code: accountCode, busy: accountSending, remaining: accountRemaining } = accountProof;
-const { code: currentEmailCode, busy: currentEmailSending, remaining: currentEmailRemaining } = currentEmailProof;
 const hasPassword = computed(() => props.user.hasPassword ?? !!props.user.email);
 const miniProgram = isMiniProgramClient();
 const verifyWithWechat = computed(() => miniProgram && props.user.wechat && !hasPassword.value);
@@ -35,9 +33,9 @@ const canChangeEmail = computed(() => !!props.user.email && props.capabilities?.
 const canChangePassword = computed(() => !!props.user.email && hasPassword.value);
 const privacyAllowed = ref(false);
 const verifyingWechat = ref(false);
-const sending = computed(() => phoneSending.value || emailSending.value || accountSending.value || currentEmailSending.value);
+const sending = computed(() => phoneSending.value || emailSending.value || accountSending.value);
 const disabled = computed(() => !!props.busy || sending.value || verifyingWechat.value);
-const errorMessage = computed(() => formError.value || phoneProof.error.value || emailProof.error.value || accountProof.error.value || currentEmailProof.error.value || props.error);
+const errorMessage = computed(() => formError.value || phoneProof.error.value || emailProof.error.value || accountProof.error.value || props.error);
 const maskedPhone = computed(() => props.user.phone ? `${props.user.phone.slice(0, 3)}****${props.user.phone.slice(-4)}` : '未绑定');
 watch(phone, value => phoneProof.setTarget(value, 'bind-phone'));
 watch(email, value => emailProof.setTarget(value, 'bind-email'));
@@ -45,7 +43,7 @@ function clear() {
   phone.value = ''; email.value = ''; currentPassword.value = ''; password.value = ''; confirmation.value = ''; formError.value = '';
   privacyAllowed.value = false;
   replacing.value = false;
-  phoneProof.clearProof(); emailProof.clearProof(); accountProof.clearProof(); currentEmailProof.clearProof();
+  phoneProof.clearProof(); emailProof.clearProof(); accountProof.clearProof();
 }
 function open(next: NonNullable<typeof kind.value>, replace = false) {
   if (disabled.value) return;
@@ -54,8 +52,7 @@ function open(next: NonNullable<typeof kind.value>, replace = false) {
   if (next === 'email' && !(replace ? canChangeEmail.value : !props.user.email && canBindEmail.value)) return;
   if (next === 'password' && !canChangePassword.value) return;
   clear(); emit('clearError'); kind.value = next; replacing.value = replace;
-  if (props.user.phone) accountProof.setTarget(props.user.phone, 'verify-account');
-  if (replace && next === 'email' && props.user.email) currentEmailProof.setTarget(props.user.email, 'verify-email');
+  if (!replace && props.user.phone) accountProof.setTarget(props.user.phone, 'verify-account');
 }
 function close() { if (props.busy || verifyingWechat.value) return; kind.value = undefined; clear(); }
 watch(() => [props.user.id, props.user.phone, props.user.email], (next, previous) => {
@@ -71,13 +68,8 @@ async function sendTarget() {
   }
 }
 async function sendAccount() {
-  if (disabled.value || !smsBinding.value || !props.user.phone) return;
+  if (disabled.value || replacing.value || !smsBinding.value || !props.user.phone) return;
   accountProof.setTarget(props.user.phone, 'verify-account'); await accountProof.send();
-}
-async function sendCurrentEmail() {
-  if (disabled.value || !replacing.value || kind.value !== 'email' || !canChangeEmail.value || !props.user.email) return;
-  currentEmailProof.setTarget(props.user.email, 'verify-email');
-  await currentEmailProof.send();
 }
 function authorizedPhone(event: { detail?: { code?: string } }) {
   if (!canAuthorizeWechat.value || !privacyAllowed.value || disabled.value || kind.value !== 'wechat-phone') return;
@@ -96,11 +88,8 @@ async function submit() {
   if (!targetProof) return;
   if (replacing.value) {
     if (action === 'phone' ? !canChangePhone.value : !canChangeEmail.value) return;
-    const current = action === 'phone' ? accountProof.proof() : currentEmailProof.proof();
-    if (!current) return;
-    const proof = { ...targetProof, currentCode: current.code, currentChallengeId: current.challengeId };
-    if (action === 'phone') emit('changePhone', { phone: normalizedPhone(phone.value), ...proof });
-    else emit('changeEmail', { email: email.value.trim().toLowerCase(), ...proof });
+    if (action === 'phone') emit('changePhone', { phone: normalizedPhone(phone.value), ...targetProof });
+    else emit('changeEmail', { email: email.value.trim().toLowerCase(), ...targetProof });
     return;
   }
   if (action === 'email' && !hasPassword.value && (!PASSWORD_PATTERN.test(password.value) || password.value !== confirmation.value)) {
@@ -186,18 +175,13 @@ function submitPassword() {
       <view class="modal-footer"><button class="button secondary" :disabled="busy" @click="close">取消</button><button class="button primary" :disabled="disabled" @click="submitPassword">{{ busy ? '正在保存…' : '保存新密码' }}</button></view>
     </view>
   </AppModal>
-  <AppModal v-if="kind === 'phone' || kind === 'email'" :title="(replacing ? '修改绑定' : '绑定') + (kind === 'phone' ? '手机号' : '邮箱')" :subtitle="replacing ? '验证当前和新联系方式后，更新当前账号。' : kind === 'phone' ? '验证手机号后，将它绑定到当前账号。' : '验证新的登录方式，并确认当前账号身份。'" @close="close">
+  <AppModal v-if="kind === 'phone' || kind === 'email'" :title="(replacing ? '修改绑定' : '绑定') + (kind === 'phone' ? '手机号' : '邮箱')" :subtitle="replacing ? '验证新联系方式后，更新当前账号。' : kind === 'phone' ? '验证手机号后，将它绑定到当前账号。' : '验证新的登录方式，并确认当前账号身份。'" @close="close">
     <view class="binding-form">
       <template v-if="kind === 'phone'"><text class="field-label">新绑定的中国大陆手机号</text><input v-model="phone" class="text-input" type="text" inputmode="tel" autocomplete="tel" :maxlength="20" :disabled="disabled" placeholder="输入手机号" aria-label="要绑定的手机号" /><text class="field-label">新手机号验证码</text><view class="binding-code-row"><input v-model="phoneCode" class="text-input" type="text" inputmode="numeric" autocomplete="one-time-code" :maxlength="6" :disabled="disabled" placeholder="6 位数字验证码" aria-label="新手机号验证码" /><button class="button secondary" :disabled="disabled || phoneRemaining > 0" @click="sendTarget" role="button">{{ phoneSending ? '正在发送…' : phoneRemaining > 0 ? `${phoneRemaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="phoneProof.message.value" class="binding-note" role="status">{{ phoneProof.message.value }}</text></template>
       <template v-else><text class="field-label">新绑定的邮箱</text><input v-model="email" class="text-input" type="text" inputmode="email" autocomplete="email" :maxlength="254" :disabled="disabled" placeholder="输入邮箱地址" aria-label="要绑定的邮箱" /><text class="field-label">新邮箱验证码</text><view class="binding-code-row"><input v-model="emailCode" class="text-input" type="text" inputmode="numeric" autocomplete="one-time-code" :maxlength="6" :disabled="disabled" placeholder="6 位数字验证码" aria-label="新邮箱验证码" /><button class="button secondary" :disabled="disabled || emailRemaining > 0" @click="sendTarget" role="button">{{ emailSending ? '正在发送…' : emailRemaining > 0 ? `${emailRemaining} 秒后重发` : '获取验证码' }}</button></view><text v-if="emailProof.message.value" class="binding-note" role="status">{{ emailProof.message.value }}</text></template>
-      <template v-if="kind === 'email' && replacing">
-        <text class="field-label">当前邮箱验证 · {{ user.email }}</text>
-        <view class="binding-code-row"><input v-model="currentEmailCode" class="text-input" type="text" inputmode="numeric" :maxlength="6" :disabled="disabled" placeholder="当前邮箱收到的验证码" aria-label="当前邮箱验证码" /><button class="button secondary" :disabled="disabled || currentEmailRemaining > 0" @click="sendCurrentEmail">{{ currentEmailSending ? '正在发送…' : currentEmailRemaining > 0 ? `${currentEmailRemaining} 秒后重发` : '验证当前邮箱' }}</button></view>
-        <text v-if="currentEmailProof.message.value" class="binding-note" role="status">{{ currentEmailProof.message.value }}</text>
-      </template>
-      <template v-else-if="kind === 'email' && hasPassword"><text class="field-label">当前账号密码</text><input v-model="currentPassword" class="text-input" password type="text" autocomplete="current-password" :maxlength="128" :disabled="disabled" placeholder="确认当前账号身份" aria-label="当前账号密码" /></template>
-      <template v-else-if="replacing || !hasPassword">
-        <text v-if="!replacing && verifyWithWechat" class="binding-note">确认绑定时会核验当前微信身份。</text>
+      <template v-if="!replacing && kind === 'email' && hasPassword"><text class="field-label">当前账号密码</text><input v-model="currentPassword" class="text-input" password type="text" autocomplete="current-password" :maxlength="128" :disabled="disabled" placeholder="确认当前账号身份" aria-label="当前账号密码" /></template>
+      <template v-else-if="!replacing && !hasPassword">
+        <text v-if="verifyWithWechat" class="binding-note">确认绑定时会核验当前微信身份。</text>
         <template v-else>
           <text class="field-label">当前手机号验证 · {{ maskedPhone }}</text><view class="binding-code-row"><input v-model="accountCode" class="text-input" type="text" inputmode="numeric" :maxlength="6" :disabled="disabled" placeholder="当前手机号收到的验证码" aria-label="当前手机号验证码" /><button class="button secondary" :disabled="disabled || accountRemaining > 0 || !smsBinding" @click="sendAccount" role="button">{{ accountSending ? '正在发送…' : accountRemaining > 0 ? `${accountRemaining} 秒后重发` : '验证当前手机' }}</button></view><text v-if="accountProof.message.value" class="binding-note" role="status">{{ accountProof.message.value }}</text>
         </template>
