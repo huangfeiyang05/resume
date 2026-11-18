@@ -8,7 +8,7 @@ export interface CodeSms {
   expiresAt: string;
 }
 export interface SmsSender { readonly enabled: boolean; sendCode(input: CodeSms): Promise<void> }
-interface SmsCommonConfig { enabled: boolean; codeSecret: string }
+interface SmsCommonConfig { enabled: boolean; loginOnly: boolean; codeSecret: string }
 export interface AliyunSmsConfig extends SmsCommonConfig {
   provider: 'aliyun';
   accessKeyId: string;
@@ -37,9 +37,10 @@ const safeText = (value: unknown, minimum: number, maximum: number) => typeof va
 /** Opt-in server configuration; no default key, approved identity, or successful send is invented. */
 export function loadSmsConfig(env: NodeJS.ProcessEnv = process.env): SmsConfig {
   const flag = env.SMS_ENABLED ?? 'false';
+  const loginOnly = env.SMS_LOGIN_ONLY ?? 'false';
   const provider = env.SMS_PROVIDER ?? 'tencent';
-  if (!['true', 'false'].includes(flag) || !['aliyun', 'tencent'].includes(provider)) throw configError();
-  const common = { enabled: flag === 'true', codeSecret: env.SMS_CODE_SECRET ?? '' };
+  if (!['true', 'false'].includes(flag) || !['true', 'false'].includes(loginOnly) || !['aliyun', 'tencent'].includes(provider)) throw configError();
+  const common = { enabled: flag === 'true', loginOnly: loginOnly === 'true', codeSecret: env.SMS_CODE_SECRET ?? '' };
   if (common.enabled && (Buffer.byteLength(common.codeSecret, 'utf8') < 32 || Buffer.byteLength(common.codeSecret, 'utf8') > 4096)) throw configError();
   if (provider === 'tencent') {
     const config: TencentSmsConfig = { ...common, provider,

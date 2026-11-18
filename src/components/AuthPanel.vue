@@ -131,7 +131,7 @@ function submit() {
         </template>
         <template v-else>
           <text class="auth-title">手机验证码登录</text>
-          <text class="auth-description">未注册的手机号验证后将创建账号。已有邮箱账号请先用邮箱登录，再绑定手机号以保留原有资料。</text>
+          <text class="auth-description">未绑定的手机号验证后将创建账号。{{ capabilities?.smsLoginOnly ? '已通过邮箱或微信使用过简历有方的用户，请继续使用原登录方式查看原有资料。' : '已有邮箱账号请先用邮箱登录，再绑定手机号以保留原有资料。' }}</text>
           <view class="auth-form">
             <text class="field-label">中国大陆手机号</text>
             <input v-model="phone" class="text-input auth-input" type="text" inputmode="tel" autocomplete="tel" placeholder="输入手机号" :maxlength="20" :disabled="busy || smsBusy" aria-label="手机号" />

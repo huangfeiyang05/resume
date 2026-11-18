@@ -13,14 +13,14 @@ import { ResumeService } from '../server/service.js';
 import type { CodeSms } from '../server/sms.js';
 import { JsonStore } from '../server/store.js';
 
-async function fixture(t: TestContext, enabled = true) {
+async function fixture(t: TestContext, enabled = true, smsLoginOnly = false) {
   const dir = await mkdtemp(join(tmpdir(), 'resume-phone-http-'));
   const store = new JsonStore(join(dir, 'data.json'));
   let instant = Date.now();
   const sms: CodeSms[] = [], mail: CodeMail[] = [];
   const codes = new PhoneCodeService(store, { enabled, async sendCode(message) { sms.push(message); } }, { secret: 'fixture-sms-secret-only-over-32-bytes', now: () => instant });
   const emails = new EmailCodeService(store, { enabled: true, async sendCode(message) { mail.push(message); } }, { secret: 'fixture-email-secret-only-over-32-bytes', now: () => instant });
-  const auth = new AuthService(store, { phoneCodes: codes, emailCodes: emails, requireEmailVerification: false, now: () => instant });
+  const auth = new AuthService(store, { phoneCodes: codes, smsLoginOnly, emailCodes: emails, requireEmailVerification: false, now: () => instant });
   const server = createApiServer(new ResumeService(store), { auth });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await rm(dir, { recursive: true, force: true }); });
@@ -101,4 +101,25 @@ test('disabled SMS never returns a successful challenge or phone session', async
   const result = await f.request('/auth/phone', 'POST', { phone: '13900000001', code: '123456', challengeId: randomUUID() });
   assert.equal(result.status, 503); assert.equal(result.headers.get('set-cookie'), null);
   assert.equal(f.sms.length, 0); assert.equal((await f.store.read()).users.length, 0);
+});
+
+test('login-only SMS signs in but rejects binding and current account SMS before delivery', async t => {
+  const f = await fixture(t, true, true);
+  const { data } = (await f.request('/auth/providers')).body;
+  assert.equal(data.phone, true);
+  assert.equal(data.smsLoginOnly, true);
+  const phone = '13900000001';
+  const challenge = await f.request('/auth/phone/code', 'POST', { phone, purpose: 'login' });
+  assert.equal(challenge.status, 202);
+  const proof = { phone, code: f.sms[0].code, challengeId: challenge.body.data.challengeId };
+  const login = await f.request('/auth/phone', 'POST', proof);
+  assert.equal(login.status, 200);
+  const cookie = login.headers.get('set-cookie')!.split(';')[0];
+  for (const purpose of ['bind-phone', 'verify-account']) {
+    const rejected = await f.request('/auth/phone/code', 'POST', { phone, purpose }, cookie);
+    assert.equal(rejected.status, 503);
+    assert.equal(rejected.body.error.code, 'SMS_LOGIN_ONLY');
+  }
+  assert.equal((await f.request('/auth/phone/bind', 'POST', proof, cookie)).body.error.code, 'SMS_LOGIN_ONLY');
+  assert.deepEqual(f.sms.map(message => message.purpose), ['login']);
 });

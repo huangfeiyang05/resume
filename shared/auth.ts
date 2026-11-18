@@ -29,6 +29,7 @@ export interface AuthCapabilities {
   emailPassword: true; wechat: boolean; phone: boolean;
   emailVerification: boolean; passwordReset: boolean;
   wechatPhone?: true;
+  smsLoginOnly?: true;
 }
 export interface WechatLoginInput { code: string }
 export interface BindWechatPhoneInput { wechatCode: string; phoneCode: string }

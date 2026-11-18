@@ -174,6 +174,7 @@ sudo certbot renew --dry-run
 
 ```ini
 SMS_ENABLED=false
+SMS_LOGIN_ONLY=false
 SMS_PROVIDER=tencent
 TENCENT_SMS_SECRET_ID=
 TENCENT_SMS_SECRET_KEY=

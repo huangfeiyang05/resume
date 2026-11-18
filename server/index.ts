@@ -52,6 +52,7 @@ const smsDailyLimit = Number(process.env.SMS_DAILY_LIMIT ?? 100);
 const auth = new AuthService(store, {
   ...(mailConfig.enabled ? { emailCodes: new EmailCodeService(store, mailer, { secret: mailConfig.codeSecret }) } : {}),
   requireEmailVerification: process.env.NODE_ENV === 'production',
+  smsLoginOnly: smsConfig.loginOnly,
   ...(smsConfig.enabled ? { phoneCodes: new PhoneCodeService(store, createSmsSender(smsConfig), { secret: smsConfig.codeSecret, dailyLimit: smsDailyLimit }) } : {}),
   ...(wechatApp ? { wechat: new WechatCodeExchange(wechatApp.appid, wechatApp.appSecret) } : {}),
   ...(phoneAuthorization && wechatApi && wechatApp ? { wechatPhone: new WechatPhoneVerification(wechatApi, wechatApp.appid) } : {}),

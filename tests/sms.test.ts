@@ -15,6 +15,9 @@ const safeFailure = (error: unknown) => error instanceof HttpError && error.code
 test('SMS is disabled by default and enabled configuration fails closed without leaking values', async () => {
   assert.equal(loadSmsConfig({}).enabled, false);
   assert.equal(loadSmsConfig(environment).enabled, true);
+  assert.equal(loadSmsConfig(environment).loginOnly, false);
+  assert.equal(loadSmsConfig({ ...environment, SMS_LOGIN_ONLY: 'true' }).loginOnly, true);
+  assert.throws(() => loadSmsConfig({ ...environment, SMS_LOGIN_ONLY: 'yes' }));
   for (const key of Object.keys(environment)) {
     const values: NodeJS.ProcessEnv = { ...environment };
     if (key === 'SMS_ENABLED') values[key] = 'yes'; else delete values[key];

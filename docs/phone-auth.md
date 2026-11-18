@@ -22,6 +22,7 @@
 
 ```ini
 SMS_ENABLED=false
+SMS_LOGIN_ONLY=false
 SMS_PROVIDER=tencent
 TENCENT_SMS_SECRET_ID=
 TENCENT_SMS_SECRET_KEY=
@@ -37,6 +38,8 @@ SMS_DAILY_LIMIT=100
 `TENCENT_SMS_TOKEN` 仅在使用临时凭据时填写；其余身份、应用、签名和模板值须由真实配置提供。`SMS_CODE_SECRET` 为独立生成的至少 32 字节随机密钥，用于挑战 HMAC，不能复用腾讯云 SecretKey、SMTP 或模型密钥。更换后旧挑战需要重新获取。已关闭时不发请求、不假报成功；启用但必要配置不完整时拒绝启动，避免显示可用却无法发送。
 
 配置由维护者在独立授权和真实材料齐备后填入 `/etc/resume-youfang/runtime.env`（权限 `0600`）并重启。不能把一次普通代码发布当作启用短信或修改此文件的授权。启用后仍需用户授权真实号码进行接收验收；供应商确认提交不代表最终送达手机。
+
+签名配套的正文只描述登录时，设置 `SMS_LOGIN_ONLY=true`。服务端只允许发放和消费登录短信验证码，账号绑定入口按 `/auth/providers.smsLoginOnly` 控制。微信手机号授权独立运行。需要恢复短信绑定时，先配置一条已审核、覆盖账号验证场景的正文模板，再关闭仅登录模式。
 
 ## 登录与注册
 

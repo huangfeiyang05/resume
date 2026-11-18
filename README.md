@@ -66,7 +66,7 @@ H5 使用 HttpOnly、SameSite 的会话 Cookie，线上加上 Secure；不把 H5
 
 已接入腾讯云短信发送适配器、手机号验证码登录/自动注册及“我的 → 账号登录方式”绑定入口。同一账号可绑定手机号和邮箱，绑定需当前密码或当前已绑定手机证明，再验证新标识；手机号账号绑定邮箱时须设置登录密码。没有邮箱的账号不生成假邮箱或默认密码，绑定不改变账号 ID、简历或会员。已属于其他账号的手机号/邮箱不能直接绑定，没有改绑、解绑或自动合并。
 
-短信默认 `SMS_ENABLED=false`、`SMS_PROVIDER=tencent`。启用需要真实的 `TENCENT_SMS_SECRET_ID / SECRET_KEY / SDK_APP_ID / SIGN_NAME / TEMPLATE_ID / REGION`，临时凭据可带 `TOKEN`，另须独立的 `SMS_CODE_SECRET`（至少 32 字节）和 `SMS_DAILY_LIMIT`（默认 100 次/滚动 24 小时，失败提交也计入）。密钥只存受限服务器环境，不能用 `VITE_`、聊天密钥或占位值启用。本轮尚缺已确认的 SDKAppID、审核通过签名和模板 ID，不修改服务器业务配置、不发送真实短信。资质审核通过且关联签名为 0 的截图不能证明可以发送。
+短信默认 `SMS_ENABLED=false`、`SMS_PROVIDER=tencent`。启用需要真实的 `TENCENT_SMS_SECRET_ID / SECRET_KEY / SDK_APP_ID / SIGN_NAME / TEMPLATE_ID / REGION`，临时凭据可带 `TOKEN`，另须独立的 `SMS_CODE_SECRET`（至少 32 字节）和 `SMS_DAILY_LIMIT`（默认 100 次/滚动 24 小时，失败提交也计入）。密钥只存受限服务器环境，不能用 `VITE_`、聊天密钥或占位值启用。若审核通过的模板正文只适用于登录，设置 `SMS_LOGIN_ONLY=true`，服务端暂停短信绑定和绑定时的当前手机号验证。微信手机号授权使用独立配置。
 
 短信验证码为六位、5 分钟有效，60 秒冷却，单号每小时 5 条/24 小时 10 条、单 IP 标签每小时 10 条/24 小时 30 条，全局 100 次/24 小时，2 个发送并发，错误 5 次锁定。供应商确认提交后才可使用，失败和超时不自动重试，也不代表免费或最终送达。完整接口、配置、同账号绑定及数据回退边界见 [手机号与短信](docs/phone-auth.md)。
 

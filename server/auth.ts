@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
-import type { AuthCapabilities, AuthSession, AuthUser, EmailCodePurpose, EmailPasswordInput } from '../shared/auth.js';
+import type { AuthCapabilities, AuthSession, AuthUser, EmailCodePurpose, EmailPasswordInput, PhoneCodePurpose } from '../shared/auth.js';
 import type { WechatBindResult } from '../shared/payment.js';
 import { wechatLoginCode, type WechatIdentity, type WechatIdentityProvider } from './wechat-identity.js';
 import type { WechatPhoneProvider } from './wechat-api.js';
@@ -57,6 +57,7 @@ export interface AuthOptions {
   sessionTtlMs?: number;
   emailCodes?: EmailCodeService;
   phoneCodes?: PhoneCodeService;
+  smsLoginOnly?: boolean;
   requireEmailVerification?: boolean;
   wechat?: WechatIdentityProvider;
   wechatPhone?: WechatPhoneProvider;
@@ -69,6 +70,7 @@ export class AuthService {
   readonly sessionTtlMs: number;
   readonly emailCodes?: EmailCodeService;
   readonly phoneCodes?: PhoneCodeService;
+  private readonly smsLoginOnly: boolean;
   private requireEmailVerification: boolean;
   private wechat?: WechatIdentityProvider;
   private wechatPhone?: WechatPhoneProvider;
@@ -78,6 +80,7 @@ export class AuthService {
     this.now = options.now ?? Date.now;
     this.emailCodes = options.emailCodes;
     this.phoneCodes = options.phoneCodes;
+    this.smsLoginOnly = options.smsLoginOnly === true;
     this.requireEmailVerification = options.requireEmailVerification ?? options.emailCodes?.enabled ?? false;
     this.sessionTtlMs = options.sessionTtlMs ?? ttl;
     this.wechat = options.wechat;
@@ -94,8 +97,10 @@ export class AuthService {
 
   capabilities(): AuthCapabilities {
     const configured = this.emailCodes?.enabled === true;
-    return { emailPassword: true, wechat: this.wechat !== undefined, phone: this.phoneCodes?.enabled === true,
-      emailVerification: configured, passwordReset: configured, ...(this.wechatPhone ? { wechatPhone: true as const } : {}) };
+    const phone = this.phoneCodes?.enabled === true;
+    return { emailPassword: true, wechat: this.wechat !== undefined, phone, emailVerification: configured, passwordReset: configured,
+      ...(this.wechatPhone ? { wechatPhone: true as const } : {}),
+      ...(phone && this.smsLoginOnly ? { smsLoginOnly: true as const } : {}) };
   }
 
   private configuredCodes(): EmailCodeService {
@@ -276,9 +281,12 @@ export class AuthService {
     });
   }
 
-  private configuredPhoneCodes(): PhoneCodeService {
+  private configuredPhoneCodes(purpose: PhoneCodePurpose): PhoneCodeService {
     if (!this.phoneCodes) throw new HttpError(503, 'SMS_NOT_CONFIGURED', '短信验证服务暂未开放，请使用邮箱登录。');
     this.phoneCodes.assertEnabled();
+    if (this.smsLoginOnly && purpose !== 'login') {
+      throw new HttpError(503, 'SMS_LOGIN_ONLY', '短信验证码当前仅用于登录。');
+    }
     return this.phoneCodes;
   }
 
@@ -286,8 +294,8 @@ export class AuthService {
     const input = object(body, ['phone', 'purpose']);
     const phone = validatePhone(input.phone);
     if (!['login', 'bind-phone', 'verify-account'].includes(input.purpose as string)) invalid('验证码用途无效。');
-    const purpose = input.purpose as 'login' | 'bind-phone' | 'verify-account';
-    const codes = this.configuredPhoneCodes();
+    const purpose = input.purpose as PhoneCodePurpose;
+    const codes = this.configuredPhoneCodes(purpose);
     if (purpose !== 'login') {
       const user = userId && (await this.store.read()).users.find(candidate => candidate.id === userId);
       if (!user) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录后绑定或验证手机号。');
@@ -302,7 +310,7 @@ export class AuthService {
   async phoneLogin(body: unknown, client = 'local') {
     const input = object(body, ['phone', 'code', 'challengeId']);
     const phone = validatePhone(input.phone), proof = validateProof(input);
-    const codes = this.configuredPhoneCodes();
+    const codes = this.configuredPhoneCodes('login');
     this.checkRateLimit(client, phone);
     let codeError: HttpError | undefined;
     const result = await this.store.mutate(database => {
@@ -343,7 +351,7 @@ export class AuthService {
     }
     if (input.currentPassword !== undefined || !snapshot.phone || snapshot.phoneVerified !== true) throw new HttpError(401, 'CURRENT_IDENTITY_REQUIRED', '请验证当前账号已绑定的手机号。');
     const currentProof = validateProof({ code: input.currentCode, challengeId: input.currentChallengeId });
-    this.configuredPhoneCodes();
+    this.configuredPhoneCodes('verify-account');
     return { snapshot, currentProof };
   }
 
@@ -359,7 +367,7 @@ export class AuthService {
   async bindPhone(userId: string, body: unknown, client = 'local'): Promise<AuthUser> {
     const input = object(body, ['phone', 'code', 'challengeId', 'currentPassword', 'currentCode', 'currentChallengeId', 'wechatCode']);
     const phone = validatePhone(input.phone), proof = validateProof(input);
-    const codes = this.configuredPhoneCodes();
+    const codes = this.configuredPhoneCodes('bind-phone');
     const existing = (await this.store.read()).users.find(user => user.id === userId);
     if (!existing) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
     if (existing.phone === phone && existing.phoneVerified === true) return publicUser(existing);
@@ -408,7 +416,7 @@ export class AuthService {
       const beforeCurrent = identity.currentProof && database.phoneChallenges.find(challenge => challenge.id === identity.currentProof!.challengeId);
       const originalCurrent = beforeCurrent ? structuredClone(beforeCurrent) : undefined;
       if (identity.currentProof) {
-        codeError = this.configuredPhoneCodes().consume(database, current.phone!, 'verify-account', identity.currentProof, userId);
+        codeError = this.configuredPhoneCodes('verify-account').consume(database, current.phone!, 'verify-account', identity.currentProof, userId);
         if (codeError) return undefined;
       }
       codeError = codes.consume(database, email, 'bind-email', proof, userId);

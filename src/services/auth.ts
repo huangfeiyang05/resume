@@ -286,7 +286,8 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     try {
       const result = await authApi.providers();
       if (!result || result.emailPassword !== true || !['wechat', 'phone', 'emailVerification', 'passwordReset'].every(key => typeof result[key as keyof AuthCapabilities] === 'boolean')
-        || (result.wechatPhone !== undefined && (result.wechatPhone !== true || !result.wechat))) return;
+        || (result.wechatPhone !== undefined && (result.wechatPhone !== true || !result.wechat))
+        || (result.smsLoginOnly !== undefined && (result.smsLoginOnly !== true || !result.phone))) return;
       if (!disposed) capabilities.value = result;
       return result;
     }
