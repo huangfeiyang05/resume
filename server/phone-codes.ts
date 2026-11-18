@@ -2,7 +2,7 @@ import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import type { PhoneCodeChallenge, PhoneCodePurpose } from '../shared/auth.js';
 import { HttpError, invalid } from './errors.js';
 import type { CodeProof } from './email-codes.js';
-import type { SmsSender } from './sms.js';
+import { SmsPhoneDailyLimitError, type SmsSender } from './sms.js';
 import { JsonStore, type Database, type StoredPhoneChallenge } from './store.js';
 
 export function validatePhone(value: unknown): string {
@@ -63,11 +63,14 @@ export class PhoneCodeService {
         database.phoneChallenges.push(challenge);
       });
       try { await this.sender.sendCode({ phone, code, purpose, expiresAt: challenge.expiresAt }); }
-      catch {
+      catch (error) {
         await this.store.mutate(database => {
           const current = database.phoneChallenges.find(item => item.id === challenge.id);
           if (current) { current.status = 'failed'; current.codeHash = ''; }
         });
+        if (error instanceof SmsPhoneDailyLimitError) {
+          throw new HttpError(429, 'SMS_PHONE_DAILY_LIMIT', '该手机号今日短信发送次数已达上限，请明天再试。');
+        }
         throw new HttpError(503, 'SMS_DELIVERY_FAILED', '验证码短信未能确认提交发送，请稍后重试。');
       }
       const activated = await this.store.mutate(database => {

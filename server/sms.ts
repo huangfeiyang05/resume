@@ -8,6 +8,7 @@ export interface CodeSms {
   expiresAt: string;
 }
 export interface SmsSender { readonly enabled: boolean; sendCode(input: CodeSms): Promise<void> }
+export class SmsPhoneDailyLimitError extends Error {}
 interface SmsCommonConfig { enabled: boolean; loginOnly: boolean; codeSecret: string }
 export interface AliyunSmsConfig extends SmsCommonConfig {
   provider: 'aliyun';
@@ -185,6 +186,7 @@ export class TencentSmsSender implements SmsSender {
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response: Response, result: unknown;
     try {
       const body = JSON.stringify({ PhoneNumberSet: [`+86${input.phone}`], SmsSdkAppId: this.config.sdkAppId, SignName: this.config.signName,
         TemplateId: this.config.templateId, TemplateParamSet: [input.code] });
@@ -195,16 +197,26 @@ export class TencentSmsSender implements SmsSender {
         Authorization: createTc3Authorization({ body, timestamp, host: 'sms.tencentcloudapi.com', service: 'sms', action: 'SendSms', secretId: this.config.secretId, secretKey: this.config.secretKey }),
         ...(this.config.token ? { 'X-TC-Token': this.config.token } : {}),
       };
-      const response = await this.fetcher('https://sms.tencentcloudapi.com/', { method: 'POST', redirect: 'error', signal: controller.signal, headers, body });
-      const result = await payload(response);
-      const envelope = result && typeof result === 'object' && !Array.isArray(result) ? (result as Record<string, unknown>).Response : undefined;
-      const details = envelope && typeof envelope === 'object' && !Array.isArray(envelope) ? envelope as Record<string, unknown> : undefined;
-      const statuses = details?.SendStatusSet;
-      if (!response.ok || !details || details.Error !== undefined || !Array.isArray(statuses) || statuses.length !== 1
-        || !statuses[0] || typeof statuses[0] !== 'object' || statuses[0].Code !== 'Ok'
-        || (statuses[0].PhoneNumber !== `+86${input.phone}` && statuses[0].PhoneNumber !== input.phone)) throw failure();
+      response = await this.fetcher('https://sms.tencentcloudapi.com/', { method: 'POST', redirect: 'error', signal: controller.signal, headers, body });
+      result = await payload(response);
     } catch { throw failure(); }
     finally { clearTimeout(timer); }
+    const envelope = result && typeof result === 'object' && !Array.isArray(result) ? (result as Record<string, unknown>).Response : undefined;
+    if (!response.ok || !envelope || typeof envelope !== 'object' || Array.isArray(envelope)) throw failure();
+    const details = envelope as Record<string, unknown>;
+    if (details.Error !== undefined) {
+      const error = details.Error;
+      if (error && typeof error === 'object' && 'Code' in error && error.Code === 'LimitExceeded.PhoneNumberDailyLimit') {
+        throw new SmsPhoneDailyLimitError();
+      }
+      throw failure();
+    }
+    const statuses = details.SendStatusSet;
+    if (!Array.isArray(statuses) || statuses.length !== 1 || !statuses[0] || typeof statuses[0] !== 'object') throw failure();
+    const status = statuses[0];
+    if (status.PhoneNumber !== `+86${input.phone}` && status.PhoneNumber !== input.phone) throw failure();
+    if (status.Code === 'LimitExceeded.PhoneNumberDailyLimit') throw new SmsPhoneDailyLimitError();
+    if (status.Code !== 'Ok') throw failure();
   }
 }
 

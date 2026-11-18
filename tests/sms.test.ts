@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { AliyunSmsSender, TencentSmsSender, createAcs3Authorization, createTc3Authorization, createSmsSender, loadSmsConfig } from '../server/sms.js';
+import { AliyunSmsSender, SmsPhoneDailyLimitError, TencentSmsSender, createAcs3Authorization, createTc3Authorization, createSmsSender, loadSmsConfig } from '../server/sms.js';
 import { HttpError } from '../server/errors.js';
 
 const environment = {
@@ -173,6 +173,7 @@ test('Tencent HTTP200 failures, incorrect per-number result, oversized body and 
   for (const response of [
     () => tencentResponse('FailedOperation.TemplateParamSetNotMatchApprovedTemplate'),
     () => tencentResponse('Ok', '+8613800000000'),
+    () => tencentResponse('LimitExceeded.PhoneNumberDailyLimit', '+8613800000000'),
     () => new Response(JSON.stringify({ Response: { Error: { Code: 'AuthFailure', Message: `${input.phone}:${input.code}` } } })),
     () => new Response(JSON.stringify({ Response: { SendStatusSet: [] } })),
     () => new Response(JSON.stringify({ Response: { SendStatusSet: [{ Code: 'Ok', PhoneNumber: `+86${input.phone}` }, { Code: 'Ok' }] } })),
@@ -184,6 +185,20 @@ test('Tencent HTTP200 failures, incorrect per-number result, oversized body and 
     let calls = 0;
     const sender = createSmsSender(loadSmsConfig(tencentEnvironment), async () => { calls++; return response(); });
     await assert.rejects(sender.sendCode(input), error => safeFailure(error) && !(error as Error).message.includes(tencentEnvironment.TENCENT_SMS_SECRET_KEY));
+    assert.equal(calls, 1);
+  }
+});
+
+test('Tencent identifies a daily per-number rejection without forwarding the supplier message', async () => {
+  const code = 'LimitExceeded.PhoneNumberDailyLimit';
+  const config = loadSmsConfig(tencentEnvironment);
+  for (const createResponse of [
+    () => tencentResponse(code),
+    () => new Response(JSON.stringify({ Response: { Error: { Code: code, Message: input.phone } } })),
+  ]) {
+    let calls = 0;
+    const sender = createSmsSender(config, async () => { calls++; return createResponse(); });
+    await assert.rejects(sender.sendCode(input), error => error instanceof SmsPhoneDailyLimitError && error.message === '');
     assert.equal(calls, 1);
   }
 });

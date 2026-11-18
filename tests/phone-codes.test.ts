@@ -6,7 +6,7 @@ import test, { type TestContext } from 'node:test';
 import { PhoneCodeService, validatePhone } from '../server/phone-codes.js';
 import { JsonStore } from '../server/store.js';
 import { HttpError } from '../server/errors.js';
-import type { CodeSms } from '../server/sms.js';
+import { SmsPhoneDailyLimitError, type CodeSms } from '../server/sms.js';
 const code = (name: string) => (error: unknown) => error instanceof HttpError && error.code === name;
 async function fixture(t: TestContext, options: { dailyLimit?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'resume-phone-code-'));
@@ -64,6 +64,18 @@ test('failed delivery never activates a new proof or invalidates the older valid
   assert.equal(rows[0].status, 'sent'); assert.equal(rows[1].status, 'failed'); assert.equal(rows[1].codeHash, '');
   assert.equal(await f.store.mutate(data => f.service.consume(data, '13900000001', 'login', { challengeId: original.challengeId, code: f.messages[0].code })), undefined);
   await assert.rejects(f.service.request('13900000001', 'login', 'synthetic-client'), code('CODE_RESEND_TOO_SOON'));
+});
+
+test('supplier daily limits return a specific 429 and leave the challenge unusable', async t => {
+  const f = await fixture(t);
+  const service = new PhoneCodeService(f.store, {
+    enabled: true, async sendCode() { throw new SmsPhoneDailyLimitError(); },
+  }, { secret: 'synthetic-phone-code-secret-over-32-bytes' });
+  await assert.rejects(service.request('13900000001', 'login', 'synthetic-client'),
+    error => error instanceof HttpError && error.status === 429 && error.code === 'SMS_PHONE_DAILY_LIMIT' && /明天/.test(error.message));
+  const [challenge] = (await f.store.read()).phoneChallenges;
+  assert.equal(challenge.status, 'failed');
+  assert.equal(challenge.codeHash, '');
 });
 
 test('durable reservations enforce cooldown, hourly and global spend limits including concurrent requests', async t => {
