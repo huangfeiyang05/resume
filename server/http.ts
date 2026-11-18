@@ -14,7 +14,7 @@ import type { WechatPayGateway } from './wechat-pay.js';
 import type { AlipayGateway } from './alipay.js';
 import type { BillingPricing } from './payment-config.js';
 import { AnalysisJobs } from './jobs.js';
-import { adminSessionTtlMs, AuthService } from './auth.js';
+import { adminSessionTtlMs, AuthService, emailChangeNotSupported } from './auth.js';
 import { adminOrders, adminOverview, adminTasks, adminUsers, parseAdminOrderQuery, parseAdminQuery } from './admin.js';
 import { AdminCareerContent } from './admin-career-content.js';
 import { careerContentKind } from './career-content-storage.js';
@@ -394,10 +394,14 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         const session = await auth.authenticate(sessionToken(request));
         json(response, 200, { data: await auth.bindEmail(session.user.id, await body(request), clientAddress(request)) }); return;
       }
-      if (path === '/api/v1/auth/phone/change' || path === '/api/v1/auth/email/change') {
+      if (path === '/api/v1/auth/phone/change') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
-        const kind = path.endsWith('/phone/change') ? 'phone' : 'email';
-        json(response, 200, { data: await auth.changeContact(kind, sessionToken(request), await body(request), clientAddress(request)) }); return;
+        json(response, 200, { data: await auth.changePhone(sessionToken(request), await body(request), clientAddress(request)) }); return;
+      }
+      if (path === '/api/v1/auth/email/change') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        await auth.authenticate(sessionToken(request));
+        throw emailChangeNotSupported();
       }
       if (path === '/api/v1/auth/password/change') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');

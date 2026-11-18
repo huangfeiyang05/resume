@@ -15,7 +15,7 @@ export interface AuthUser {
 
 export interface EmailPasswordInput { email: string; password: string; code?: string; challengeId?: string }
 export type EmailCodePurpose = 'register' | 'reset-password' | 'verify-email' | 'bind-email';
-export interface SendEmailCodeInput { email: string; purpose: EmailCodePurpose; replace?: true }
+export interface SendEmailCodeInput { email: string; purpose: EmailCodePurpose }
 export interface EmailCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
 export interface ResetPasswordInput { email: string; password: string; code: string; challengeId: string }
 export interface ChangePasswordInput { currentPassword: string; newPassword: string }
@@ -58,7 +58,6 @@ export interface CurrentIdentityProof { currentPassword?: string; currentCode?: 
 export interface BindPhoneInput extends PhoneLoginInput, CurrentIdentityProof {}
 export interface BindEmailInput extends CurrentIdentityProof { email: string; code: string; challengeId: string; password?: string }
 export type ChangePhoneInput = PhoneLoginInput;
-export interface ChangeEmailInput extends VerifyEmailInput { email: string }
 
 /** New passwords use 6-16 visible ASCII characters: letters, digits and symbols only. */
 export const PASSWORD_PATTERN = /^[\x21-\x7e]{6,16}$/;

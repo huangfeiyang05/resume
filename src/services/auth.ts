@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import type { AuthCapabilities, AuthSession, AuthUser, EmailPasswordInput, WechatLoginInput, PhoneLoginInput, EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput, PhoneCodePurpose, PhoneCodeChallenge, SendPhoneCodeInput, BindPhoneInput, BindEmailInput } from '../../shared/auth';
-import type { AccountProfileInput, BindWechatPhoneInput, ChangeEmailInput, ChangePasswordInput, ChangePhoneInput } from '../../shared/auth';
+import type { AccountProfileInput, BindWechatPhoneInput, ChangePasswordInput, ChangePhoneInput } from '../../shared/auth';
 import { accountAvatarIdPattern, isAccountNickname, PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../../shared/auth';
 import { ApiError, isMiniProgramClient, onUnauthorized, request, setAuthToken } from './api';
 
@@ -21,7 +21,6 @@ export const authApi = {
   bindPhone: (input: BindPhoneInput) => request<AuthUser>('/auth/phone/bind', 'POST', input, { notifyUnauthorized: false }),
   bindEmail: (input: BindEmailInput) => request<AuthUser>('/auth/email/bind', 'POST', input, { notifyUnauthorized: false }),
   changePhone: (input: ChangePhoneInput) => request<AuthUser>('/auth/phone/change', 'POST', input),
-  changeEmail: (input: ChangeEmailInput) => request<AuthUser>('/auth/email/change', 'POST', input),
   bindWechatPhone: (input: BindWechatPhoneInput) => request<AuthUser>('/auth/wechat/phone/bind', 'POST', input),
   updateProfile: (input: AccountProfileInput) => request<AuthUser>('/auth/profile', 'PUT', input),
   // Capabilities and server responses determine whether a provider is available.
@@ -68,14 +67,14 @@ export function useEmailChallenge(options: { autoTick?: boolean; now?: () => num
     email.value = normalized; purpose.value = nextPurpose;
     clearProof(); tick();
   }
-  async function send(replace?: true) {
+  async function send() {
     tick();
     if (busy.value || remaining.value > 0 || disposed) return false;
     if (!email.value || email.value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
       error.value = '请先填写有效的邮箱地址。'; return false;
     }
     const current = ++generation, sentKey = key();
-    const input: SendEmailCodeInput = { email: email.value, purpose: purpose.value, ...(replace === true ? { replace } : {}) };
+    const input: SendEmailCodeInput = { email: email.value, purpose: purpose.value };
     busy.value = true; error.value = ''; message.value = '';
     try {
       const result = await authApi.sendEmailCode(input);
@@ -398,11 +397,6 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     return changeAccount('bind', () => authApi.changePhone(input), result =>
       result.phone === normalizedPhone(input.phone) && result.phoneVerified === true && result.email === email);
   }
-  function changeEmail(input: ChangeEmailInput) {
-    const phone = user.value?.phone;
-    return changeAccount('bind', () => authApi.changeEmail(input), result =>
-      result.email === input.email.trim().toLowerCase() && result.emailVerified === true && result.phone === phone);
-  }
   async function changePassword(input: ChangePasswordInput) {
     if (busy.value || !user.value) return false;
     const current = ++generation;
@@ -479,6 +473,6 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     onUnmounted(dispose);
   }
   return { user, signedIn, status, busy, operation, error, notice, capabilities, restore, signInWithWechat: () => restore(true),
-    authenticate, authenticatePhone, bindPhone, bindEmail, bindWechatPhone, changePhone, changeEmail, changePassword,
+    authenticate, authenticatePhone, bindPhone, bindEmail, bindWechatPhone, changePhone, changePassword,
     updateProfile, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
 }

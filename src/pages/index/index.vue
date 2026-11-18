@@ -22,7 +22,7 @@ const { user, signedIn, status, busy, operation, error, notice, capabilities } =
     :logout-busy="busy && operation === 'logout'" :logout-error="error" :verification-busy="busy && operation === 'verify'"
     :capabilities="capabilities" :binding-busy="busy" :save-profile="auth.updateProfile"
     @logout="auth.signOut" @verify-email="auth.verifyEmail" @bind-phone="auth.bindPhone" @bind-email="auth.bindEmail"
-    @change-phone="auth.changePhone" @change-email="auth.changeEmail" @change-password="auth.changePassword"
+    @change-phone="auth.changePhone" @change-password="auth.changePassword"
     @bind-wechat-phone="auth.bindWechatPhone" @clear-auth-error="error = ''; notice = ''" />
   <AuthPanel v-else :busy="busy" :error="error" :notice="notice" :capabilities="capabilities" :restore-failed="status === 'unavailable'"
     @submit="auth.authenticate" @reset="auth.resetPassword" @phone="auth.authenticatePhone" @retry="auth.restore"

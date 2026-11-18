@@ -66,7 +66,7 @@ H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序
 
 绑定和换绑后保留同一个账号 ID、简历和会员。目标联系方式已属于另一个账号时，服务端拒绝操作。
 
-已绑定的手机号和邮箱可选择“修改绑定”。服务端校验当前会话和新联系方式验证码，成功后旧联系方式失效，其他设备需重新登录。手机号换绑使用新号码的 `bind-phone`，邮箱换绑使用新邮箱的 `bind-email`。
+已绑定的手机号可选择“修改绑定”。服务端校验当前会话和新号码的 `bind-phone` 验证码，成功后旧号码失效，其他设备需重新登录。邮箱首次绑定后固定，账号页显示“已绑定”。
 
 已设置邮箱登录密码时可选择“修改密码”。验证当前密码后保存新密码，成功后撤销该账号全部会话并提示重新登录。
 
@@ -82,9 +82,9 @@ H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序
 | `POST /auth/phone/code` | `{phone,purpose,replace?}`。用途 `login / bind-phone / verify-account`，后两者需会话。换绑时只给新号码的 `bind-phone` 请求传 `replace:true` |
 | `POST /auth/phone` | `{phone,code,challengeId}`；验证码登录，未注册则创建；返回与邮箱登录相同的会话 |
 | `POST /auth/phone/bind` | 已设密码的账号提交 `{phone,code,challengeId}`，服务端校验会话。无密码账号另提交适用的当前身份凭证 |
-| `POST /auth/email/code` | 换绑时给新邮箱的 `bind-email` 请求传 `replace:true` |
+| `POST /auth/email/code` | 首次绑定邮箱使用 `bind-email` |
 | `POST /auth/email/bind` | `{email,code,challengeId,currentPassword?}` 或当前手机证明；无密码账号另需 `password`；需会话 |
-| `POST /auth/phone/change`、`POST /auth/email/change` | 新手机号或邮箱、`code`、`challengeId`。需当前账号的有效会话 |
+| `POST /auth/phone/change` | 新手机号、`code`、`challengeId`。需当前账号的有效会话 |
 | `POST /auth/password/change` | `{currentPassword,newPassword}`；需会话，成功返回 `{passwordChanged:true}` |
 
 发码成功响应为 `202` 和 `{challengeId,expiresAt,resendAfterSeconds,message}`，不返回验证码。绑定返回更新后的公开 `AuthUser`，不返回密码哈希或原始会话令牌。客户端仅在服务器确认后更新账号，拒绝其他账号 ID 或不一致标识的响应。

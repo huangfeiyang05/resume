@@ -6,7 +6,7 @@ import type { WechatPhoneProvider } from './wechat-api.js';
 import { AccountProfiles } from './account-profile.js';
 import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../shared/auth.js';
 import { HttpError, invalid } from './errors.js';
-import { JsonStore, type Database, type StoredEmailChallenge, type StoredPhoneChallenge, type StoredUser } from './store.js';
+import { JsonStore, type Database, type StoredPhoneChallenge, type StoredUser } from './store.js';
 import { EmailCodeService, validateEmail, validateProof } from './email-codes.js';
 import { PhoneCodeService, validatePhone } from './phone-codes.js';
 
@@ -36,14 +36,18 @@ function object(body: unknown, allowed: string[]): Record<string, unknown> {
   return record;
 }
 
-function invalidateBindingChallenges(challenges: (StoredEmailChallenge | StoredPhoneChallenge)[], userId: string) {
+function invalidateBindingChallenges(challenges: StoredPhoneChallenge[], userId: string) {
   for (const challenge of challenges) {
-    if (challenge.userId === userId && (challenge.purpose === 'bind-phone' || challenge.purpose === 'bind-email')
+    if (challenge.userId === userId && challenge.purpose === 'bind-phone'
       && (challenge.status === 'pending' || challenge.status === 'sent')) {
       challenge.status = 'superseded';
       challenge.codeHash = '';
     }
   }
+}
+
+export function emailChangeNotSupported() {
+  return new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '邮箱已绑定，无法更换。');
 }
 
 interface TestLoginAlias { username: string; email: string }
@@ -134,11 +138,7 @@ export class AuthService {
       const user = userId && (await this.store.read()).users.find(candidate => candidate.id === userId);
       if (!user) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录后验证邮箱。');
       if (purpose === 'verify-email' && user.email !== email) throw new HttpError(403, 'EMAIL_MISMATCH', '只能验证当前账号的邮箱。');
-      if (input.replace === true) {
-        if (!user.email || user.email === email) invalid('请填写一个不同于当前绑定邮箱的新邮箱。');
-      } else if (purpose === 'bind-email' && user.email && user.email !== email) {
-        throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
-      }
+      if (purpose === 'bind-email' && (input.replace === true || (user.email && user.email !== email))) throw emailChangeNotSupported();
     }
     this.checkRateLimit(client, email);
     // Registration/reset requests send the same message for known and unknown addresses.
@@ -449,6 +449,7 @@ export class AuthService {
     const existing = (await this.store.read()).users.find(user => user.id === userId);
     if (!existing) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
     if (existing.email === email && existing.emailVerified === true) return publicUser(existing);
+    if (existing.email && existing.email !== email) throw emailChangeNotSupported();
     const identity = await this.bindingIdentity(existing, input, client);
     let passwordHash: string | undefined;
     if (!identity.snapshot.passwordHash) {
@@ -461,7 +462,7 @@ export class AuthService {
       const latest = database.users.find(user => user.id === userId);
       if (latest?.email === email && latest.emailVerified === true) return publicUser(latest);
       const current = this.currentBindingUser(database, identity.snapshot);
-      if (current.email && current.email !== email) throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
+      if (current.email && current.email !== email) throw emailChangeNotSupported();
       if (database.users.some(user => user.id !== userId && user.email === email)) throw new HttpError(409, 'EMAIL_ALREADY_BOUND', '该邮箱已属于其他账号，请使用原账号登录；不会自动合并资料。');
       const currentProof = identity.currentProof;
       const index = currentProof ? database.phoneChallenges.findIndex(challenge => challenge.id === currentProof.challengeId) : -1;
@@ -484,44 +485,32 @@ export class AuthService {
     return result!;
   }
 
-  async changeContact(kind: 'phone' | 'email', token: string | undefined, body: unknown, client = 'local'): Promise<AuthUser> {
+  async changePhone(token: string | undefined, body: unknown, client = 'local'): Promise<AuthUser> {
     const tokenHash = requireSessionHash(token);
     const { user } = this.requireSession(await this.store.read(), tokenHash);
     // Older clients may still include the original contact's proof.
-    const input = object(body, [kind, 'code', 'challengeId', 'currentCode', 'currentChallengeId']);
-    const target = kind === 'phone' ? validatePhone(input.phone) : validateEmail(input.email);
+    const input = object(body, ['phone', 'code', 'challengeId', 'currentCode', 'currentChallengeId']);
+    const target = validatePhone(input.phone);
     const targetProof = validateProof(input);
-    if (!user[kind] || (kind === 'phone' && !user.phoneVerified)) invalid('请先绑定并验证当前联系方式。');
-    this.checkRateLimit(client, user[kind]);
+    if (!user.phone || !user.phoneVerified) invalid('请先绑定并验证当前手机号。');
+    this.checkRateLimit(client, user.phone);
     let proofError: HttpError | undefined;
     const result = await this.store.mutate(database => {
       const { user: latest } = this.requireSession(database, tokenHash);
-      if (latest[kind] === target && (kind === 'phone' ? latest.phoneVerified : latest.emailVerified)) return publicUser(latest);
+      if (latest.phone === target && latest.phoneVerified) return publicUser(latest);
       const current = this.currentBindingUser(database, user);
-      const previous = current[kind]!;
-      if (previous === target) invalid('请填写一个不同于当前绑定的联系方式。');
-      if (database.users.some(other => other.id !== current.id && other[kind] === target)) {
-        throw kind === 'phone'
-          ? new HttpError(409, 'PHONE_ALREADY_BOUND', '该手机号已属于其他账号。')
-          : new HttpError(409, 'EMAIL_ALREADY_BOUND', '该邮箱已属于其他账号。');
+      const previous = current.phone!;
+      if (previous === target) invalid('请填写一个不同于当前绑定的手机号。');
+      if (database.users.some(other => other.id !== current.id && other.phone === target)) {
+        throw new HttpError(409, 'PHONE_ALREADY_BOUND', '该手机号已属于其他账号。');
       }
-      if (kind === 'phone') {
-        const codes = this.configuredPhoneCodes('bind-phone');
-        proofError = codes.consume(database, target, 'bind-phone', targetProof, current.id);
-        if (proofError) return;
-        codes.invalidatePhone(database, previous);
-        codes.invalidatePhone(database, target);
-        invalidateBindingChallenges(database.phoneChallenges, current.id);
-        current.phone = target; current.phoneVerified = true;
-      } else {
-        const codes = this.configuredCodes();
-        proofError = codes.consume(database, target, 'bind-email', targetProof, current.id);
-        if (proofError) return;
-        codes.invalidateEmail(database, previous);
-        codes.invalidateEmail(database, target);
-        invalidateBindingChallenges(database.emailChallenges, current.id);
-        current.email = target; current.emailVerified = true;
-      }
+      const codes = this.configuredPhoneCodes('bind-phone');
+      proofError = codes.consume(database, target, 'bind-phone', targetProof, current.id);
+      if (proofError) return;
+      codes.invalidatePhone(database, previous);
+      codes.invalidatePhone(database, target);
+      invalidateBindingChallenges(database.phoneChallenges, current.id);
+      current.phone = target; current.phoneVerified = true;
       database.sessions = database.sessions.filter(other => other.userId !== current.id || other.tokenHash === tokenHash);
       return publicUser(current);
     });

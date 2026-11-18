@@ -29,7 +29,7 @@ async function fixture(t: TestContext, enabled = true, smsLoginOnly = false) {
     const response = await fetch(`${base}${path}`, { method, headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(cookie ? { Cookie: cookie } : {}), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, headers: response.headers, body: await response.json() as any };
   }
-  return { store, request, sms, mail, advance: () => { instant += 61_000; } };
+  return { store, request, sms, mail, emails, advance: () => { instant += 61_000; } };
 }
 
 test('SMS login creates a phone-only account and uses HttpOnly cookies on H5 without leaking the session token', async t => {
@@ -184,35 +184,24 @@ test('phone replacement requires only a valid session and a new-number SMS proof
   assert.equal(newLogin.body.data.user.id, userId);
 });
 
-test('email replacement rejects claimed destinations, invalidates old recovery codes, and retains the password', async t => {
+test('a bound email stays fixed even for older clients with a previously issued replacement code', async t => {
   const f = await fixture(t);
-  const password = 'FixturePass26!', oldEmail = 'old-owner@example.test', newEmail = 'new-owner@example.test', claimedEmail = 'claimed@example.test';
+  const password = 'FixturePass26!', oldEmail = 'old-owner@example.test', newEmail = 'new-owner@example.test';
   const owner = await f.request('/auth/register', 'POST', { email: oldEmail, password });
   const cookie = owner.headers.get('set-cookie')!.split(';')[0];
-  const other = await f.request('/auth/register', 'POST', { email: claimedEmail, password });
-  const claimedCookie = other.headers.get('set-cookie')!.split(';')[0];
-  const otherSession = await f.request('/auth/login', 'POST', { email: oldEmail, password });
-  const otherCookie = otherSession.headers.get('set-cookie')!.split(';')[0];
-  const recovery = await f.request('/auth/email/code', 'POST', { email: oldEmail, purpose: 'reset-password' });
-  const recoveryCode = f.mail.at(-1)!.code;
-  const endpoint = '/auth/email/change';
-  async function target(email: string) {
-    const sent = await f.request('/auth/email/code', 'POST', { email, purpose: 'bind-email', replace: true }, cookie);
-    assert.equal(sent.status, 202);
-    return { email, code: f.mail.at(-1)!.code, challengeId: sent.body.data.challengeId };
+  const userId = owner.body.data.user.id;
+  for (const fields of [{}, { replace: true }]) {
+    const rejected = await f.request('/auth/email/code', 'POST', { email: newEmail, purpose: 'bind-email', ...fields }, cookie);
+    assert.equal(rejected.status, 409);
+    assert.equal(rejected.body.error.code, 'EMAIL_CHANGE_NOT_SUPPORTED');
   }
-  assert.equal((await f.request(endpoint, 'POST', await target(claimedEmail), cookie)).body.error.code, 'EMAIL_ALREADY_BOUND');
-  const input = await target(newEmail);
-  assert.equal((await f.request(endpoint, 'POST', input)).status, 401);
-  assert.equal((await f.request(endpoint, 'POST', input, claimedCookie)).body.error.code, 'CODE_INVALID_OR_EXPIRED');
-  const changed = await f.request(endpoint, 'POST', input, cookie);
-  assert.equal(changed.status, 200);
-  assert.equal(changed.body.data.id, owner.body.data.user.id);
-  assert.equal(changed.body.data.email, newEmail);
-  assert.equal(changed.body.data.emailVerified, true);
-  assert.equal((await f.request('/auth/me', 'GET', undefined, otherCookie)).status, 401);
-  assert.equal((await f.request('/auth/me', 'GET', undefined, cookie)).body.data.user.email, newEmail);
-  assert.equal((await f.request('/auth/password/reset', 'POST', { email: oldEmail, password, code: recoveryCode, challengeId: recovery.body.data.challengeId })).body.error.code, 'CODE_INVALID_OR_EXPIRED');
-  assert.equal((await f.request('/auth/login', 'POST', { email: oldEmail, password })).status, 401);
-  assert.equal((await f.request('/auth/login', 'POST', { email: newEmail, password })).body.data.user.id, owner.body.data.user.id);
+  assert.equal(f.mail.length, 0);
+  const { challengeId } = await f.emails.request(newEmail, 'bind-email', 'previous-version', userId);
+  const input = { email: newEmail, challengeId, code: f.mail[0].code };
+  assert.equal((await f.request('/auth/email/change', 'POST', input)).status, 401);
+  assert.equal((await f.request('/auth/email/change', 'POST', input, cookie)).body.error.code, 'EMAIL_CHANGE_NOT_SUPPORTED');
+  assert.equal((await f.request('/auth/email/bind', 'POST', { ...input, currentPassword: password }, cookie)).body.error.code, 'EMAIL_CHANGE_NOT_SUPPORTED');
+  assert.equal((await f.request('/auth/me', 'GET', undefined, cookie)).body.data.user.email, oldEmail);
+  assert.equal((await f.request('/auth/login', 'POST', { email: oldEmail, password })).body.data.user.id, userId);
+  assert.equal((await f.request('/auth/login', 'POST', { email: newEmail, password })).status, 401);
 });

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { AuthCapabilities, AuthUser, BindEmailInput, BindPhoneInput, ChangeEmailInput, ChangePasswordInput, ChangePhoneInput } from '../../shared/auth';
+import type { AuthCapabilities, AuthUser, BindEmailInput, BindPhoneInput, ChangePasswordInput, ChangePhoneInput } from '../../shared/auth';
 import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../../shared/auth';
 import { normalizedPhone, requestWechatLoginCode, useEmailChallenge, usePhoneChallenge } from '../services/auth';
 import { isMiniProgramClient } from '../services/api';
@@ -12,7 +12,7 @@ import WechatPrivacyConsent from './WechatPrivacyConsent.vue';
 const props = defineProps<{ user: AuthUser; capabilities?: AuthCapabilities; busy?: boolean; error?: string }>();
 const emit = defineEmits<{
   bindPhone: [input: BindPhoneInput]; bindEmail: [input: BindEmailInput]; bindWechatPhone: [code: string];
-  changePhone: [input: ChangePhoneInput]; changeEmail: [input: ChangeEmailInput]; changePassword: [input: ChangePasswordInput]; clearError: [];
+  changePhone: [input: ChangePhoneInput]; changePassword: [input: ChangePasswordInput]; clearError: [];
 }>();
 const kind = ref<'phone' | 'email' | 'wechat-phone' | 'password'>();
 const replacing = ref(false);
@@ -29,7 +29,6 @@ const smsBinding = computed(() => props.capabilities?.phone === true && !props.c
 const canBindEmail = computed(() => props.capabilities?.emailVerification === true
   && (!props.capabilities.smsLoginOnly || hasPassword.value || verifyWithWechat.value));
 const canChangePhone = computed(() => !!props.user.phone && props.user.phoneVerified === true && smsBinding.value);
-const canChangeEmail = computed(() => !!props.user.email && props.capabilities?.emailVerification === true);
 const canChangePassword = computed(() => !!props.user.email && hasPassword.value);
 const privacyAllowed = ref(false);
 const verifyingWechat = ref(false);
@@ -49,7 +48,7 @@ function open(next: NonNullable<typeof kind.value>, replace = false) {
   if (disabled.value) return;
   if (next === 'wechat-phone' && !canAuthorizeWechat.value) return;
   if (next === 'phone' && !(replace ? canChangePhone.value : !props.user.phone && smsBinding.value)) return;
-  if (next === 'email' && !(replace ? canChangeEmail.value : !props.user.email && canBindEmail.value)) return;
+  if (next === 'email' && (props.user.email || !canBindEmail.value)) return;
   if (next === 'password' && !canChangePassword.value) return;
   clear(); emit('clearError'); kind.value = next; replacing.value = replace;
   if (!replace && props.user.phone) accountProof.setTarget(props.user.phone, 'verify-account');
@@ -63,8 +62,8 @@ async function sendTarget() {
   emit('clearError'); formError.value = '';
   const replace = replacing.value ? true : undefined;
   if (kind.value === 'phone' && smsBinding.value) { phoneProof.setTarget(phone.value, 'bind-phone'); await phoneProof.send(replace); }
-  else if (kind.value === 'email' && (replace ? canChangeEmail.value : canBindEmail.value)) {
-    emailProof.setTarget(email.value, 'bind-email'); await emailProof.send(replace);
+  else if (kind.value === 'email' && canBindEmail.value) {
+    emailProof.setTarget(email.value, 'bind-email'); await emailProof.send();
   }
 }
 async function sendAccount() {
@@ -87,9 +86,7 @@ async function submit() {
   const targetProof = action === 'phone' ? phoneProof.proof() : emailProof.proof();
   if (!targetProof) return;
   if (replacing.value) {
-    if (action === 'phone' ? !canChangePhone.value : !canChangeEmail.value) return;
-    if (action === 'phone') emit('changePhone', { phone: normalizedPhone(phone.value), ...targetProof });
-    else emit('changeEmail', { email: email.value.trim().toLowerCase(), ...targetProof });
+    if (action === 'phone' && canChangePhone.value) emit('changePhone', { phone: normalizedPhone(phone.value), ...targetProof });
     return;
   }
   if (action === 'email' && !hasPassword.value && (!PASSWORD_PATTERN.test(password.value) || password.value !== confirmation.value)) {
@@ -150,7 +147,6 @@ function submitPassword() {
     <view class="binding-row">
       <view><text class="binding-label">邮箱</text><text class="binding-value">{{ user.email || '未绑定' }}{{ user.emailVerified ? ' · 已验证' : '' }}</text></view>
       <button v-if="!user.email" class="text-button" :disabled="disabled || !canBindEmail" @click="open('email')">{{ canBindEmail ? '绑定邮箱' : '邮箱绑定暂未开放' }}</button>
-      <button v-else-if="canChangeEmail" class="text-button" :disabled="disabled" aria-label="修改绑定邮箱" @click="open('email', true)">修改绑定</button>
       <text v-else class="binding-status">已绑定</text>
     </view>
     <view v-if="canChangePassword" class="binding-row"><text class="binding-label">登录密码</text><button class="text-button" :disabled="disabled" @click="open('password')">修改密码</button></view>
