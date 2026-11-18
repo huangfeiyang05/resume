@@ -103,4 +103,10 @@ export class PhoneCodeService {
     challenge.status = 'consumed'; challenge.codeHash = ''; challenge.consumedAt = new Date(this.now()).toISOString();
     return undefined;
   }
+
+  invalidatePhone(database: Database, phone: string) {
+    for (const challenge of database.phoneChallenges) if (challenge.phone === phone && ['pending', 'sent'].includes(challenge.status)) {
+      challenge.status = 'superseded'; challenge.codeHash = '';
+    }
+  }
 }

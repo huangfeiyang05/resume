@@ -8,6 +8,7 @@ import { PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../shared/auth.js';
 import { HttpError, invalid } from './errors.js';
 import { JsonStore, type Database, type StoredUser } from './store.js';
 import { EmailCodeService, validateEmail, validateProof } from './email-codes.js';
+import type { CodeProof } from './email-codes.js';
 import { PhoneCodeService, validatePhone } from './phone-codes.js';
 
 const ttl = 7 * 24 * 60 * 60 * 1000;
@@ -18,6 +19,10 @@ const dummySalt = Buffer.from('youfang-dummy-password-check');
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 // Old releases hash the raw token, so a rollback cannot turn an admin session into a user session.
 const sessionDigest = (token: string, scope?: 'admin') => digest(scope === 'admin' ? `admin:${token}` : token);
+function requireSessionHash(token: string | undefined, scope?: 'admin') {
+  if (!token || !tokenPattern.test(token)) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录，或重新登录后继续。');
+  return sessionDigest(token, scope);
+}
 function publicUser(user: StoredUser): AuthUser {
   return { id: user.id, ...(user.email ? { email: user.email } : {}), ...(user.phone ? { phone: user.phone } : {}),
     createdAt: user.createdAt, emailVerified: user.emailVerified === true, phoneVerified: user.phoneVerified === true,
@@ -30,6 +35,19 @@ function object(body: unknown, allowed: string[]): Record<string, unknown> {
   const record = body as Record<string, unknown>;
   if (Object.keys(record).some(key => !allowed.includes(key))) invalid('请求体含不支持的字段。');
   return record;
+}
+
+function consumeContactProofs<Challenge extends { id: string }>(
+  challenges: Challenge[], currentProof: CodeProof, verifyCurrent: () => HttpError | undefined, verifyTarget: () => HttpError | undefined,
+) {
+  const index = challenges.findIndex(challenge => challenge.id === currentProof.challengeId);
+  const original = index >= 0 ? structuredClone(challenges[index]) : undefined;
+  const currentError = verifyCurrent();
+  if (currentError) return currentError;
+  const targetError = verifyTarget();
+  // Keep the failed target attempt without consuming a correct current-contact code.
+  if (targetError && original) challenges[index] = original;
+  return targetError;
 }
 
 interface TestLoginAlias { username: string; email: string }
@@ -110,16 +128,21 @@ export class AuthService {
   }
 
   async requestEmailCode(body: unknown, client = 'local', userId?: string) {
-    const input = object(body, ['email', 'purpose']);
+    const input = object(body, ['email', 'purpose', 'replace']);
     const email = validateEmail(input.email);
     if (!['register', 'reset-password', 'verify-email', 'bind-email'].includes(input.purpose as string)) invalid('验证码用途无效。');
     const purpose = input.purpose as EmailCodePurpose;
+    if (input.replace !== undefined && (input.replace !== true || purpose !== 'bind-email')) invalid('验证码用途无效。');
     const codes = this.configuredCodes();
     if (purpose === 'verify-email' || purpose === 'bind-email') {
       const user = userId && (await this.store.read()).users.find(candidate => candidate.id === userId);
       if (!user) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录后验证邮箱。');
       if (purpose === 'verify-email' && user.email !== email) throw new HttpError(403, 'EMAIL_MISMATCH', '只能验证当前账号的邮箱。');
-      if (purpose === 'bind-email' && user.email && user.email !== email) throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '当前账号已有邮箱，暂不支持直接更换。');
+      if (input.replace === true) {
+        if (!user.email || user.email === email) invalid('请填写一个不同于当前绑定邮箱的新邮箱。');
+      } else if (purpose === 'bind-email' && user.email && user.email !== email) {
+        throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
+      }
     }
     this.checkRateLimit(client, email);
     // Registration/reset requests send the same message for known and unknown addresses.
@@ -248,6 +271,30 @@ export class AuthService {
     return { passwordReset: true as const };
   }
 
+  async changePassword(token: string | undefined, body: unknown, client = 'local') {
+    const tokenHash = requireSessionHash(token);
+    const { user } = this.requireSession(await this.store.read(), tokenHash);
+    const input = object(body, ['currentPassword', 'newPassword']);
+    if (typeof input.currentPassword !== 'string' || !input.currentPassword.length || input.currentPassword.length > 128
+      || /[\u0000-\u001f\u007f]/.test(input.currentPassword)) invalid('请填写当前账号密码。');
+    if (typeof input.newPassword !== 'string' || !PASSWORD_PATTERN.test(input.newPassword)) invalid(PASSWORD_RULE_MESSAGE);
+    if (input.newPassword === input.currentPassword) invalid('新密码须与当前密码不同。');
+    if (!user.passwordHash || !user.email) throw new HttpError(409, 'PASSWORD_NOT_SET', '请先绑定邮箱并设置密码。');
+    this.checkRateLimit(client, user.email);
+    if (!await this.matchesPassword(input.currentPassword, user.passwordHash)) {
+      throw new HttpError(401, 'CURRENT_IDENTITY_INVALID', '当前账号密码不正确。');
+    }
+    const passwordHash = await this.hashPassword(input.newPassword);
+    return this.store.mutate(database => {
+      this.requireSession(database, tokenHash);
+      const current = this.currentBindingUser(database, user);
+      current.passwordHash = passwordHash;
+      database.sessions = database.sessions.filter(session => session.userId !== current.id);
+      if (current.email) this.emailCodes?.invalidateEmail(database, current.email);
+      return { passwordChanged: true as const };
+    });
+  }
+
   async verifyEmail(userId: string, body: unknown): Promise<AuthUser> {
     const input = object(body, ['code', 'challengeId']);
     const proof = validateProof(input);
@@ -272,7 +319,7 @@ export class AuthService {
     const user = (await this.store.read()).users.find(user => user.email === email);
     if (!await this.matchesPassword(password, user?.passwordHash) || !user) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');
     return this.store.mutate(database => {
-      const current = database.users.find(candidate => candidate.id === user.id && candidate.passwordHash === user.passwordHash);
+      const current = database.users.find(candidate => candidate.id === user.id && candidate.email === user.email && candidate.passwordHash === user.passwordHash);
       if (!current) throw new HttpError(401, 'INVALID_CREDENTIALS', '邮箱或密码不正确。');
       if (adminUserIds && (!adminUserIds.has(current.id) || !current.emailVerified)) {
         throw new HttpError(403, 'ADMIN_FORBIDDEN', '此账号没有管理权限。');
@@ -291,16 +338,21 @@ export class AuthService {
   }
 
   async requestPhoneCode(body: unknown, client = 'local', userId?: string) {
-    const input = object(body, ['phone', 'purpose']);
+    const input = object(body, ['phone', 'purpose', 'replace']);
     const phone = validatePhone(input.phone);
     if (!['login', 'bind-phone', 'verify-account'].includes(input.purpose as string)) invalid('验证码用途无效。');
     const purpose = input.purpose as PhoneCodePurpose;
+    if (input.replace !== undefined && (input.replace !== true || purpose !== 'bind-phone')) invalid('验证码用途无效。');
     const codes = this.configuredPhoneCodes(purpose);
     if (purpose !== 'login') {
       const user = userId && (await this.store.read()).users.find(candidate => candidate.id === userId);
       if (!user) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录后绑定或验证手机号。');
       if (purpose === 'verify-account' && (user.phone !== phone || user.phoneVerified !== true)) throw new HttpError(403, 'PHONE_MISMATCH', '只能向当前账号已验证的手机号发送身份验证码。');
-      if (purpose === 'bind-phone' && user.phone && user.phone !== phone) throw new HttpError(409, 'PHONE_CHANGE_NOT_SUPPORTED', '当前账号已有手机号，暂不支持直接更换。');
+      if (input.replace === true) {
+        if (!user.phone || !user.phoneVerified || user.phone === phone) invalid('请填写一个不同于当前已验证号码的新手机号。');
+      } else if (purpose === 'bind-phone' && user.phone && user.phone !== phone) {
+        throw new HttpError(409, 'PHONE_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
+      }
     }
     this.checkRateLimit(client, phone);
     return codes.request(phone, purpose, client, purpose === 'login' ? undefined : userId);
@@ -363,7 +415,8 @@ export class AuthService {
   }
 
   async bindPhone(token: string | undefined, body: unknown, client = 'local'): Promise<AuthUser> {
-    const { user: existing } = this.requireSession(await this.store.read(), token);
+    const tokenHash = requireSessionHash(token);
+    const { user: existing } = this.requireSession(await this.store.read(), tokenHash);
     const userId = existing.id;
     const input = object(body, ['phone', 'code', 'challengeId', 'currentPassword', 'currentCode', 'currentChallengeId', 'wechatCode']);
     const phone = validatePhone(input.phone), proof = validateProof(input);
@@ -375,7 +428,7 @@ export class AuthService {
     const identity = useSessionIdentity ? { snapshot: existing, currentProof: undefined } : await this.bindingIdentity(existing, input, client);
     let codeError: HttpError | undefined;
     const result = await this.store.mutate(database => {
-      const { user: latest } = this.requireSession(database, token);
+      const { user: latest } = this.requireSession(database, tokenHash);
       if (latest.phone === phone && latest.phoneVerified === true) return publicUser(latest);
       const current = this.currentBindingUser(database, identity.snapshot);
       this.checkPhoneBinding(database, current, phone);
@@ -412,20 +465,14 @@ export class AuthService {
       const latest = database.users.find(user => user.id === userId);
       if (latest?.email === email && latest.emailVerified === true) return publicUser(latest);
       const current = this.currentBindingUser(database, identity.snapshot);
-      if (current.email && current.email !== email) throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '当前账号已有邮箱，暂不支持直接更换。');
+      if (current.email && current.email !== email) throw new HttpError(409, 'EMAIL_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
       if (database.users.some(user => user.id !== userId && user.email === email)) throw new HttpError(409, 'EMAIL_ALREADY_BOUND', '该邮箱已属于其他账号，请使用原账号登录；不会自动合并资料。');
-      const beforeCurrent = identity.currentProof && database.phoneChallenges.find(challenge => challenge.id === identity.currentProof!.challengeId);
-      const originalCurrent = beforeCurrent ? structuredClone(beforeCurrent) : undefined;
-      if (identity.currentProof) {
-        codeError = this.configuredPhoneCodes('verify-account').consume(database, current.phone!, 'verify-account', identity.currentProof, userId);
-        if (codeError) return undefined;
-      }
-      codeError = codes.consume(database, email, 'bind-email', proof, userId);
-      if (codeError) {
-        // An incorrect target-email guess must persist its attempts without burning the valid current-phone proof.
-        if (originalCurrent) database.phoneChallenges[database.phoneChallenges.findIndex(challenge => challenge.id === originalCurrent.id)] = originalCurrent;
-        return undefined;
-      }
+      const verifyTarget = () => codes.consume(database, email, 'bind-email', proof, userId);
+      const currentProof = identity.currentProof;
+      codeError = currentProof ? consumeContactProofs(database.phoneChallenges, currentProof,
+        () => this.configuredPhoneCodes('verify-account').consume(database, current.phone!, 'verify-account', currentProof, userId),
+        verifyTarget) : verifyTarget();
+      if (codeError) return undefined;
       current.email = email; current.emailVerified = true;
       if (passwordHash) current.passwordHash = passwordHash;
       return publicUser(current);
@@ -434,8 +481,55 @@ export class AuthService {
     return result!;
   }
 
+  async changeContact(kind: 'phone' | 'email', token: string | undefined, body: unknown, client = 'local'): Promise<AuthUser> {
+    const tokenHash = requireSessionHash(token);
+    const { user } = this.requireSession(await this.store.read(), tokenHash);
+    const input = object(body, [kind, 'code', 'challengeId', 'currentCode', 'currentChallengeId']);
+    const target = kind === 'phone' ? validatePhone(input.phone) : validateEmail(input.email);
+    const targetProof = validateProof(input);
+    const currentProof = validateProof({ code: input.currentCode, challengeId: input.currentChallengeId });
+    if (!user[kind] || (kind === 'phone' && !user.phoneVerified)) invalid('请先绑定并验证当前联系方式。');
+    this.checkRateLimit(client, user[kind]);
+    let proofError: HttpError | undefined;
+    const result = await this.store.mutate(database => {
+      const { user: latest } = this.requireSession(database, tokenHash);
+      if (latest[kind] === target && (kind === 'phone' ? latest.phoneVerified : latest.emailVerified)) return publicUser(latest);
+      const current = this.currentBindingUser(database, user);
+      const previous = current[kind]!;
+      if (previous === target) invalid('请填写一个不同于当前绑定的联系方式。');
+      if (database.users.some(other => other.id !== current.id && other[kind] === target)) {
+        throw kind === 'phone'
+          ? new HttpError(409, 'PHONE_ALREADY_BOUND', '该手机号已属于其他账号。')
+          : new HttpError(409, 'EMAIL_ALREADY_BOUND', '该邮箱已属于其他账号。');
+      }
+      if (kind === 'phone') {
+        const codes = this.configuredPhoneCodes('bind-phone');
+        proofError = consumeContactProofs(database.phoneChallenges, currentProof,
+          () => codes.consume(database, previous, 'verify-account', currentProof, current.id),
+          () => codes.consume(database, target, 'bind-phone', targetProof, current.id));
+        if (proofError) return;
+        codes.invalidatePhone(database, previous);
+        codes.invalidatePhone(database, target);
+        current.phone = target; current.phoneVerified = true;
+      } else {
+        const codes = this.configuredCodes();
+        proofError = consumeContactProofs(database.emailChallenges, currentProof,
+          () => codes.consume(database, previous, 'verify-email', currentProof, current.id),
+          () => codes.consume(database, target, 'bind-email', targetProof, current.id));
+        if (proofError) return;
+        codes.invalidateEmail(database, previous);
+        codes.invalidateEmail(database, target);
+        current.email = target; current.emailVerified = true;
+      }
+      database.sessions = database.sessions.filter(other => other.userId !== current.id || other.tokenHash === tokenHash);
+      return publicUser(current);
+    });
+    if (proofError) throw proofError;
+    return result!;
+  }
+
   private checkPhoneBinding(database: Database, user: StoredUser, phone: string) {
-    if (user.phone && user.phone !== phone) throw new HttpError(409, 'PHONE_CHANGE_NOT_SUPPORTED', '当前账号已有手机号，暂不支持直接更换。');
+    if (user.phone && user.phone !== phone) throw new HttpError(409, 'PHONE_CHANGE_NOT_SUPPORTED', '请在账号信息中选择修改绑定。');
     if (database.users.some(other => other.id !== user.id && other.phone === phone)) {
       throw new HttpError(409, 'PHONE_ALREADY_BOUND', '该手机号已属于其他账号，请使用原账号登录。');
     }
@@ -518,9 +612,7 @@ export class AuthService {
     return identity;
   }
 
-  private requireSession(database: Database, token: string | undefined, scope?: 'admin') {
-    if (!token || !tokenPattern.test(token)) throw new HttpError(401, 'AUTH_REQUIRED', '请先登录，或重新登录后继续。');
-    const tokenHash = sessionDigest(token, scope);
+  private requireSession(database: Database, tokenHash: string, scope?: 'admin') {
     const session = database.sessions.find(session => session.scope === scope && session.tokenHash === tokenHash && Date.parse(session.expiresAt) > this.now());
     const user = session && database.users.find(user => user.id === session.userId);
     if (!session || !user) throw new HttpError(401, 'AUTH_REQUIRED', '登录已失效，请重新登录。');
@@ -528,7 +620,8 @@ export class AuthService {
   }
 
   async authenticate(token: string | undefined, scope?: 'admin'): Promise<AuthSession> {
-    const { session, user } = this.requireSession(await this.store.read(), token, scope);
+    const tokenHash = requireSessionHash(token, scope);
+    const { session, user } = this.requireSession(await this.store.read(), tokenHash, scope);
     return { user: publicUser(user), expiresAt: session.expiresAt };
   }
 

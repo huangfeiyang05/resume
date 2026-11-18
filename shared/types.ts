@@ -30,6 +30,7 @@ export type { AuthUser, AuthSession, AuthCapabilities, EmailPasswordInput, Wecha
 export type { BindWechatPhoneInput, AccountProfileInput } from './auth.js';
 export type { EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput } from './auth.js';
 export type { PhoneCodePurpose, SendPhoneCodeInput, PhoneCodeChallenge, CurrentIdentityProof, BindPhoneInput, BindEmailInput } from './auth.js';
+export type { ChangePasswordInput, ChangePhoneInput, ChangeEmailInput } from './auth.js';
 export type IssueCategory = 'impact' | 'structure' | 'keywords' | 'clarity';
 
 export interface Resume {

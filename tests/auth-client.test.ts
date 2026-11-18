@@ -75,6 +75,21 @@ test('network failure during logout keeps the authenticated session until the se
   assert.equal(auth.status.value, 'anonymous');
 });
 
+test('an incorrect current password keeps the user signed in; a confirmed change clears the mini-program session', async t => {
+  const { auth, respond, storage } = fixture(t, true);
+  await auth.authenticate('login', { email: 'a@example.test', password: 'FixturePass26!' });
+  const input = { currentPassword: 'FixturePass26!', newPassword: 'NewFixture26!' };
+  respond(options => options.success({ statusCode: 401, data: { error: { code: 'CURRENT_IDENTITY_INVALID', message: '当前账号密码不正确。' } } }));
+  assert.equal(await auth.changePassword(input), false);
+  assert.equal(auth.signedIn.value, true);
+  assert.match(auth.error.value, /密码不正确/);
+  respond(options => options.success({ statusCode: 200, data: { data: { passwordChanged: true } } }));
+  assert.equal(await auth.changePassword(input), true);
+  assert.equal(auth.signedIn.value, false);
+  assert.equal(storage.size, 0);
+  assert.match(auth.notice.value, /新密码/);
+});
+
 test('a late 401 from an earlier session cannot sign out a newly signed in account', async t => {
   const { auth, respond } = fixture(t);
   await auth.authenticate('login', { email: 'a@example.test', password: 'valid-password' });

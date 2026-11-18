@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import type { AuthCapabilities, AuthSession, AuthUser, EmailPasswordInput, WechatLoginInput, PhoneLoginInput, EmailCodePurpose, SendEmailCodeInput, EmailCodeChallenge, ResetPasswordInput, VerifyEmailInput, PhoneCodePurpose, PhoneCodeChallenge, SendPhoneCodeInput, BindPhoneInput, BindEmailInput } from '../../shared/auth';
-import type { AccountProfileInput, BindWechatPhoneInput } from '../../shared/auth';
+import type { AccountProfileInput, BindWechatPhoneInput, ChangeEmailInput, ChangePasswordInput, ChangePhoneInput } from '../../shared/auth';
 import { accountAvatarIdPattern, isAccountNickname, PASSWORD_PATTERN, PASSWORD_RULE_MESSAGE } from '../../shared/auth';
 import { ApiError, isMiniProgramClient, onUnauthorized, request, setAuthToken } from './api';
 
@@ -15,10 +15,13 @@ export const authApi = {
   logout: () => request<{ signedOut: true }>('/auth/logout', 'POST'),
   sendEmailCode: (input: SendEmailCodeInput) => request<EmailCodeChallenge>('/auth/email/code', 'POST', input, { notifyUnauthorized: ['verify-email', 'bind-email'].includes(input.purpose) }),
   resetPassword: (input: ResetPasswordInput) => request<{ passwordReset: true }>('/auth/password/reset', 'POST', input, { notifyUnauthorized: false }),
+  changePassword: (input: ChangePasswordInput) => request<{ passwordChanged: true }>('/auth/password/change', 'POST', input, { notifyUnauthorized: false }),
   verifyEmail: (input: VerifyEmailInput) => request<AuthUser>('/auth/email/verify', 'POST', input),
   sendPhoneCode: (input: SendPhoneCodeInput) => request<PhoneCodeChallenge>('/auth/phone/code', 'POST', input, { notifyUnauthorized: input.purpose !== 'login' }),
   bindPhone: (input: BindPhoneInput) => request<AuthUser>('/auth/phone/bind', 'POST', input, { notifyUnauthorized: false }),
   bindEmail: (input: BindEmailInput) => request<AuthUser>('/auth/email/bind', 'POST', input, { notifyUnauthorized: false }),
+  changePhone: (input: ChangePhoneInput) => request<AuthUser>('/auth/phone/change', 'POST', input),
+  changeEmail: (input: ChangeEmailInput) => request<AuthUser>('/auth/email/change', 'POST', input),
   bindWechatPhone: (input: BindWechatPhoneInput) => request<AuthUser>('/auth/wechat/phone/bind', 'POST', input),
   updateProfile: (input: AccountProfileInput) => request<AuthUser>('/auth/profile', 'PUT', input),
   // Capabilities and server responses determine whether a provider is available.
@@ -65,14 +68,14 @@ export function useEmailChallenge(options: { autoTick?: boolean; now?: () => num
     email.value = normalized; purpose.value = nextPurpose;
     clearProof(); tick();
   }
-  async function send() {
+  async function send(replace?: true) {
     tick();
     if (busy.value || remaining.value > 0 || disposed) return false;
     if (!email.value || email.value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) {
       error.value = '请先填写有效的邮箱地址。'; return false;
     }
     const current = ++generation, sentKey = key();
-    const input: SendEmailCodeInput = { email: email.value, purpose: purpose.value };
+    const input: SendEmailCodeInput = { email: email.value, purpose: purpose.value, ...(replace === true ? { replace } : {}) };
     busy.value = true; error.value = ''; message.value = '';
     try {
       const result = await authApi.sendEmailCode(input);
@@ -143,14 +146,14 @@ export function usePhoneChallenge(options: { autoTick?: boolean; now?: () => num
     ++generation; busy.value = false;
     phone.value = normalized; purpose.value = nextPurpose; clearProof(); tick();
   }
-  async function send() {
+  async function send(replace?: true) {
     tick();
     if (busy.value || remaining.value > 0 || disposed) return false;
     if (!/^1[3-9]\d{9}$/.test(phone.value)) { error.value = '请填写有效的中国大陆手机号。'; return false; }
     const current = ++generation, sentKey = key();
     busy.value = true; error.value = ''; message.value = '';
     try {
-      const result = await authApi.sendPhoneCode({ phone: phone.value, purpose: purpose.value });
+      const result = await authApi.sendPhoneCode({ phone: phone.value, purpose: purpose.value, ...(replace === true ? { replace } : {}) });
       if (disposed) return false;
       if (!result.challengeId || !(Date.parse(result.expiresAt) > now()) || !Number.isFinite(result.resendAfterSeconds) || result.resendAfterSeconds < 0) throw new Error('验证码发送状态返回异常，请稍后重试。');
       cooldowns.set(sentKey, now() + result.resendAfterSeconds * 1000); tick();
@@ -389,6 +392,37 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     return changeAccount('profile', () => authApi.updateProfile(input), result =>
       (result.nickname ?? null) === input.nickname && (input.avatar === undefined || !!result.avatarId === !!input.avatar));
   }
+
+  function changePhone(input: ChangePhoneInput) {
+    const email = user.value?.email;
+    return changeAccount('bind', () => authApi.changePhone(input), result =>
+      result.phone === normalizedPhone(input.phone) && result.phoneVerified === true && result.email === email);
+  }
+  function changeEmail(input: ChangeEmailInput) {
+    const phone = user.value?.phone;
+    return changeAccount('bind', () => authApi.changeEmail(input), result =>
+      result.email === input.email.trim().toLowerCase() && result.emailVerified === true && result.phone === phone);
+  }
+  async function changePassword(input: ChangePasswordInput) {
+    if (busy.value || !user.value) return false;
+    const current = ++generation;
+    busy.value = true; operation.value = 'bind'; error.value = ''; notice.value = '';
+    try {
+      const result = await authApi.changePassword(input);
+      if (disposed || current !== generation) return false;
+      if (result.passwordChanged !== true) throw new Error('密码修改尚未确认，请重试。');
+      clearSession();
+      notice.value = '密码已修改，请使用新密码重新登录。';
+      return true;
+    } catch (reason) {
+      if (!disposed && current === generation) {
+        if (reason instanceof ApiError && reason.code === 'AUTH_REQUIRED') clearSession('登录已失效，请重新登录。');
+        else error.value = reason instanceof Error ? reason.message : '密码修改未完成，请重试。';
+      }
+      return false;
+    } finally { if (!disposed) { busy.value = false; operation.value = undefined; } }
+  }
+
   async function resetPassword(input: ResetPasswordInput) {
     if (busy.value) return false;
     const validation = validateAuthForm('reset', input.email, input.password, input.password);
@@ -445,5 +479,6 @@ export function useAuth(options: { autoRestore?: boolean } = {}) {
     onUnmounted(dispose);
   }
   return { user, signedIn, status, busy, operation, error, notice, capabilities, restore, signInWithWechat: () => restore(true),
-    authenticate, authenticatePhone, bindPhone, bindEmail, bindWechatPhone, updateProfile, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
+    authenticate, authenticatePhone, bindPhone, bindEmail, bindWechatPhone, changePhone, changeEmail, changePassword,
+    updateProfile, resetPassword, verifyEmail, signOut, loadCapabilities, dispose };
 }

@@ -2,7 +2,7 @@
 
 ## 微信手机号实时验证
 
-小程序「我的 → 账号登录方式」支持主动授权微信手机号。此能力单独配置，认证的非个人主体须在微信后台开通手机号实时验证，并在小程序用户隐私保护指引声明手机号用途。设置 WECHAT_PHONE_ENABLED=true 后才开放入口，短信验证码能力继续由 SMS_ENABLED 控制。微信手机号授权不发送本项目短信。参见 [微信手机号实时验证组件](https://developers.weixin.qq.com/miniprogram/dev/framework/open-ability/getRealtimePhoneNumber.html)。
+小程序「我的 → 账号信息」支持主动授权微信手机号。此能力单独配置，认证的非个人主体须在微信后台开通手机号实时验证，并在小程序用户隐私保护指引声明手机号用途。设置 WECHAT_PHONE_ENABLED=true 后才开放入口，短信验证码能力继续由 SMS_ENABLED 控制。微信手机号授权不发送本项目短信。参见 [微信手机号实时验证组件](https://developers.weixin.qq.com/miniprogram/dev/framework/open-ability/getRealtimePhoneNumber.html)。
 
 服务端用新的微信登录 code 核对当前账号 OpenID，再用独立手机号授权 code 换取微信验证号码，校验 AppID、时间和中国大陆号码格式。绑定保留原用户 ID、简历及会员。已属于其他账号的号码返回冲突。微信账号在小程序绑定邮箱时，也可用新的微信登录 code 核对本人，再验证目标邮箱并设置密码，适用于未启用短信的环境。
 
@@ -51,7 +51,7 @@ SMS_DAILY_LIMIT=100
 - 号码未绑定账号：在同一次单进程持久化中消费验证码并创建手机号账号，再签发会话。
 - 不生成占位邮箱、虚构邮箱验证状态或默认密码。公开 `AuthUser` 的 `email`、`phone` 可选，手机号账号有 `phoneVerified:true` 和 `hasPassword:false`；只有邮箱证明完成后才标记 `emailVerified:true`。
 
-现有邮箱账号的用户应先用邮箱登录，再在“我的 → 账号登录方式”绑定手机号。若先用未绑定的新号码注册，会创建另一个独立账号；系统不会按相似资料、姓名或客户端声明自动合并。
+现有邮箱账号的用户应先用邮箱登录，再在“我的 → 账号信息”绑定手机号。若先用未绑定的新号码注册，会创建另一个独立账号。系统按服务端验证的身份确定归属。
 
 H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序继续使用不透明 Bearer 令牌，业务资源仍以可信会话的 `userId` 判断归属。验证码、手机表单和当前密码只保留在组件内存中，不写前端本地存储；小程序持久化的仅为会话令牌及有效期。
 
@@ -64,7 +64,11 @@ H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序
 - 绑定新手机号：再验证目标手机号的 `bind-phone` 挑战。
 - 绑定新邮箱：再验证目标邮箱的 `bind-email` 挑战；手机号账号还须设置符合现有 6–16 位规则的新密码，之后才能通过邮箱和密码登录。
 
-绑定后保留同一个账号 ID 与业务数据。目标标识若已属于另一个账号，明确拒绝，不搬移简历、不合并会员。重复绑定当前本人已绑定标识可返回已有状态，但不能据此改绑。当前没有手机号/邮箱直接替换、解绑、账号合并或号码回收后的自动认领功能；手机号在简历正文中出现也不构成登录或绑定证明。
+绑定和换绑后保留同一个账号 ID、简历和会员。目标联系方式已属于另一个账号时，服务端拒绝操作。
+
+已绑定的手机号和邮箱可选择“修改绑定”。换绑需验证原联系方式和新联系方式，成功后旧联系方式失效并撤销其他设备的会话，当前设备保持登录。手机号换绑使用原号码的 `verify-account` 和新号码的 `bind-phone`，邮箱换绑使用原邮箱的 `verify-email` 和新邮箱的 `bind-email`。
+
+已设置邮箱登录密码时可选择“修改密码”。验证当前密码后保存新密码，成功后撤销该账号全部会话并提示重新登录。
 
 验证码绑定目标、用途、随机挑战 ID；绑定与当前手机证明还绑定会话用户。登录码不能用于绑定，目标邮箱注册/找回码不能用于 `bind-email`，其他用户的挑战不能用于本账号。身份校验失败、绑定冲突或供应商失败不能显示为绑定成功。
 
@@ -75,11 +79,13 @@ H5 继续使用 HttpOnly、SameSite=Lax、生产环境 Secure Cookie；小程序
 | 方法与路径 | 输入与边界 |
 | --- | --- |
 | `GET /auth/providers` | `phone:boolean` 来自服务端短信配置；不根据前端按钮或截图判断 |
-| `POST /auth/phone/code` | `{phone,purpose}`；用途 `login / bind-phone / verify-account`，后两者需会话；`verify-account` 仅当前账号已绑定手机号 |
+| `POST /auth/phone/code` | `{phone,purpose,replace?}`。用途 `login / bind-phone / verify-account`，后两者需会话。换绑时只给新号码的 `bind-phone` 请求传 `replace:true` |
 | `POST /auth/phone` | `{phone,code,challengeId}`；验证码登录，未注册则创建；返回与邮箱登录相同的会话 |
 | `POST /auth/phone/bind` | 已设密码的账号提交 `{phone,code,challengeId}`，服务端校验会话。无密码账号另提交适用的当前身份凭证 |
-| `POST /auth/email/code` | 原用途之外增加 `purpose:'bind-email'`；此用途需会话 |
+| `POST /auth/email/code` | 换绑时给新邮箱的 `bind-email` 请求传 `replace:true`，当前邮箱继续使用 `verify-email` |
 | `POST /auth/email/bind` | `{email,code,challengeId,currentPassword?}` 或当前手机证明；无密码账号另需 `password`；需会话 |
+| `POST /auth/phone/change`、`POST /auth/email/change` | 新手机号或邮箱、`code`、`challengeId` 和原联系方式的 `currentCode`、`currentChallengeId`；需会话 |
+| `POST /auth/password/change` | `{currentPassword,newPassword}`；需会话，成功返回 `{passwordChanged:true}` |
 
 发码成功响应为 `202` 和 `{challengeId,expiresAt,resendAfterSeconds,message}`，不返回验证码。绑定返回更新后的公开 `AuthUser`，不返回密码哈希或原始会话令牌。客户端仅在服务器确认后更新账号，拒绝其他账号 ID 或不一致标识的响应。
 

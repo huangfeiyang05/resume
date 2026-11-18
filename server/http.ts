@@ -394,6 +394,17 @@ export function createApiServer(baseService = new ResumeService(new JsonStore())
         const session = await auth.authenticate(sessionToken(request));
         json(response, 200, { data: await auth.bindEmail(session.user.id, await body(request), clientAddress(request)) }); return;
       }
+      if (path === '/api/v1/auth/phone/change' || path === '/api/v1/auth/email/change') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const kind = path.endsWith('/phone/change') ? 'phone' : 'email';
+        json(response, 200, { data: await auth.changeContact(kind, sessionToken(request), await body(request), clientAddress(request)) }); return;
+      }
+      if (path === '/api/v1/auth/password/change') {
+        if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
+        const result = await auth.changePassword(sessionToken(request), await body(request), clientAddress(request));
+        response.setHeader('Set-Cookie', cookie('', 0));
+        json(response, 200, { data: result }); return;
+      }
       if (path === '/api/v1/auth/password/reset') {
         if (method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', '该接口不支持此请求方法。');
         const result = await auth.resetPassword(await body(request), clientAddress(request));

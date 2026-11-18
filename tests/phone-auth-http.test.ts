@@ -123,3 +123,96 @@ test('login-only SMS signs in but rejects binding and current account SMS before
   assert.equal((await f.request('/auth/phone/bind', 'POST', proof, cookie)).body.error.code, 'SMS_LOGIN_ONLY');
   assert.deepEqual(f.sms.map(message => message.purpose), ['login']);
 });
+
+test('signed-in password change verifies the old password and revokes all existing sessions', async t => {
+  const f = await fixture(t);
+  const email = 'password-owner@example.test', oldPassword = 'FixturePass26!', newPassword = 'NewFixture26!';
+  const owner = await f.request('/auth/register', 'POST', { email, password: oldPassword });
+  const cookie = owner.headers.get('set-cookie')!.split(';')[0];
+  const otherSession = await f.request('/auth/login', 'POST', { email, password: oldPassword });
+  const otherCookie = otherSession.headers.get('set-cookie')!.split(';')[0];
+  const endpoint = '/auth/password/change';
+  const input = { currentPassword: oldPassword, newPassword };
+  assert.equal((await f.request(endpoint, 'POST', input)).status, 401);
+  assert.equal((await f.request(endpoint, 'POST', { ...input, newPassword: oldPassword }, cookie)).status, 400);
+  assert.equal((await f.request(endpoint, 'POST', { ...input, currentPassword: 'WrongFixture!' }, cookie)).body.error.code, 'CURRENT_IDENTITY_INVALID');
+  assert.equal((await f.request('/auth/me', 'GET', undefined, cookie)).status, 200);
+  const changed = await f.request(endpoint, 'POST', input, cookie);
+  assert.equal(changed.body.data.passwordChanged, true);
+  assert.match(changed.headers.get('set-cookie')!, /Max-Age=0/);
+  assert.equal((await f.request('/auth/me', 'GET', undefined, cookie)).status, 401);
+  assert.equal((await f.request('/auth/me', 'GET', undefined, otherCookie)).status, 401);
+  assert.equal((await f.request('/auth/login', 'POST', { email, password: oldPassword })).status, 401);
+  const loggedIn = await f.request('/auth/login', 'POST', { email, password: newPassword });
+  assert.equal(loggedIn.body.data.user.id, owner.body.data.user.id);
+});
+
+test('phone replacement requires a session and both SMS proofs and preserves the account', async t => {
+  const f = await fixture(t);
+  const oldPhone = '13900000001', newPhone = '13900000002';
+  const firstCode = await f.request('/auth/phone/code', 'POST', { phone: oldPhone, purpose: 'login' });
+  const login = await f.request('/auth/phone', 'POST', { phone: oldPhone, code: f.sms.at(-1)!.code, challengeId: firstCode.body.data.challengeId });
+  const cookie = login.headers.get('set-cookie')!.split(';')[0], userId = login.body.data.user.id;
+  assert.equal((await f.request('/auth/password/change', 'POST', { currentPassword: 'FixturePass26!', newPassword: 'NewFixture26!' }, cookie)).body.error.code, 'PASSWORD_NOT_SET');
+  f.advance();
+  const verify = await f.request('/auth/phone/code', 'POST', { phone: oldPhone, purpose: 'verify-account' }, cookie);
+  const currentCode = f.sms.at(-1)!.code;
+  assert.equal((await f.request('/auth/phone/code', 'POST', { phone: newPhone, purpose: 'bind-phone' }, cookie)).status, 409);
+  const destination = await f.request('/auth/phone/code', 'POST', { phone: newPhone, purpose: 'bind-phone', replace: true }, cookie);
+  const code = f.sms.at(-1)!.code;
+  const input = { phone: newPhone, code, challengeId: destination.body.data.challengeId, currentCode, currentChallengeId: verify.body.data.challengeId };
+  const endpoint = '/auth/phone/change';
+  assert.equal((await f.request(endpoint, 'POST', input)).status, 401);
+  const wrong = code === '000000' ? '999999' : '000000';
+  assert.equal((await f.request(endpoint, 'POST', { ...input, code: wrong }, cookie)).body.error.code, 'CODE_INVALID_OR_EXPIRED');
+  const untouched = await f.store.read();
+  assert.equal(untouched.phoneChallenges.find(item => item.id === input.currentChallengeId)?.status, 'sent');
+  assert.equal(untouched.phoneChallenges.find(item => item.id === input.challengeId)?.attempts, 1);
+  assert.equal(untouched.users.find(item => item.id === userId)?.phone, oldPhone);
+  f.advance();
+  const outstanding = await f.request('/auth/phone/code', 'POST', { phone: oldPhone, purpose: 'login' });
+  const outstandingCode = f.sms.at(-1)!.code;
+  const changed = await f.request(endpoint, 'POST', input, cookie);
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.data.id, userId);
+  assert.equal(changed.body.data.phone, newPhone);
+  assert.deepEqual((await f.request(endpoint, 'POST', input, cookie)).body.data, changed.body.data);
+  assert.equal((await f.request('/auth/phone', 'POST', { phone: oldPhone, code: outstandingCode, challengeId: outstanding.body.data.challengeId })).body.error.code, 'CODE_INVALID_OR_EXPIRED');
+  const newCode = await f.request('/auth/phone/code', 'POST', { phone: newPhone, purpose: 'login' });
+  const newLogin = await f.request('/auth/phone', 'POST', { phone: newPhone, code: f.sms.at(-1)!.code, challengeId: newCode.body.data.challengeId });
+  assert.equal(newLogin.body.data.user.id, userId);
+});
+
+test('email replacement rejects claimed destinations, invalidates old recovery codes, and retains the password', async t => {
+  const f = await fixture(t);
+  const password = 'FixturePass26!', oldEmail = 'old-owner@example.test', newEmail = 'new-owner@example.test', claimedEmail = 'claimed@example.test';
+  const owner = await f.request('/auth/register', 'POST', { email: oldEmail, password });
+  const cookie = owner.headers.get('set-cookie')!.split(';')[0];
+  await f.request('/auth/register', 'POST', { email: claimedEmail, password });
+  const otherSession = await f.request('/auth/login', 'POST', { email: oldEmail, password });
+  const otherCookie = otherSession.headers.get('set-cookie')!.split(';')[0];
+  const recovery = await f.request('/auth/email/code', 'POST', { email: oldEmail, purpose: 'reset-password' });
+  const recoveryCode = f.mail.at(-1)!.code;
+  f.advance();
+  const source = await f.request('/auth/email/code', 'POST', { email: oldEmail, purpose: 'verify-email' }, cookie);
+  const current = { currentCode: f.mail.at(-1)!.code, currentChallengeId: source.body.data.challengeId };
+  const endpoint = '/auth/email/change';
+  async function target(email: string) {
+    const sent = await f.request('/auth/email/code', 'POST', { email, purpose: 'bind-email', replace: true }, cookie);
+    assert.equal(sent.status, 202);
+    return { email, code: f.mail.at(-1)!.code, challengeId: sent.body.data.challengeId, ...current };
+  }
+  assert.equal((await f.request(endpoint, 'POST', await target(claimedEmail), cookie)).body.error.code, 'EMAIL_ALREADY_BOUND');
+  const input = await target(newEmail);
+  assert.equal((await f.request(endpoint, 'POST', input)).status, 401);
+  const changed = await f.request(endpoint, 'POST', input, cookie);
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.data.id, owner.body.data.user.id);
+  assert.equal(changed.body.data.email, newEmail);
+  assert.equal(changed.body.data.emailVerified, true);
+  assert.equal((await f.request('/auth/me', 'GET', undefined, otherCookie)).status, 401);
+  assert.equal((await f.request('/auth/me', 'GET', undefined, cookie)).body.data.user.email, newEmail);
+  assert.equal((await f.request('/auth/password/reset', 'POST', { email: oldEmail, password, code: recoveryCode, challengeId: recovery.body.data.challengeId })).body.error.code, 'CODE_INVALID_OR_EXPIRED');
+  assert.equal((await f.request('/auth/login', 'POST', { email: oldEmail, password })).status, 401);
+  assert.equal((await f.request('/auth/login', 'POST', { email: newEmail, password })).body.data.user.id, owner.body.data.user.id);
+});

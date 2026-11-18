@@ -15,9 +15,10 @@ export interface AuthUser {
 
 export interface EmailPasswordInput { email: string; password: string; code?: string; challengeId?: string }
 export type EmailCodePurpose = 'register' | 'reset-password' | 'verify-email' | 'bind-email';
-export interface SendEmailCodeInput { email: string; purpose: EmailCodePurpose }
+export interface SendEmailCodeInput { email: string; purpose: EmailCodePurpose; replace?: true }
 export interface EmailCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
 export interface ResetPasswordInput { email: string; password: string; code: string; challengeId: string }
+export interface ChangePasswordInput { currentPassword: string; newPassword: string }
 export interface VerifyEmailInput { code: string; challengeId: string }
 export interface AuthSession {
   user: AuthUser;
@@ -49,13 +50,16 @@ export function isAccountNickname(value: unknown): value is string {
     && !/[\p{Cc}\uD800-\uDFFF\u2028-\u202E\u2066-\u2069]/u.test(value);
 }
 export type PhoneCodePurpose = 'login' | 'bind-phone' | 'verify-account';
-export interface SendPhoneCodeInput { phone: string; purpose: PhoneCodePurpose }
+export interface SendPhoneCodeInput { phone: string; purpose: PhoneCodePurpose; replace?: true }
 export interface PhoneCodeChallenge { challengeId: string; expiresAt: string; resendAfterSeconds: number; message: string }
 export interface PhoneLoginInput { phone: string; code: string; challengeId: string }
 export interface CurrentIdentityProof { currentPassword?: string; currentCode?: string; currentChallengeId?: string; wechatCode?: string }
 /** A password account can use its authenticated session without resending its password. */
 export interface BindPhoneInput extends PhoneLoginInput, CurrentIdentityProof {}
 export interface BindEmailInput extends CurrentIdentityProof { email: string; code: string; challengeId: string; password?: string }
+interface ContactChangeProof extends VerifyEmailInput { currentCode: string; currentChallengeId: string }
+export interface ChangePhoneInput extends ContactChangeProof { phone: string }
+export interface ChangeEmailInput extends ContactChangeProof { email: string }
 
 /** New passwords use 6-16 visible ASCII characters: letters, digits and symbols only. */
 export const PASSWORD_PATTERN = /^[\x21-\x7e]{6,16}$/;
